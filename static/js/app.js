@@ -3,6 +3,54 @@
 let currentAdminToken = localStorage.getItem("hv_admin_token") || null;
 let currentUserRole = "staff";
 
+// Toast Notification System
+function showToast(message, type = "info") {
+    let container = document.getElementById("toastContainer");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toastContainer";
+        container.style.cssText = "position: fixed; bottom: 24px; right: 24px; z-index: 99999; display: flex; flex-direction: column; gap: 10px; pointer-events: none;";
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement("div");
+    let bg = "rgba(15, 23, 42, 0.95)";
+    let border = "1px solid rgba(255, 255, 255, 0.15)";
+    let icon = "fa-solid fa-circle-info";
+    let iconColor = "#38bdf8";
+
+    if (type === "success") {
+        bg = "rgba(6, 78, 59, 0.95)";
+        border = "1px solid #10b981";
+        icon = "fa-solid fa-circle-check";
+        iconColor = "#34d399";
+    } else if (type === "error") {
+        bg = "rgba(127, 29, 29, 0.95)";
+        border = "1px solid #ef4444";
+        icon = "fa-solid fa-triangle-exclamation";
+        iconColor = "#f87171";
+    } else if (type === "warning") {
+        bg = "rgba(120, 53, 15, 0.95)";
+        border = "1px solid #f59e0b";
+        icon = "fa-solid fa-triangle-exclamation";
+        iconColor = "#fbbf24";
+    }
+
+    toast.style.cssText = `background: ${bg}; border: ${border}; color: #ffffff; padding: 12px 18px; border-radius: 8px; font-size: 13.5px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 10px; max-width: 420px; pointer-events: auto; animation: slideIn 0.3s ease-out; backdrop-filter: blur(8px);`;
+    toast.innerHTML = `<i class="${icon}" style="color: ${iconColor}; font-size: 16px;"></i> <span>${esc(message)}</span>`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transition = "opacity 0.4s ease-out, transform 0.4s ease-out";
+        toast.style.transform = "translateY(10px)";
+        setTimeout(() => toast.remove(), 400);
+    }, 4000);
+}
+
+function showToastSuccess(message) {
+    showToast(message, "success");
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
     initThemeToggle();
     initTabs();
@@ -10,6 +58,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initModals();
     initEventListeners();
     await checkAuthStatus();
+    loadSavedOptimizerConfig();
     loadCurrentSchedule();
     loadCaNgoaiList();
     loadHeatmapData();
@@ -112,6 +161,21 @@ function initThemeToggle() {
     });
 }
 
+function updateTopbarAdminActions(targetTab) {
+    const activeTab = targetTab || document.querySelector(".tab-content.active")?.id || "tab-schedule";
+    const btnUpload = document.getElementById("btnOpenUploadModal");
+    const btnQuick = document.getElementById("btnQuickOptimize");
+    const isOptimizerTab = (activeTab === "tab-optimizer");
+    const showAdminTools = (currentUserRole === "admin" && isOptimizerTab);
+
+    if (btnUpload) {
+        btnUpload.style.display = showAdminTools ? "inline-flex" : "none";
+    }
+    if (btnQuick) {
+        btnQuick.style.display = showAdminTools ? "inline-flex" : "none";
+    }
+}
+
 function updateAuthUI(isAdmin) {
     document.body.classList.toggle("admin-mode", isAdmin);
     document.body.classList.toggle("staff-mode", !isAdmin);
@@ -151,6 +215,9 @@ function updateAuthUI(isAdmin) {
         }
         if (btnChangePwd) btnChangePwd.style.display = "none";
     }
+
+    // Update Topbar Admin Actions (only visible in admin mode AND on optimizer tab)
+    updateTopbarAdminActions();
 
     // Re-render components with role considerations
     if (globalScheduleData) {
@@ -227,11 +294,13 @@ function initTabs() {
         "tab-ca-ngoai": "Quản Lý & Phân Bổ Ca Bán Ngoài",
         "tab-analytics": "Báo Cáo Thống Kê & Heatmap Thời Gian Rảnh",
         "tab-kpi": "Theo Dõi & Điểm Danh KPI Chuyên Cần Nhân Sự",
+        "tab-competition": "Bảng Vàng Thi Đua Cá Nhân & Nhóm",
         "tab-audit": "Kiểm Tra Tính Hợp Lệ & Thẩm Định Quy Chuẩn",
         "tab-contingency": "Quản Lý Ca Vắng, Đi Trễ & Nhân Sự Dự Phòng",
         "tab-protocols":
             "Quy Trình Quản Trị Nhân Sự & Dự Trù Rủi Ro (Nhiệm Vụ 2)",
         "tab-live-shift": "Ca-Live & POS Bán Hàng Realtime",
+        "tab-orders": "Sổ Đơn Hàng & Chi Tiết Bán Hàng Tất Cả Các Ca",
     };
 
     navItems.forEach((item) => {
@@ -264,17 +333,29 @@ function initTabs() {
                     MORE_TABS.includes(targetTab),
                 );
 
-            if (targetTab === "tab-inventory") {
+            if (targetTab === "tab-inventory" || targetTab === "tab-orders") {
                 loadInventoryData();
             } else if (targetTab === "tab-kpi") {
                 loadKpiData();
+            } else if (targetTab === "tab-competition") {
+                loadCompetitionStats();
             }
 
             if (pageTitle && titles[targetTab]) {
                 pageTitle.textContent = titles[targetTab];
             }
+
+            // Sync topbar admin actions visibility
+            updateTopbarAdminActions(targetTab);
         });
     });
+
+    // Initialize initial topbar state
+    const initialActiveTab = document.querySelector(".tab-content.active")?.id || "tab-schedule";
+    if (pageTitle && titles[initialActiveTab]) {
+        pageTitle.textContent = titles[initialActiveTab];
+    }
+    updateTopbarAdminActions(initialActiveTab);
 }
 
 function initMoreMenu() {
@@ -358,17 +439,22 @@ function initModals() {
 
     // Upload Data Modal
     const uploadModal = document.getElementById("uploadDataModal");
+    const handleOpenUploadModal = () => {
+        if (currentUserRole !== "admin") {
+            openAdminLoginModal(
+                "Bạn cần đăng nhập quyền Quản trị viên để nạp dữ liệu lịch trực!",
+            );
+            return;
+        }
+        if (uploadModal) uploadModal.classList.add("active");
+    };
+
     document
         .getElementById("btnOpenUploadModal")
-        ?.addEventListener("click", () => {
-            if (currentUserRole !== "admin") {
-                openAdminLoginModal(
-                    "Bạn cần đăng nhập quyền Quản trị viên để nạp dữ liệu lịch trực!",
-                );
-                return;
-            }
-            uploadModal.classList.add("active");
-        });
+        ?.addEventListener("click", handleOpenUploadModal);
+    document
+        .getElementById("btnOptimizerUploadTrigger")
+        ?.addEventListener("click", handleOpenUploadModal);
     document
         .getElementById("btnCloseUploadModal")
         ?.addEventListener("click", () =>
@@ -629,7 +715,7 @@ function initEventListeners() {
                 );
                 return;
             }
-            runOptimizerWithParams({});
+            runOptimizerWithParams(getOptimizerFullConfigFromUI());
         });
 
     // Member Stats Search input
@@ -650,28 +736,41 @@ function initEventListeners() {
                 );
                 return;
             }
-            const startDate =
-                document.getElementById("cfgStartDate")?.value || "2026-08-24";
-            const phongChinh = document.getElementById("cfgPhongChinh").value;
-            const phongDP = document.getElementById("cfgPhongDP").value;
-            const minShifts = document.getElementById("cfgMinShifts").value;
-            const maxShifts = document.getElementById("cfgMaxShifts").value;
-            const maxDaily = document.getElementById("cfgMaxDaily").value;
-            const enableNgoai = document.getElementById("chkMasterNgoai")
-                ? document.getElementById("chkMasterNgoai").checked
-                : true;
-
-            runOptimizerWithParams({
-                start_date: startDate,
-                phong_chinh_count: phongChinh,
-                phong_dp_count: phongDP,
-                min_shifts: minShifts,
-                max_shifts: maxShifts,
-                max_shifts_per_day: maxDaily,
-                enable_ca_ngoai: enableNgoai,
-                custom_ca_ngoai: globalCaNgoai,
-            });
+            runOptimizerWithParams(getOptimizerFullConfigFromUI());
         });
+
+    // Optimizer Config Backup & Restore Listeners
+    document
+        .getElementById("btnSaveOptimizerSettings")
+        ?.addEventListener("click", handleSaveOptimizerConfig);
+
+    document
+        .getElementById("btnExportOptimizerConfigJson")
+        ?.addEventListener("click", handleExportOptimizerConfigJson);
+
+    document
+        .getElementById("btnTriggerImportOptimizerConfig")
+        ?.addEventListener("click", () => {
+            document.getElementById("inputImportOptimizerConfigJson")?.click();
+        });
+
+    document
+        .getElementById("inputImportOptimizerConfigJson")
+        ?.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleImportOptimizerConfigJson(e.target.files[0]);
+                e.target.value = "";
+            }
+        });
+
+    document
+        .getElementById("btnResetOptimizerDefaults")
+        ?.addEventListener("click", handleResetOptimizerDefaults);
+
+    // Cancel Shift Button in Modal
+    document
+        .getElementById("btnDeleteOrCancelShift")
+        ?.addEventListener("click", handleCancelCurrentShift);
 
     // Inventory Event Listeners
     document
@@ -973,15 +1072,8 @@ function initEventListeners() {
             }
         });
 
-    // Upload Product Catalog Excel Event Listeners
-    document
-        .getElementById("btnUploadInventoryExcel")
-        ?.addEventListener("click", () => {
-            document.getElementById("inputInventoryExcelFile")?.click();
-        });
-    document
-        .getElementById("inputInventoryExcelFile")
-        ?.addEventListener("change", handleUploadInventoryExcel);
+    // Upload Product Catalog Excel Modal Event Listeners
+    initInventoryExcelUpload();
 
     // Export Contingency Incident Excel
     document
@@ -1201,6 +1293,242 @@ const solveUI = {
     },
 };
 
+// Optimizer Config Data Helpers
+function getDailyShiftConfigsFromUI() {
+    const configs = [];
+    for (let i = 1; i <= 5; i++) {
+        const start = document.getElementById(`shift${i}Start`)?.value || "07:00";
+        const end = document.getElementById(`shift${i}End`)?.value || "09:30";
+        const note = document.getElementById(`shift${i}Note`)?.value || "";
+        const chinh = parseInt(document.getElementById(`shift${i}Chinh`)?.value || "4", 10);
+        const dp = parseInt(document.getElementById(`shift${i}DP`)?.value || "1", 10);
+        configs.push({
+            shift_num: i,
+            start_time: start,
+            end_time: end,
+            note: note,
+            chinh_count: chinh,
+            dp_count: dp,
+            active: true,
+        });
+    }
+    return configs;
+}
+
+function applyDailyShiftConfigsToUI(configs) {
+    if (!Array.isArray(configs) || !configs.length) return;
+    configs.forEach((c) => {
+        const num = c.shift_num;
+        const startInput = document.getElementById(`shift${num}Start`);
+        const endInput = document.getElementById(`shift${num}End`);
+        const noteInput = document.getElementById(`shift${num}Note`);
+        const chinhInput = document.getElementById(`shift${num}Chinh`);
+        const dpInput = document.getElementById(`shift${num}DP`);
+
+        if (startInput && c.start_time) startInput.value = c.start_time;
+        if (endInput && c.end_time) endInput.value = c.end_time;
+        if (noteInput && c.note !== undefined) noteInput.value = c.note;
+        if (chinhInput && c.chinh_count !== undefined) chinhInput.value = c.chinh_count;
+        if (dpInput && c.dp_count !== undefined) dpInput.value = c.dp_count;
+    });
+}
+
+function getOptimizerFullConfigFromUI() {
+    const startDate = document.getElementById("cfgStartDate")?.value || "2026-08-24";
+    const phongChinh = parseInt(document.getElementById("cfgPhongChinh")?.value || "4", 10);
+    const phongDP = parseInt(document.getElementById("cfgPhongDP")?.value || "1", 10);
+    const minShifts = parseInt(document.getElementById("cfgMinShifts")?.value || "1", 10);
+    const maxShifts = parseInt(document.getElementById("cfgMaxShifts")?.value || "4", 10);
+    const maxDaily = parseInt(document.getElementById("cfgMaxDaily")?.value || "2", 10);
+    const enableCaNgoai = document.getElementById("chkMasterNgoai")
+        ? document.getElementById("chkMasterNgoai").checked
+        : true;
+    const dailyConfigs = getDailyShiftConfigsFromUI();
+
+    return {
+        start_date: startDate,
+        phong_chinh_count: phongChinh,
+        phong_dp_count: phongDP,
+        min_shifts: minShifts,
+        max_shifts: maxShifts,
+        max_shifts_per_day: maxDaily,
+        enable_ca_ngoai: enableCaNgoai,
+        daily_shift_configs: dailyConfigs,
+        custom_ca_ngoai: globalCaNgoai,
+    };
+}
+
+function applyOptimizerConfigToUI(config) {
+    if (!config) return;
+    if (config.start_date) {
+        const inp = document.getElementById("cfgStartDate");
+        if (inp) inp.value = config.start_date;
+    }
+    if (config.phong_chinh_count !== undefined) {
+        const inp = document.getElementById("cfgPhongChinh");
+        if (inp) inp.value = config.phong_chinh_count;
+    }
+    if (config.phong_dp_count !== undefined) {
+        const inp = document.getElementById("cfgPhongDP");
+        if (inp) inp.value = config.phong_dp_count;
+    }
+    if (config.min_shifts !== undefined) {
+        const inp = document.getElementById("cfgMinShifts");
+        if (inp) inp.value = config.min_shifts;
+    }
+    if (config.max_shifts !== undefined) {
+        const inp = document.getElementById("cfgMaxShifts");
+        if (inp) inp.value = config.max_shifts;
+    }
+    if (config.max_shifts_per_day !== undefined) {
+        const inp = document.getElementById("cfgMaxDaily");
+        if (inp) inp.value = config.max_shifts_per_day;
+    }
+    if (config.enable_ca_ngoai !== undefined) {
+        const cb = document.getElementById("chkMasterNgoai");
+        if (cb) {
+            cb.checked = config.enable_ca_ngoai;
+            updateCaNgoaiPanelState(config.enable_ca_ngoai);
+        }
+    }
+    if (config.daily_shift_configs) {
+        applyDailyShiftConfigsToUI(config.daily_shift_configs);
+    }
+}
+
+async function loadSavedOptimizerConfig() {
+    try {
+        const res = await fetch("/api/config/optimizer");
+        const data = await res.json();
+        if (data.success && data.config) {
+            applyOptimizerConfigToUI(data.config);
+        }
+    } catch (e) {
+        console.warn("Could not load optimizer config:", e);
+    }
+}
+
+async function handleSaveOptimizerConfig() {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để lưu cấu hình tinh chỉnh ca!");
+        return;
+    }
+    const config = getOptimizerFullConfigFromUI();
+    const msg = document.getElementById("optimizerConfigMsg");
+    try {
+        const res = await authFetch("/api/config/optimizer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(config),
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (msg) {
+                msg.className = "swap-msg success";
+                msg.textContent = "✓ Đã lưu toàn bộ cài đặt tinh chỉnh ca vào hệ thống máy chủ an toàn!";
+                msg.style.display = "block";
+                setTimeout(() => { msg.style.display = "none"; }, 4000);
+            }
+            showToastSuccess("Đã sao lưu cài đặt tinh chỉnh ca trực thành công!");
+        } else {
+            if (msg) {
+                msg.className = "swap-msg error";
+                msg.textContent = "Lỗi khi lưu cài đặt: " + data.message;
+                msg.style.display = "block";
+            }
+        }
+    } catch (e) {
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi kết nối máy chủ: " + e.message;
+            msg.style.display = "block";
+        }
+    }
+}
+
+function handleExportOptimizerConfigJson() {
+    const config = getOptimizerFullConfigFromUI();
+    const jsonStr = JSON.stringify(config, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `Cai_Dat_Tinh_Chinh_Ca_Truc_${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToastSuccess("Đã tải xuống file sao lưu cài đặt JSON thành công!");
+}
+
+async function handleImportOptimizerConfigJson(file) {
+    if (!file) return;
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để nạp cấu hình tinh chỉnh ca!");
+        return;
+    }
+    try {
+        const text = await file.text();
+        const config = JSON.parse(text);
+        if (!config || typeof config !== "object") {
+            throw new Error("File JSON không hợp lệ");
+        }
+        applyOptimizerConfigToUI(config);
+
+        // Save immediately to server
+        const res = await authFetch("/api/config/optimizer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(config),
+        });
+        const data = await res.json();
+        const msg = document.getElementById("optimizerConfigMsg");
+        if (data.success) {
+            if (msg) {
+                msg.className = "swap-msg success";
+                msg.textContent = "✓ Đã khôi phục và lưu cài đặt tinh chỉnh ca từ file sao lưu!";
+                msg.style.display = "block";
+                setTimeout(() => { msg.style.display = "none"; }, 4000);
+            }
+            showToastSuccess("Đã nạp file sao lưu cài đặt thành công!");
+        } else {
+            alert("Đã áp dụng vào giao diện nhưng lưu server thất bại: " + data.message);
+        }
+    } catch (e) {
+        alert("Lỗi đọc file sao lưu JSON: " + e.message);
+    }
+}
+
+async function handleResetOptimizerDefaults() {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để khôi phục cài đặt mặc định!");
+        return;
+    }
+    if (!confirm("Bạn có chắc chắn muốn khôi phục tất cả thông số tinh chỉnh ca trực về giá trị mặc định chuẩn?")) {
+        return;
+    }
+    try {
+        const res = await authFetch("/api/config/optimizer/reset", {
+            method: "POST",
+        });
+        const data = await res.json();
+        if (data.success && data.config) {
+            applyOptimizerConfigToUI(data.config);
+            const msg = document.getElementById("optimizerConfigMsg");
+            if (msg) {
+                msg.className = "swap-msg success";
+                msg.textContent = "✓ Đã khôi phục toàn bộ cài đặt tinh chỉnh về thông số chuẩn mặc định!";
+                msg.style.display = "block";
+                setTimeout(() => { msg.style.display = "none"; }, 4000);
+            }
+            showToastSuccess("Đã khôi phục cài đặt mặc định thành công!");
+        }
+    } catch (e) {
+        alert("Lỗi khi khôi phục cài đặt: " + e.message);
+    }
+}
+
 // Run Optimizer API
 async function runOptimizerWithParams(params) {
     const btn = document.getElementById("btnRunOptimizer");
@@ -1217,7 +1545,9 @@ async function runOptimizerWithParams(params) {
         const isNgoaiEnabled = document.getElementById("chkMasterNgoai")
             ? document.getElementById("chkMasterNgoai").checked
             : true;
+        const currentConfig = getOptimizerFullConfigFromUI();
         const payload = {
+            ...currentConfig,
             ...params,
             enable_ca_ngoai: isNgoaiEnabled,
             custom_ca_ngoai: globalCaNgoai,
@@ -1443,6 +1773,7 @@ function getMaxShiftsLimit() {
 }
 
 function renderAlertStrip(filtered, shortShifts, totalGap) {
+    const isAdmin = currentUserRole === "admin";
     const shiftCounts = getMemberShiftCounts();
     const maxShifts = getMaxShiftsLimit();
     const overlimitMembers = Object.keys(shiftCounts).filter(
@@ -1450,7 +1781,8 @@ function renderAlertStrip(filtered, shortShifts, totalGap) {
     );
 
     let overlimitBanner = "";
-    if (overlimitMembers.length > 0) {
+    // Chỉ hiển thị cảnh báo vượt ca cho Admin, nhân viên chỉ xem phân công ca thông thường
+    if (isAdmin && overlimitMembers.length > 0) {
         overlimitBanner = `<div class="alert-strip danger-overlimit" style="margin-bottom: 8px; background: rgba(220, 38, 38, 0.18); border: 1px solid var(--cinnabar); color: #FCA5A5; padding: 10px 14px; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 10px; font-size: 13px;">
             <i class="fa-solid fa-triangle-exclamation" style="color: var(--cinnabar); font-size: 16px;"></i>
             <span><strong>CẢNH BÁO VI PHẠM SỐ CA:</strong> Có <b>${overlimitMembers.length}</b> cá nhân bị xếp quá số ca tối đa (${maxShifts} ca/người): <b>${overlimitMembers.map((n) => `${esc(n)} (${shiftCounts[n]}/${maxShifts} ca)`).join(", ")}</b> — <span style="color: #FF8080; font-weight: 700;">Highlight đỏ trực tiếp trên lịch</span></span>
@@ -1480,6 +1812,7 @@ function renderAlertStrip(filtered, shortShifts, totalGap) {
 }
 
 function renderBoardGrid(rows, buckets, dateOfDay) {
+    const isAdmin = currentUserRole === "admin";
     let cells = `<div class="board-corner">Giờ</div>`;
     BOARD_DAYS.forEach((d) => {
         cells += `<div class="board-daylabel">${esc(DAY_ABBR[d])}
@@ -1506,10 +1839,14 @@ function renderBoardGrid(rows, buckets, dateOfDay) {
         });
     });
 
+    const overlimitLegend = isAdmin
+        ? `<span style="display:inline-flex; align-items:center; gap:5px; color:#FF8080; font-size:12px; font-weight:600;"><i class="fa-solid fa-triangle-exclamation" style="color:var(--cinnabar);"></i> vượt ca max</span>`
+        : "";
+
     return `<div class="board">
                 <div class="board-top">
                     <h3>Bảng phân công tuần</h3>
-                    <span class="board-meta">Bấm vào ca để sửa nhân sự</span>
+                    <span class="board-meta">${isAdmin ? "Bấm vào ca để sửa nhân sự & quản lý" : "Bấm vào ca để xem chi tiết"}</span>
                 </div>
                 <div class="board-scroll">
                     <div class="duty-board" style="grid-template-rows: auto repeat(${rows.length}, minmax(92px, auto))">
@@ -1521,7 +1858,7 @@ function renderBoardGrid(rows, buckets, dateOfDay) {
                     <span class="lg-dp"><i></i> dự phòng</span>
                     <span class="lg-blank"><i></i> chưa có người</span>
                     <span class="lg-lead"><i class="fa-solid fa-star"></i> trưởng ca</span>
-                    <span style="display:inline-flex; align-items:center; gap:5px; color:#FF8080; font-size:12px; font-weight:600;"><i class="fa-solid fa-triangle-exclamation" style="color:var(--cinnabar);"></i> vượt ca max</span>
+                    ${overlimitLegend}
                 </div>
             </div>`;
 }
@@ -1529,6 +1866,7 @@ function renderBoardGrid(rows, buckets, dateOfDay) {
 // Một "phiếu ca" trong ô lưới. Mỗi suất cần người là một dòng kẻ:
 // có tên thì kẻ đậm, dự phòng thì kẻ chấm, chưa ai thì kẻ đỏ son bỏ trống.
 function renderShiftSlip(s) {
+    const isAdmin = currentUserRole === "admin";
     const gap = shiftGap(s);
     const members = s.assigned_members || [];
     const chinh = members.filter((m) => m.role === "Chính");
@@ -1543,11 +1881,11 @@ function renderShiftSlip(s) {
         const isLeader = s.shift_leader === m.name;
         const isDp = m.role !== "Chính";
         const totalCount = shiftCounts[m.name] || 0;
-        const isOver = totalCount > maxShifts;
+        const isOver = isAdmin && totalCount > maxShifts;
         if (isOver) hasOverlimit = true;
 
         const overClass = isOver ? "line-overlimit" : "";
-        const titleText = `${esc(m.name)} — ${esc(m.department)} (${totalCount}/${maxShifts} ca)${isOver ? " [⚠️ VƯỢT QUÁ SO CA TOI DA]" : ""} — Nhiệm vụ: ${esc(m.task || "Bán hàng F&B")}`;
+        const titleText = `${esc(m.name)} — ${esc(m.department)}${isAdmin ? ` (${totalCount}/${maxShifts} ca)` : ""}${isOver ? " [⚠️ VƯỢT QUÁ SỐ CA TỐI ĐA]" : ""} — Nhiệm vụ: ${esc(m.task || "Bán hàng F&B")}`;
 
         lines += `<span class="assign-line ${isDp ? "line-dp" : "line-filled"} ${overClass}" title="${titleText}">
                     <span class="assign-name">${esc(m.name)}${isOver ? " ⚠️" : ""}</span>
@@ -1569,6 +1907,7 @@ function renderShiftSlip(s) {
 
 // --- Biến thể điện thoại: chọn ngày rồi cuộn dọc theo khung giờ -------------
 function renderAgenda(filtered, shortShifts) {
+    const isAdmin = currentUserRole === "admin";
     const daysPresent = BOARD_DAYS.filter((d) =>
         filtered.some((s) => s.day === d),
     );
@@ -1617,7 +1956,7 @@ function renderAgenda(filtered, shortShifts) {
                     const isLeader = s.shift_leader === m.name;
                     const isDp = m.role !== "Chính";
                     const totalCount = shiftCounts[m.name] || 0;
-                    const isOver = totalCount > maxShifts;
+                    const isOver = isAdmin && totalCount > maxShifts;
 
                     return `<span class="agenda-person ${isDp ? "dp" : ""} ${isLeader ? "lead" : ""} ${isOver ? "overlimit" : ""}">
                         <span class="dot"></span>
@@ -1691,6 +2030,10 @@ window.openShiftEditModal = function (shiftId) {
                 : "🛵 Phục vụ / Giao hàng";
         const posRole = m.position_role || defaultRole;
 
+        const removeBtn = isAdmin
+            ? `<button type="button" class="btn-action-sm btn-action-delete" style="padding: 2px 7px; font-size: 11px; margin-left: 6px; background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" onclick="handleCancelMemberInShift('${m.member_id}', '${esc(m.name)}')" title="Rút nhân sự này khỏi ca trực"><i class="fa-solid fa-user-minus"></i> Hủy</button>`
+            : "";
+
         membersListHtml += `
             <div class="member-edit-row ${isDp ? "is-dp-row" : ""}">
                 <div class="mer-who">
@@ -1699,6 +2042,7 @@ window.openShiftEditModal = function (shiftId) {
                         <strong>${esc(m.name)}</strong>
                         <span class="mer-dept-pill">${esc((m.department || "").replace("Ban ", ""))}</span>
                         ${s.shift_leader === m.name ? '<span class="mer-lead-badge"><i class="fa-solid fa-star"></i> Trưởng ca</span>' : ""}
+                        ${removeBtn}
                     </div>
                     <div class="mer-meta">
                         <span><i class="fa-solid fa-phone"></i> ${esc(m.phone)}</span>
@@ -1761,6 +2105,11 @@ window.openShiftEditModal = function (shiftId) {
         saveBtn.style.display = isAdmin ? "inline-flex" : "none";
     }
 
+    const cancelBtn = document.getElementById("btnDeleteOrCancelShift");
+    if (cancelBtn) {
+        cancelBtn.style.display = isAdmin ? "inline-flex" : "none";
+    }
+
     modal.classList.add("active");
 };
 
@@ -1777,6 +2126,104 @@ window.handleRoleChangeInModal = function (roleSelect, memberId) {
         posSelect.value = "🛵 Phục vụ / Giao hàng";
     }
 };
+
+window.handleCancelMemberInShift = async function (memberId, memberName) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để hủy nhân sự khỏi ca!");
+        return;
+    }
+    if (!currentEditingShift) return;
+
+    if (!confirm(`Bạn có chắc chắn muốn rút thành viên "${memberName}" khỏi ca trực ${currentEditingShift.shift_id}?`)) {
+        return;
+    }
+
+    try {
+        const res = await authFetch("/api/shift/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                shift_id: currentEditingShift.shift_id,
+                member_id: memberId,
+                reason: `Admin rút thành viên ${memberName} khỏi ca trực`,
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (data.cancelled_entire_shift) {
+                if (globalScheduleData && globalScheduleData.assigned_shifts) {
+                    globalScheduleData.assigned_shifts = globalScheduleData.assigned_shifts.filter(
+                        (s) => s.shift_id !== currentEditingShift.shift_id,
+                    );
+                }
+                document.getElementById("shiftEditModal")?.classList.remove("active");
+            } else if (data.shift) {
+                const idx = globalScheduleData.assigned_shifts.findIndex(
+                    (s) => s.shift_id === currentEditingShift.shift_id,
+                );
+                if (idx !== -1) {
+                    globalScheduleData.assigned_shifts[idx] = data.shift;
+                }
+                openShiftEditModal(currentEditingShift.shift_id);
+            }
+
+            renderDutyBoard();
+            populateLiveShiftDropdown();
+            loadIncidentLogs();
+            showToastSuccess(`Đã rút thành viên ${memberName} khỏi ca trực!`);
+        } else {
+            alert("Lỗi khi hủy thành viên: " + (data.message || "Lỗi không xác định"));
+        }
+    } catch (e) {
+        alert("Lỗi kết nối máy chủ: " + e.message);
+    }
+};
+
+async function handleCancelCurrentShift() {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để hủy ca trực!");
+        return;
+    }
+    if (!currentEditingShift) return;
+
+    const shiftInfo = `Ca ${currentEditingShift.shift_id} (${currentEditingShift.day} ${currentEditingShift.slot} - ${currentEditingShift.location || "Phòng Thanh Niên"})`;
+
+    openConfirmModal({
+        title: "Xác Nhận Hủy Toàn Bộ Ca Trực",
+        message: `Bạn có chắc chắn muốn HỦY HOÀN TOÀN ca trực "${shiftInfo}"? Tất cả thành viên trong ca sẽ được giải phóng và ghi nhận sự cố hủy ca.`,
+        confirmBtnText: "Hủy Ca Trực",
+        onConfirm: async () => {
+            try {
+                const res = await authFetch("/api/shift/cancel", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        shift_id: currentEditingShift.shift_id,
+                        cancel_all: true,
+                        reason: "Quản trị viên hủy toàn bộ ca trực",
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (globalScheduleData && globalScheduleData.assigned_shifts) {
+                        globalScheduleData.assigned_shifts = globalScheduleData.assigned_shifts.filter(
+                            (s) => s.shift_id !== currentEditingShift.shift_id,
+                        );
+                    }
+                    document.getElementById("shiftEditModal")?.classList.remove("active");
+                    renderDutyBoard();
+                    populateLiveShiftDropdown();
+                    loadIncidentLogs();
+                    showToastSuccess(`Đã hủy ca trực ${currentEditingShift.shift_id} thành công!`);
+                } else {
+                    alert("Lỗi khi hủy ca: " + (data.message || "Lỗi không xác định"));
+                }
+            } catch (e) {
+                alert("Lỗi kết nối: " + e.message);
+            }
+        },
+    });
+}
 
 async function handleSaveShiftEdit() {
     if (currentUserRole !== "admin") {
@@ -2566,6 +3013,7 @@ async function loadInventoryData() {
             if (currentSelectedLiveShiftId) {
                 renderLiveShiftSalesTable(currentSelectedLiveShiftId);
             }
+            renderAllShiftOrdersTab();
         }
     } catch (e) {
         console.error("Error loading inventory data:", e);
@@ -3059,7 +3507,7 @@ function populateLiveShiftDropdown() {
     let html = "";
     shifts.forEach((s, idx) => {
         const isClosest = idx === 0;
-        const badge = isClosest ? "🔴 [CA HIỆN TẠI / GẦN NHẤT]" : "🗓️";
+        const badge = isClosest ? "🔴" : "🗓️";
         const loc =
             s.location ||
             (s.type === "Ngoai" ? "Điểm Bán Ngoài" : "Phòng Thanh Niên");
@@ -3278,7 +3726,7 @@ function renderLiveShiftDetails(shiftId) {
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
                         <div>
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <strong style="font-size: 15px; color: #FFF; font-weight: 700;">${isLeader ? "⭐ " : ""}${esc(m.name)}</strong>
+                                <strong style="font-size: 15px; color: var(--ink-hi); font-weight: 700;">${isLeader ? "⭐ " : ""}${esc(m.name)}</strong>
                                 <span class="tag" style="background: ${isLeader ? "rgba(217,119,6,0.3)" : isDp ? "rgba(109,40,217,0.3)" : "rgba(255,255,255,0.1)"}; color: ${isLeader ? "#FBBF24" : isDp ? "#C084FC" : "var(--ink-light)"}; border: 1px solid ${isLeader ? "#D97706" : isDp ? "#7C3AED" : "var(--border-color)"};">
                                     ${isLeader ? "Trưởng ca" : isDp ? "Dự phòng" : esc(m.department)}
                                 </span>
@@ -3316,6 +3764,7 @@ function renderLiveShiftDetails(shiftId) {
 
     renderLivePOSProductGrid();
     renderLiveShiftSalesTable(shiftId);
+    renderShiftAuditTable(shiftId);
 }
 
 window.setLocalAttendanceStatus = function (memberId, status) {
@@ -3614,15 +4063,15 @@ function renderLiveCart() {
         totalQty += item.quantity;
 
         html += `
-            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                <td style="padding: 4px; color: #FFF; font-weight: 500;">${esc(item.product.name)}</td>
-                <td style="padding: 4px; text-align: center;">
+            <tr>
+                <td style="padding: 6px 4px; color: var(--ink-hi); font-weight: 500;">${esc(item.product.name)}</td>
+                <td style="padding: 6px 4px; text-align: center;">
                     <button class="btn-action-sm" onclick="updateLiveCartQty('${id}', -1)" style="padding: 0 5px;">-</button>
-                    <span style="margin: 0 4px; font-weight: 700;">${item.quantity}</span>
+                    <span style="margin: 0 4px; font-weight: 700; color: var(--ink-hi);">${item.quantity}</span>
                     <button class="btn-action-sm" onclick="updateLiveCartQty('${id}', 1)" style="padding: 0 5px;">+</button>
                 </td>
-                <td style="padding: 4px; text-align: right; color: var(--ink-dim);">${formatVND(item.product.price)}</td>
-                <td style="padding: 4px; text-align: right; color: var(--goldleaf); font-weight: 600;">${formatVND(lineTotal)}</td>
+                <td style="padding: 6px 4px; text-align: right; color: var(--ink-dim);">${formatVND(item.product.price)}</td>
+                <td style="padding: 6px 4px; text-align: right; color: var(--goldleaf); font-weight: 600;">${formatVND(lineTotal)}</td>
             </tr>
         `;
     });
@@ -3632,61 +4081,6 @@ function renderLiveCart() {
     if (totalItemsEl) totalItemsEl.textContent = `(${totalQty} món)`;
 }
 
-async function handleCheckoutLivePOS() {
-    const keys = Object.keys(liveCart);
-    const msg = document.getElementById("livePOSMsg");
-    if (keys.length === 0) {
-        if (msg) {
-            msg.className = "swap-msg error";
-            msg.textContent = "Giỏ hàng đang trống! Hãy chọn sản phẩm trước.";
-        }
-        return;
-    }
-
-    const seller =
-        document.getElementById("livePOSSelectSeller")?.value || "Thu ngân ca";
-    const note = document.getElementById("livePOSInputNote")?.value || "";
-    const shiftId = currentSelectedLiveShiftId || "Live";
-    const channelName = `Ca ${shiftId}`;
-
-    if (msg) {
-        msg.className = "swap-msg";
-        msg.textContent = "Đang thanh toán và ghi nhận giao dịch...";
-    }
-
-    try {
-        for (const id of keys) {
-            const item = liveCart[id];
-            await fetch("/api/inventory/sell", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    product_id: id,
-                    quantity: item.quantity,
-                    channel: channelName,
-                    seller: seller,
-                    note: note || `Bán hàng POS tại Ca-Live ${shiftId}`,
-                }),
-            });
-        }
-
-        liveCart = {};
-        renderLiveCart();
-        if (msg) {
-            msg.className = "swap-msg success";
-            msg.textContent =
-                "✓ Thanh toán thành công! Doanh thu đã được cộng vào ca này.";
-        }
-        await loadInventoryData();
-        renderLiveShiftSalesTable(shiftId);
-        renderLivePOSProductGrid();
-    } catch (e) {
-        if (msg) {
-            msg.className = "swap-msg error";
-            msg.textContent = "Lỗi thanh toán: " + e.message;
-        }
-    }
-}
 
 function renderLiveShiftSalesTable(shiftId) {
     const tbody = document.getElementById("liveShiftSalesTableBody");
@@ -3706,7 +4100,7 @@ function renderLiveShiftSalesTable(shiftId) {
         summaryEl.textContent = `${formatVND(totalRev)} ca ${shiftId}`;
 
     if (shiftSales.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="table-empty">Chưa có giao dịch bán hàng nào trong ca ${shiftId}.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Chưa có giao dịch bán hàng nào trong ca ${shiftId}.</td></tr>`;
         return;
     }
 
@@ -3727,6 +4121,18 @@ function renderLiveShiftSalesTable(shiftId) {
             </button>
         `;
 
+        const custName = l.customer_name || "";
+        const custPhone = l.customer_phone || "";
+        const payMethod = l.payment_method || "Tiền mặt";
+
+        const payBadge = payMethod === "Chuyển khoản"
+            ? `<span class="tag-payment-transfer"><i class="fa-solid fa-credit-card"></i> CK</span>`
+            : `<span class="tag-payment-cash"><i class="fa-solid fa-money-bill-wave"></i> Tiền mặt</span>`;
+
+        const custInfo = (custName || custPhone)
+            ? `<div><strong>${esc(custName || "Vãng lai")}</strong>${custPhone ? `<div style="font-size:11px; color:var(--ink-dim);">${esc(custPhone)}</div>` : ''}<div style="margin-top:2px;">${payBadge}</div></div>`
+            : `<div><span style="color:var(--ink-dim); font-size:12px;">Vãng lai</span><div style="margin-top:2px;">${payBadge}</div></div>`;
+
         html += `
             <tr ${rowStyle}>
                 <td class="cell-center mk-num"><strong>${l.id}</strong>${refundStatus}</td>
@@ -3735,6 +4141,7 @@ function renderLiveShiftSalesTable(shiftId) {
                 <td class="cell-center mk-num"><b>${l.quantity}</b> ${l.unit || "món"}</td>
                 <td class="cell-right mk-num">${formatVND(l.unit_price)}</td>
                 <td class="cell-right mk-num" style="color:${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight:700;">${formatVND(l.total_amount)}</td>
+                <td>${custInfo}</td>
                 <td><span class="mk-lead">${l.seller}</span></td>
                 <td style="color:var(--ink-dim); font-size:12px;">${l.note || "-"}</td>
                 <td class="cell-center">${actionBtn}</td>
@@ -3744,29 +4151,437 @@ function renderLiveShiftSalesTable(shiftId) {
     tbody.innerHTML = html;
 }
 
-async function handleUploadInventoryExcel(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+function renderShiftAuditTable(shiftId) {
+    const tbody = document.getElementById("shiftAuditTableBody");
+    const auditorSelect = document.getElementById("auditSelectAuditor");
+    if (!tbody) return;
 
-    const formData = new FormData();
-    formData.append("file", file);
+    if (auditorSelect && globalMembers && globalMembers.length > 0) {
+        let optHtml = `<option value="Bộ phận kiểm hàng">-- Chọn người kiểm hàng --</option>`;
+        globalMembers.forEach(m => {
+            optHtml += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.department)})</option>`;
+        });
+        auditorSelect.innerHTML = optHtml;
+    }
+
+    const products = globalInventoryData?.products || [];
+    const allSales = globalInventoryData?.sales_logs || [];
+
+    const currentShiftSales = allSales.filter(l => !l.refunded && (l.channel || "").includes(shiftId));
+    const shiftSalesMap = {};
+    currentShiftSales.forEach(l => {
+        shiftSalesMap[l.product_id] = (shiftSalesMap[l.product_id] || 0) + (l.quantity || 0);
+    });
+
+    if (products.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Kho hàng đang trống. Chưa có dữ liệu sản phẩm để kiểm kê.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    products.forEach((p, idx) => {
+        const soldInShift = shiftSalesMap[p.id] || 0;
+        const initialStock = p.initial_stock || 0;
+        const totalSoldAll = p.sold_count || 0;
+        const expectedStock = Math.max(0, initialStock - totalSoldAll);
+
+        html += `
+            <tr>
+                <td class="cell-center mk-num">${idx + 1}</td>
+                <td class="mk-num"><strong>${p.id}</strong></td>
+                <td><strong>${esc(p.name)}</strong></td>
+                <td class="cell-center">${p.unit || "món"}</td>
+                <td class="cell-right mk-num">${initialStock}</td>
+                <td class="cell-right mk-num" style="color: var(--goldleaf); font-weight:700;">${soldInShift}</td>
+                <td class="cell-right mk-num" style="font-weight:700; color:var(--ink-hi);">${expectedStock}</td>
+                <td class="cell-center" style="background: rgba(217, 119, 6, 0.05);">
+                    <input type="number" min="0" 
+                           class="audit-actual-input custom-input" 
+                           id="auditActual_${p.id}"
+                           data-pid="${p.id}"
+                           data-expected="${expectedStock}"
+                           value="${expectedStock}" 
+                           oninput="onAuditQtyChange('${p.id}', ${expectedStock})"
+                           style="width: 80px; text-align: center; font-weight: 700; font-size: 13px; padding: 4px 6px; border-color: var(--goldleaf);" />
+                </td>
+                <td class="cell-center" id="auditDiffCol_${p.id}">
+                    <span class="badge-audit-ok"><i class="fa-solid fa-circle-check"></i> Khớp (0)</span>
+                </td>
+                <td>
+                    <input type="text" class="audit-note-input custom-input" id="auditNote_${p.id}" data-pid="${p.id}" placeholder="Ghi chú nếu thiếu/thừa..." style="font-size: 12px; padding: 4px 6px; width: 100%;" />
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+}
+
+window.onAuditQtyChange = function(pid, expected) {
+    const input = document.getElementById(`auditActual_${pid}`);
+    const diffCol = document.getElementById(`auditDiffCol_${pid}`);
+    if (!input || !diffCol) return;
+
+    const valStr = input.value;
+    const actual = valStr === "" ? 0 : parseInt(valStr, 10);
+    const diff = actual - expected;
+
+    if (diff === 0) {
+        diffCol.innerHTML = `<span class="badge-audit-ok"><i class="fa-solid fa-circle-check"></i> Khớp (0)</span>`;
+    } else if (diff < 0) {
+        diffCol.innerHTML = `<span class="badge-audit-loss"><i class="fa-solid fa-circle-exclamation"></i> Thiếu ${diff}</span>`;
+    } else {
+        diffCol.innerHTML = `<span class="badge-audit-surplus"><i class="fa-solid fa-circle-info"></i> Thừa +${diff}</span>`;
+    }
+};
+
+async function handleSaveShiftAudit() {
+    const msg = document.getElementById("shiftAuditMsg");
+    const auditorSelect = document.getElementById("auditSelectAuditor");
+    const auditor = auditorSelect?.value || "Người kiểm hàng ca";
+    const shiftId = currentSelectedLiveShiftId || "Live";
+
+    const products = globalInventoryData?.products || [];
+    if (products.length === 0) {
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Không có sản phẩm nào để lưu báo cáo kiểm kê!";
+        }
+        return;
+    }
+
+    const items = [];
+    products.forEach(p => {
+        const inputActual = document.getElementById(`auditActual_${p.id}`);
+        const inputNote = document.getElementById(`auditNote_${p.id}`);
+        const expected = parseInt(inputActual?.getAttribute("data-expected") || "0", 10);
+        const actualStr = inputActual?.value;
+        const actual = actualStr === "" || actualStr === undefined ? expected : parseInt(actualStr, 10);
+        const diff = actual - expected;
+        const note = inputNote?.value.trim() || "";
+
+        items.push({
+            product_id: p.id,
+            product_name: p.name,
+            unit: p.unit || "món",
+            expected_stock: expected,
+            actual_stock: actual,
+            diff: diff,
+            note: note
+        });
+    });
+
+    if (msg) {
+        msg.className = "swap-msg";
+        msg.textContent = "Đang lưu báo cáo đối chiếu kiểm kê ca trực...";
+    }
 
     try {
+        const res = await fetch("/api/inventory/audit-shift", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                shift_id: shiftId,
+                auditor: auditor,
+                items: items,
+                summary_note: `Báo cáo kiểm kê ca ${shiftId}`
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (msg) {
+                msg.className = "swap-msg success";
+                msg.textContent = `✓ ${data.message}`;
+            }
+        } else {
+            if (msg) {
+                msg.className = "swap-msg error";
+                msg.textContent = "Lỗi lưu kiểm kê: " + data.message;
+            }
+        }
+    } catch (err) {
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi kết nối: " + err.message;
+        }
+    }
+}
+
+let currentInvUploadFile = null;
+
+function initInventoryExcelUpload() {
+    const btnOpen = document.getElementById("btnUploadInventoryExcel");
+    const modal = document.getElementById("uploadInventoryExcelModal");
+    const btnClose = document.getElementById("btnCloseUploadInvModal");
+    const btnCancel = document.getElementById("btnCancelUploadInvModal");
+    const dropzone = document.getElementById("invExcelDropzone");
+    const fileInput = document.getElementById("modalInvExcelFileInput");
+    const btnRemoveFile = document.getElementById("btnRemoveInvExcelFile");
+    const btnConfirm = document.getElementById("btnConfirmUploadInvExcel");
+
+    const openModal = () => {
+        if (currentUserRole !== "admin") {
+            openAdminLoginModal(
+                "Bạn cần đăng nhập quyền Quản trị viên để nạp sản phẩm từ Excel!",
+            );
+            return;
+        }
+        resetInvExcelModalState();
+        if (modal) modal.classList.add("active");
+    };
+
+    const closeModal = () => {
+        if (modal) modal.classList.remove("active");
+        resetInvExcelModalState();
+    };
+
+    if (btnOpen) btnOpen.addEventListener("click", openModal);
+    if (btnClose) btnClose.addEventListener("click", closeModal);
+    if (btnCancel) btnCancel.addEventListener("click", closeModal);
+
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeModal();
+        });
+    }
+
+    if (dropzone && fileInput) {
+        dropzone.addEventListener("click", () => fileInput.click());
+
+        dropzone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = "#10b981";
+            dropzone.style.background = "rgba(16, 185, 129, 0.1)";
+        });
+
+        dropzone.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = "rgba(255, 255, 255, 0.2)";
+            dropzone.style.background = "rgba(0, 0, 0, 0.15)";
+        });
+
+        dropzone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = "rgba(255, 255, 255, 0.2)";
+            dropzone.style.background = "rgba(0, 0, 0, 0.15)";
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleInvExcelFileSelected(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleInvExcelFileSelected(e.target.files[0]);
+            }
+        });
+    }
+
+    if (btnRemoveFile) {
+        btnRemoveFile.addEventListener("click", () => {
+            resetInvExcelModalState();
+        });
+    }
+
+    if (btnConfirm) {
+        btnConfirm.addEventListener("click", handleConfirmUploadInventoryExcel);
+    }
+}
+
+function resetInvExcelModalState() {
+    currentInvUploadFile = null;
+    const fileInput = document.getElementById("modalInvExcelFileInput");
+    if (fileInput) fileInput.value = "";
+
+    const badge = document.getElementById("invExcelFileSelectedBadge");
+    if (badge) badge.style.display = "none";
+
+    const preview = document.getElementById("invExcelPreviewContainer");
+    if (preview) preview.style.display = "none";
+
+    const tbody = document.getElementById("invPreviewTableBody");
+    if (tbody) tbody.innerHTML = "";
+
+    const msg = document.getElementById("invExcelUploadMsg");
+    if (msg) {
+        msg.style.display = "none";
+        msg.className = "swap-msg";
+        msg.textContent = "";
+    }
+
+    const btnConfirm = document.getElementById("btnConfirmUploadInvExcel");
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Xác Nhận Nạp Vào Kho';
+    }
+}
+
+async function handleInvExcelFileSelected(file) {
+    if (!file) return;
+
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (!["xlsx", "xls", "csv"].includes(ext)) {
+        alert("Vui lòng chọn file có định dạng Excel (.xlsx, .xls) hoặc .csv!");
+        return;
+    }
+
+    currentInvUploadFile = file;
+
+    // Show badge
+    const badge = document.getElementById("invExcelFileSelectedBadge");
+    const nameEl = document.getElementById("invExcelFileName");
+    const sizeEl = document.getElementById("invExcelFileSize");
+    if (badge && nameEl && sizeEl) {
+        nameEl.textContent = file.name;
+        const kb = (file.size / 1024).toFixed(1);
+        sizeEl.textContent = `(${kb} KB)`;
+        badge.style.display = "flex";
+    }
+
+    // Call preview API
+    const msg = document.getElementById("invExcelUploadMsg");
+    if (msg) {
+        msg.style.display = "block";
+        msg.className = "swap-msg";
+        msg.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang đọc và phân tích cấu trúc file Excel...';
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await authFetch("/api/inventory/preview-excel", {
+            method: "POST",
+            body: formData,
+        });
+        const data = await res.json();
+
+        if (data.success && Array.isArray(data.items) && data.items.length > 0) {
+            renderInvExcelPreview(data.items);
+            if (msg) {
+                msg.style.display = "none";
+            }
+            const btnConfirm = document.getElementById("btnConfirmUploadInvExcel");
+            if (btnConfirm) btnConfirm.disabled = false;
+        } else {
+            if (msg) {
+                msg.style.display = "block";
+                msg.className = "swap-msg error";
+                msg.textContent = "Không tìm thấy dữ liệu: " + (data.message || "File không đúng cấu trúc!");
+            }
+            const btnConfirm = document.getElementById("btnConfirmUploadInvExcel");
+            if (btnConfirm) btnConfirm.disabled = true;
+        }
+    } catch (err) {
+        if (msg) {
+            msg.style.display = "block";
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi phân tích file: " + err.message;
+        }
+    }
+}
+
+function renderInvExcelPreview(items) {
+    const previewContainer = document.getElementById("invExcelPreviewContainer");
+    const countEl = document.getElementById("invPreviewCount");
+    const summaryEl = document.getElementById("invPreviewSummary");
+    const tbody = document.getElementById("invPreviewTableBody");
+
+    if (!previewContainer || !tbody) return;
+
+    let totalStock = 0;
+    let totalVal = 0;
+
+    let html = "";
+    items.forEach((item, idx) => {
+        const stt = item.stt || idx + 1;
+        const name = item.name || "";
+        const unit = item.unit || "Phần";
+        const price = Number(item.price) || 0;
+        const stock = Number(item.initial_stock) || 0;
+
+        totalStock += stock;
+        totalVal += stock * price;
+
+        html += `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 6px 10px; color: var(--ink-dim);">${stt}</td>
+                <td style="padding: 6px 10px; font-weight: 600;">${esc(name)}</td>
+                <td style="padding: 6px 10px;"><span class="badge" style="background: rgba(255,255,255,0.08); font-size: 11px; padding: 2px 6px;">${esc(unit)}</span></td>
+                <td style="padding: 6px 10px; text-align: right; color: var(--goldleaf); font-weight: 600;">${formatVND(price)}</td>
+                <td style="padding: 6px 10px; text-align: right; font-weight: 600;">${stock.toLocaleString("vi-VN")}</td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+    if (countEl) countEl.textContent = items.length;
+    if (summaryEl) {
+        summaryEl.textContent = `Tổng: ${totalStock.toLocaleString("vi-VN")} SP nhập • Ước tính: ${formatVND(totalVal)}`;
+    }
+    previewContainer.style.display = "block";
+}
+
+async function handleConfirmUploadInventoryExcel() {
+    if (!currentInvUploadFile) {
+        alert("Vui lòng chọn file Excel trước!");
+        return;
+    }
+
+    const btnConfirm = document.getElementById("btnConfirmUploadInvExcel");
+    const msg = document.getElementById("invExcelUploadMsg");
+    const mode = document.querySelector('input[name="invImportMode"]:checked')?.value || "merge";
+
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang nạp vào kho...';
+    }
+    if (msg) {
+        msg.style.display = "block";
+        msg.className = "swap-msg";
+        msg.textContent = "Đang xử lý nạp danh mục sản phẩm vào hệ thống...";
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append("file", currentInvUploadFile);
+        formData.append("mode", mode);
+
         const res = await authFetch("/api/inventory/upload-excel", {
             method: "POST",
             body: formData,
         });
         const data = await res.json();
+
         if (data.success) {
-            alert(data.message);
+            alert(" " + data.message);
+            const modal = document.getElementById("uploadInventoryExcelModal");
+            if (modal) modal.classList.remove("active");
+            resetInvExcelModalState();
+
+            // Refresh all related views
             loadInventoryData();
+            loadLiveShiftPosData();
+            renderAllShiftOrdersTab();
         } else {
-            alert("Lỗi: " + data.message);
+            if (msg) {
+                msg.style.display = "block";
+                msg.className = "swap-msg error";
+                msg.textContent = "Lỗi: " + data.message;
+            }
+            if (btnConfirm) {
+                btnConfirm.disabled = false;
+                btnConfirm.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Xác Nhận Nạp Vào Kho';
+            }
         }
     } catch (err) {
-        alert("Lỗi tải file: " + err.message);
-    } finally {
-        e.target.value = "";
+        if (msg) {
+            msg.style.display = "block";
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi kết nối máy chủ: " + err.message;
+        }
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            btnConfirm.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Xác Nhận Nạp Vào Kho';
+        }
     }
 }
 
@@ -3894,7 +4709,7 @@ function closeMemberModal() {
     document.getElementById("editMemberModal").classList.remove("active");
 }
 
-// Bind modal close buttons
+// Bind modal close buttons & shift audit
 document.addEventListener("DOMContentLoaded", () => {
     const btnClose = document.getElementById("btnCloseMemberModal");
     const btnCancel = document.getElementById("btnCancelMemberModal");
@@ -3903,6 +4718,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnClose) btnClose.addEventListener("click", closeMemberModal);
     if (btnCancel) btnCancel.addEventListener("click", closeMemberModal);
     if (btnSave) btnSave.addEventListener("click", saveMemberData);
+
+    const btnCheckout = document.getElementById("btnCheckoutLivePOS");
+    if (btnCheckout) btnCheckout.addEventListener("click", handleCheckoutLivePOS);
+
+    const btnAudit = document.getElementById("btnSaveShiftAudit");
+    if (btnAudit) btnAudit.addEventListener("click", handleSaveShiftAudit);
 });
 
 async function saveMemberData() {
@@ -4462,4 +5283,749 @@ function exportKpiReportCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
+
+function renderAllShiftOrdersTab() {
+    const tbody = document.getElementById("allShiftOrdersTableBody");
+    if (!tbody) return;
+
+    const allSales = globalInventoryData?.sales_logs || [];
+    const shifts = globalScheduleData?.assigned_shifts || [];
+
+    // Group all sales logs by Order ID (id)
+    const orderMap = new Map();
+    allSales.forEach(item => {
+        const orderId = item.id || "TX_UNKNOWN";
+        if (!orderMap.has(orderId)) {
+            orderMap.set(orderId, {
+                id: orderId,
+                timestamp: item.timestamp || "",
+                channel: item.channel || "Phòng Thanh Niên",
+                seller: item.seller || "Thu ngân",
+                customer_name: item.customer_name || "",
+                customer_phone: item.customer_phone || "",
+                payment_method: item.payment_method || "Tiền mặt",
+                note: item.note || "",
+                refunded: item.refunded === true,
+                items: [],
+                totalAmount: 0,
+                totalQuantity: 0
+            });
+        }
+        const grp = orderMap.get(orderId);
+        grp.items.push(item);
+        grp.totalAmount += (item.total_amount || 0);
+        grp.totalQuantity += (item.quantity || 0);
+        if (item.refunded) grp.refunded = true;
+    });
+
+    const allOrderGroups = Array.from(orderMap.values());
+
+    // Populate shift filter dropdown
+    const filterShiftEl = document.getElementById("ordersFilterShift");
+    if (filterShiftEl) {
+        const currentVal = filterShiftEl.value || "ALL";
+        const shiftSet = new Set();
+        shifts.forEach(s => shiftSet.add(`Ca ${s.shift_id}`));
+        allOrderGroups.forEach(g => {
+            if (g.channel) shiftSet.add(g.channel);
+        });
+        const shiftList = Array.from(shiftSet).sort();
+
+        let optHtml = `<option value="ALL">-- Tất cả các ca (${allOrderGroups.length} đơn) --</option>`;
+        shiftList.forEach(ch => {
+            const count = allOrderGroups.filter(g => g.channel === ch).length;
+            optHtml += `<option value="${esc(ch)}">${esc(ch)} (${count} đơn)</option>`;
+        });
+        filterShiftEl.innerHTML = optHtml;
+        if (Array.from(filterShiftEl.options).some(o => o.value === currentVal)) {
+            filterShiftEl.value = currentVal;
+        }
+    }
+
+    // Get current filter states
+    const selectedShift = filterShiftEl?.value || "ALL";
+    const selectedTime = document.getElementById("ordersFilterTime")?.value || "ALL";
+    const selectedPay = document.getElementById("ordersFilterPayment")?.value || "ALL";
+    const selectedStatus = document.getElementById("ordersFilterStatus")?.value || "ALL";
+    const searchKeyword = (document.getElementById("ordersSearchInput")?.value || "").toLowerCase().trim();
+
+    // Date calculations for time filter
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    const yestStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
+    
+    const d7 = new Date(now);
+    d7.setDate(d7.getDate() - 7);
+
+    // Filter order groups
+    const filteredOrders = allOrderGroups.filter(grp => {
+        if (selectedShift !== "ALL" && grp.channel !== selectedShift) return false;
+
+        if (selectedTime !== "ALL" && grp.timestamp) {
+            const timePart = grp.timestamp.split(" ")[0] || "";
+            if (selectedTime === "TODAY" && !timePart.startsWith(todayStr)) return false;
+            if (selectedTime === "YESTERDAY" && !timePart.startsWith(yestStr)) return false;
+            if (selectedTime === "LAST7DAYS") {
+                const logDate = new Date(timePart);
+                if (isNaN(logDate.getTime()) || logDate < d7) return false;
+            }
+        }
+
+        if (selectedPay !== "ALL") {
+            const pay = grp.payment_method || "Tiền mặt";
+            if (pay !== selectedPay) return false;
+        }
+
+        if (selectedStatus === "VALID" && grp.refunded) return false;
+        if (selectedStatus === "REFUNDED" && !grp.refunded) return false;
+
+        if (searchKeyword) {
+            const matchId = (grp.id || "").toLowerCase().includes(searchKeyword);
+            const matchCustName = (grp.customer_name || "").toLowerCase().includes(searchKeyword);
+            const matchCustPhone = (grp.customer_phone || "").toLowerCase().includes(searchKeyword);
+            const matchSeller = (grp.seller || "").toLowerCase().includes(searchKeyword);
+            const matchNote = (grp.note || "").toLowerCase().includes(searchKeyword);
+            const matchChannel = (grp.channel || "").toLowerCase().includes(searchKeyword);
+            const matchItems = grp.items.some(item => 
+                (item.product_name || "").toLowerCase().includes(searchKeyword) ||
+                (item.product_id || "").toLowerCase().includes(searchKeyword)
+            );
+
+            if (!matchId && !matchCustName && !matchCustPhone && !matchSeller && !matchNote && !matchChannel && !matchItems) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    // Calculate metrics based on order groups
+    const validOrders = filteredOrders.filter(g => !g.refunded);
+    const refundedOrders = filteredOrders.filter(g => g.refunded);
+
+    const totalRev = validOrders.reduce((acc, g) => acc + g.totalAmount, 0);
+    const cashOrders = validOrders.filter(g => (g.payment_method || "Tiền mặt") === "Tiền mặt");
+    const cashRev = cashOrders.reduce((acc, g) => acc + g.totalAmount, 0);
+    const transferOrders = validOrders.filter(g => g.payment_method === "Chuyển khoản");
+    const transferRev = transferOrders.reduce((acc, g) => acc + g.totalAmount, 0);
+    const refundedVal = refundedOrders.reduce((acc, g) => acc + g.totalAmount, 0);
+
+    const totalValidItemsQty = validOrders.reduce((acc, g) => acc + g.totalQuantity, 0);
+    const aov = validOrders.length > 0 ? Math.round(totalRev / validOrders.length) : 0;
+
+    const countEl = document.getElementById("ordersTabTotalCount");
+    const subCountEl = document.getElementById("ordersTabSubCount");
+    const revEl = document.getElementById("ordersTabTotalRev");
+    const aovSubEl = document.getElementById("ordersTabAovSub");
+    const cashRevEl = document.getElementById("ordersTabCashRev");
+    const cashSubEl = document.getElementById("ordersTabCashSub");
+    const transRevEl = document.getElementById("ordersTabTransferRev");
+    const transSubEl = document.getElementById("ordersTabTransferSub");
+    const refCountEl = document.getElementById("ordersTabRefundedCount");
+    const refValEl = document.getElementById("ordersTabRefundedVal");
+
+    if (countEl) countEl.textContent = filteredOrders.length;
+    if (subCountEl) subCountEl.textContent = `${validOrders.length} đơn (${totalValidItemsQty} SP)`;
+    if (revEl) revEl.textContent = formatVND(totalRev);
+    if (aovSubEl) aovSubEl.textContent = `Trung bình: ${formatVND(aov)}/đơn`;
+    if (cashRevEl) cashRevEl.textContent = formatVND(cashRev);
+    if (cashSubEl) cashSubEl.textContent = `${cashOrders.length} đơn tiền mặt`;
+    if (transRevEl) transRevEl.textContent = formatVND(transferRev);
+    if (transSubEl) transSubEl.textContent = `${transferOrders.length} đơn chuyển khoản`;
+    if (refCountEl) refCountEl.textContent = refundedOrders.length;
+    if (refValEl) refValEl.textContent = formatVND(refundedVal);
+
+    // Update Analytics Section (Top Selling + Payment Ratios)
+    const validSalesItems = validOrders.flatMap(g => g.items);
+    const allFilteredItems = filteredOrders.flatMap(g => g.items);
+    renderOrdersAnalytics(validSalesItems, allFilteredItems);
+
+    if (filteredOrders.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Không tìm thấy đơn hàng nào phù hợp với bộ lọc.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    filteredOrders.forEach(grp => {
+        const isRefunded = grp.refunded === true;
+        const rowStyle = isRefunded
+            ? 'style="background: rgba(239, 68, 68, 0.05); opacity: 0.8;"'
+            : "";
+        const refundStatus = isRefunded
+            ? `<div style="font-size:10.5px; color:#ef4444; font-weight:700; margin-top:2px;"><i class="fa-solid fa-ban"></i> Đã hủy</div>`
+            : `<div style="font-size:10.5px; color:#10b981; font-weight:600; margin-top:2px;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</div>`;
+
+        const actionBtn = isRefunded
+            ? `<span style="color: #ef4444; font-size:11px; font-weight:600;"><i class="fa-solid fa-ban"></i> Đã hoàn</span>`
+            : `
+            <div style="display:flex; gap:4px; justify-content:center;">
+                <button type="button" class="btn-action-sm btn-action-secondary" style="padding: 3px 6px; font-size: 11px;" onclick="viewOrderReceipt('${grp.id}')" title="Xem chi tiết & in hóa đơn">
+                    <i class="fa-solid fa-receipt"></i> Xem
+                </button>
+                <button type="button" class="btn-action-sm btn-action-delete" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 3px 6px; font-size: 11px;" onclick="refundTransaction('${grp.id}')" title="Hủy đơn hàng &amp; hoàn kho">
+                    <i class="fa-solid fa-rotate-left"></i> Hủy
+                </button>
+            </div>
+        `;
+
+        const custName = grp.customer_name || "";
+        const custPhone = grp.customer_phone || "";
+        const payMethod = grp.payment_method || "Tiền mặt";
+
+        const payBadge = payMethod === "Chuyển khoản"
+            ? `<span class="tag-payment-transfer"><i class="fa-solid fa-credit-card"></i> CK</span>`
+            : `<span class="tag-payment-cash"><i class="fa-solid fa-money-bill-wave"></i> Tiền mặt</span>`;
+
+        const custInfo = (custName || custPhone)
+            ? `<div><strong>${esc(custName || "Vãng lai")}</strong>${custPhone ? `<div style="font-size:11px; color:var(--ink-dim);">${esc(custPhone)}</div>` : ''}<div style="margin-top:2px;">${payBadge}</div></div>`
+            : `<div><span style="color:var(--ink-dim); font-size:12px;">Vãng lai</span><div style="margin-top:2px;">${payBadge}</div></div>`;
+
+        // Build list of grouped items inside the order
+        let itemsListHtml = `<div style="display: flex; flex-direction: column; gap: 4px;">`;
+        grp.items.forEach((item, idx) => {
+            const itemPrice = item.unit_price !== undefined ? item.unit_price : item.price;
+            itemsListHtml += `
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 2px 0; ${idx > 0 ? 'border-top: 1px dashed var(--rule);' : ''}">
+                    <div style="overflow: hidden; text-overflow: ellipsis;">
+                        <strong style="color: var(--ink-hi);">${esc(item.product_name)}</strong>
+                        <span style="font-size: 11px; color: var(--ink-dim);">(${esc(item.product_id)})</span>
+                    </div>
+                    <div style="text-align: right; white-space: nowrap; margin-left: 8px;">
+                        <span style="background: rgba(202, 138, 4, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 11px; color: var(--goldleaf);">x${item.quantity}</span>
+                        <span style="font-size: 11px; color: var(--ink-dim); margin-left: 4px;">@ ${formatVND(itemPrice)}</span>
+                        <strong style="font-size: 11.5px; color: var(--ink-hi); margin-left: 6px;">${formatVND(item.total_amount)}</strong>
+                    </div>
+                </div>
+            `;
+        });
+        itemsListHtml += `</div>`;
+
+        html += `
+            <tr ${rowStyle}>
+                <td class="cell-center mk-num">
+                    <strong style="font-size: 13px; color: var(--goldleaf);">${esc(grp.id)}</strong>
+                    ${refundStatus}
+                </td>
+                <td class="cell-center" style="font-size: 11.5px; color: var(--ink-dim);">${esc(grp.timestamp)}</td>
+                <td><span class="shift-id-tag" style="font-size:11.5px;">${esc(grp.channel || "N/A")}</span></td>
+                <td>${itemsListHtml}</td>
+                <td class="cell-center">
+                    <b style="font-size: 13px;">${grp.totalQuantity}</b>
+                    <div style="font-size: 10px; color: var(--ink-dim);">(${grp.items.length} SP)</div>
+                </td>
+                <td class="cell-right mk-num" style="color:${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight:800; font-size: 13.5px; ${isRefunded ? 'text-decoration:line-through;' : ''}">
+                    ${formatVND(grp.totalAmount)}
+                </td>
+                <td>${custInfo}</td>
+                <td><span class="mk-lead">${esc(grp.seller || "Thu ngân")}</span></td>
+                <td style="color:var(--ink-dim); font-size:12px;">${esc(grp.note || "-")}</td>
+                <td class="cell-center">${actionBtn}</td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+}
+
+function renderOrdersAnalytics(validSales, allFilteredSales) {
+    const topBody = document.getElementById("ordersTopSellingBody");
+    const cashPctEl = document.getElementById("ratioCashPct");
+    const transPctEl = document.getElementById("ratioTransferPct");
+    const cashBar = document.getElementById("ratioCashBar");
+    const transBar = document.getElementById("ratioTransferBar");
+    const totalUnitsEl = document.getElementById("totalUnitsSold");
+    const activeShiftsEl = document.getElementById("activeShiftsCount");
+
+    // Top selling products map
+    const prodMap = {};
+    let totalQty = 0;
+    const shiftSet = new Set();
+
+    validSales.forEach(l => {
+        totalQty += (l.quantity || 0);
+        if (l.channel) shiftSet.add(l.channel);
+
+        const key = l.product_name || l.product_id || "Khác";
+        if (!prodMap[key]) {
+            prodMap[key] = { name: key, qty: 0, revenue: 0 };
+        }
+        prodMap[key].qty += (l.quantity || 0);
+        prodMap[key].revenue += (l.total_amount || 0);
+    });
+
+    if (totalUnitsEl) totalUnitsEl.textContent = `${totalQty} món`;
+    if (activeShiftsEl) activeShiftsEl.textContent = `${shiftSet.size} ca`;
+
+    // Render top 5 selling items
+    if (topBody) {
+        const sortedProds = Object.values(prodMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
+        if (sortedProds.length === 0) {
+            topBody.innerHTML = `<tr><td colspan="3" class="table-empty">Chưa có dữ liệu sản phẩm</td></tr>`;
+        } else {
+            let html = "";
+            sortedProds.forEach((p, idx) => {
+                const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`;
+                html += `
+                    <tr>
+                        <td><strong>${medal} ${esc(p.name)}</strong></td>
+                        <td class="cell-center mk-num"><b>${p.qty}</b></td>
+                        <td class="cell-right mk-num" style="color:var(--goldleaf); font-weight:700;">${formatVND(p.revenue)}</td>
+                    </tr>
+                `;
+            });
+            topBody.innerHTML = html;
+        }
+    }
+
+    // Payment method ratios
+    const cashCount = validSales.filter(l => (l.payment_method || "Tiền mặt") === "Tiền mặt").length;
+    const transCount = validSales.filter(l => l.payment_method === "Chuyển khoản").length;
+    const totalValid = validSales.length;
+
+    const cashPct = totalValid > 0 ? Math.round((cashCount / totalValid) * 100) : 0;
+    const transPct = totalValid > 0 ? (100 - cashPct) : 0;
+
+    if (cashPctEl) cashPctEl.textContent = `${cashPct}%`;
+    if (transPctEl) transPctEl.textContent = `${transPct}%`;
+    if (cashBar) cashBar.style.width = `${cashPct}%`;
+    if (transBar) transBar.style.width = `${transPct}%`;
+}
+
+// Receipt detail modal
+window.viewOrderReceipt = function(txId) {
+    const allSales = globalInventoryData?.sales_logs || [];
+    const orderItems = allSales.filter(l => l.id === txId);
+    if (orderItems.length === 0) {
+        showToast("Không tìm thấy thông tin đơn hàng này!", "error");
+        return;
+    }
+
+    const firstTx = orderItems[0];
+    const modal = document.getElementById("orderReceiptModal");
+    const body = document.getElementById("orderReceiptModalBody");
+    const refundBtn = document.getElementById("btnReceiptRefundOrder");
+
+    const isRefunded = orderItems.some(item => item.refunded === true);
+
+    if (refundBtn) {
+        if (isRefunded) {
+            refundBtn.style.display = "none";
+        } else {
+            refundBtn.style.display = "inline-flex";
+            refundBtn.onclick = async () => {
+                document.getElementById("orderReceiptModal")?.classList.remove("active");
+                await refundTransaction(txId);
+            };
+        }
+    }
+
+    const statusText = isRefunded ? "🔴 ĐÃ HỦY / HOÀN TIỀN" : "✅ THÀNH CÔNG";
+    const statusColor = isRefunded ? "#ef4444" : "#10b981";
+
+    const totalOrderAmount = orderItems.reduce((acc, item) => acc + (item.total_amount || 0), 0);
+
+    let itemsRowsHtml = "";
+    orderItems.forEach(item => {
+        const uPrice = item.unit_price !== undefined ? item.unit_price : item.price;
+        itemsRowsHtml += `
+            <tr>
+                <td style="padding: 6px 0;">
+                    <strong>${esc(item.product_name)}</strong><br/>
+                    <span style="font-size:10.5px; color:var(--ink-dim);">Mã SP: ${esc(item.product_id)}</span>
+                </td>
+                <td style="text-align: center; font-weight: 700;">${item.quantity}</td>
+                <td style="text-align: right;">${formatVND(uPrice)}</td>
+                <td style="text-align: right; font-weight: 700; color: var(--goldleaf);">${formatVND(item.total_amount)}</td>
+            </tr>
+        `;
+    });
+
+    body.innerHTML = `
+        <div style="text-align: center; border-bottom: 1px dashed var(--rule); padding-bottom: 12px; margin-bottom: 12px;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--goldleaf);">DỰ ÁN GÂY QUỸ F&amp;B THPT CHUYÊN HÙNG VƯƠNG</div>
+            <div style="font-size: 12px; color: var(--ink-dim);">HÓA ĐƠN BÁN HÀNG REALTIME POS</div>
+            <div style="font-size: 13px; font-weight: 700; margin-top: 6px; color: ${statusColor};">${statusText}</div>
+        </div>
+        <div style="font-size: 12px; line-height: 1.6; color: var(--ink-hi);">
+            <div style="display: flex; justify-content: space-between;">
+                <span>Mã đơn hàng:</span>
+                <strong style="color: var(--goldleaf); font-size: 13px;">${esc(firstTx.id)}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Thời gian:</span>
+                <span>${esc(firstTx.timestamp)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Ca trực:</span>
+                <span class="shift-id-tag">${esc(firstTx.channel || "N/A")}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Thu ngân / Người bán:</span>
+                <strong>${esc(firstTx.seller || "N/A")}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Khách hàng:</span>
+                <span>${esc(firstTx.customer_name || "Vãng lai")} ${firstTx.customer_phone ? `(${esc(firstTx.customer_phone)})` : ''}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Hình thức thanh toán:</span>
+                <strong>${esc(firstTx.payment_method || "Tiền mặt")}</strong>
+            </div>
+        </div>
+
+        <div style="margin-top: 14px; border-top: 1px dashed var(--rule); border-bottom: 1px dashed var(--rule); padding: 10px 0;">
+            <div style="font-weight: 700; font-size: 12px; margin-bottom: 6px; color: var(--goldleaf);">DANH SÁCH SẢN PHẨM TRONG ĐƠN (${orderItems.length} MÓN):</div>
+            <table style="width: 100%; font-size: 12px;">
+                <thead>
+                    <tr style="color: var(--ink-dim); border-bottom: 1px solid var(--rule);">
+                        <th style="text-align: left; padding: 4px 0;">Sản phẩm</th>
+                        <th style="text-align: center; width: 40px;">SL</th>
+                        <th style="text-align: right; width: 80px;">Đơn giá</th>
+                        <th style="text-align: right; width: 90px;">Thành tiền</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsRowsHtml}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center; font-size: 14px;">
+            <strong style="color: var(--ink-hi);">TỔNG CỘNG THANH TOÁN:</strong>
+            <strong style="font-size: 18px; color: var(--goldleaf);">${formatVND(totalOrderAmount)}</strong>
+        </div>
+
+        ${firstTx.note ? `<div style="margin-top: 8px; font-size: 11.5px; color: var(--ink-dim); background: var(--lacquer-2); padding: 6px 10px; border-radius: 4px;"><strong>Ghi chú:</strong> ${esc(firstTx.note)}</div>` : ''}
+    `;
+
+    document.getElementById("orderReceiptModal")?.classList.add("active");
+};
+
+// Export all shift orders to Excel CSV
+function exportOrdersToExcel() {
+    const allSales = globalInventoryData?.sales_logs || [];
+    if (allSales.length === 0) {
+        showToast("Chưa có dữ liệu đơn hàng để xuất!", "warning");
+        return;
+    }
+
+    let csvContent = "\uFEFFMã Đơn,Thời Gian,Ca Trực,Tên Sản Phẩm,Mã SP,Số Lượng,Đơn Vị,Đơn Giá,Thành Tiền,Hình Thức Thanh Toán,Tên Khách Hàng,SĐT Khách Hàng,Thu Ngân,Ghi Chú,Trạng Thái\n";
+
+    allSales.forEach(l => {
+        const row = [
+            `"${(l.id || "").replace(/"/g, '""')}"`,
+            `"${(l.timestamp || "").replace(/"/g, '""')}"`,
+            `"${(l.channel || "").replace(/"/g, '""')}"`,
+            `"${(l.product_name || "").replace(/"/g, '""')}"`,
+            `"${(l.product_id || "").replace(/"/g, '""')}"`,
+            l.quantity || 0,
+            `"${(l.unit || "").replace(/"/g, '""')}"`,
+            l.unit_price || 0,
+            l.total_amount || 0,
+            `"${(l.payment_method || "Tiền mặt").replace(/"/g, '""')}"`,
+            `"${(l.customer_name || "").replace(/"/g, '""')}"`,
+            `"${(l.customer_phone || "").replace(/"/g, '""')}"`,
+            `"${(l.seller || "").replace(/"/g, '""')}"`,
+            `"${(l.note || "").replace(/"/g, '""')}"`,
+            l.refunded ? "Đã Hủy" : "Thành Công"
+        ];
+        csvContent += row.join(",") + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_Cao_Chi_Tiet_Don_Hang_Cac_Ca_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Đã xuất file báo cáo đơn hàng Excel (CSV) thành công!", "success");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const filterShift = document.getElementById("ordersFilterShift");
+    const filterTime = document.getElementById("ordersFilterTime");
+    const filterPay = document.getElementById("ordersFilterPayment");
+    const filterStatus = document.getElementById("ordersFilterStatus");
+    const searchInp = document.getElementById("ordersSearchInput");
+    const btnRefresh = document.getElementById("btnRefreshOrdersTab");
+    const btnExport = document.getElementById("btnExportOrdersExcel");
+    const btnToggleAnalytics = document.getElementById("btnToggleOrdersAnalytics");
+    const analyticsCard = document.getElementById("ordersAnalyticsCard");
+    const btnCloseReceipt = document.getElementById("btnCloseReceiptModal");
+    const btnCloseReceiptFooter = document.getElementById("btnCloseReceiptModalFooter");
+    const btnPrintReceipt = document.getElementById("btnPrintReceiptBtn");
+
+    if (filterShift) filterShift.addEventListener("change", renderAllShiftOrdersTab);
+    if (filterTime) filterTime.addEventListener("change", renderAllShiftOrdersTab);
+    if (filterPay) filterPay.addEventListener("change", renderAllShiftOrdersTab);
+    if (filterStatus) filterStatus.addEventListener("change", renderAllShiftOrdersTab);
+    if (searchInp) searchInp.addEventListener("input", renderAllShiftOrdersTab);
+    
+    if (btnRefresh) {
+        btnRefresh.addEventListener("click", () => {
+            loadInventoryData();
+            renderAllShiftOrdersTab();
+        });
+    }
+
+    if (btnExport) {
+        btnExport.addEventListener("click", exportOrdersToExcel);
+    }
+
+    if (btnToggleAnalytics && analyticsCard) {
+        btnToggleAnalytics.addEventListener("click", () => {
+            const isHidden = analyticsCard.style.display === "none";
+            analyticsCard.style.display = isHidden ? "block" : "none";
+            const lbl = document.getElementById("lblToggleAnalytics");
+            if (lbl) lbl.textContent = isHidden ? "Ẩn Phân Tích" : "Top Món Bán Chạy";
+        });
+    }
+
+    if (btnCloseReceipt) btnCloseReceipt.addEventListener("click", () => document.getElementById("orderReceiptModal")?.classList.remove("active"));
+    if (btnCloseReceiptFooter) btnCloseReceiptFooter.addEventListener("click", () => document.getElementById("orderReceiptModal")?.classList.remove("active"));
+    if (btnPrintReceipt) {
+        btnPrintReceipt.addEventListener("click", () => {
+            window.print();
+        });
+    }
+});
+
+// --- COMPETITION LOGIC ---
+document.querySelectorAll('#comp-tabs .p-tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        document.querySelectorAll('#comp-tabs .p-tab-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        
+        document.querySelectorAll('.comp-pane').forEach(p => {
+            p.style.display = 'none';
+        });
+        const target = e.target.getAttribute('data-target');
+        const pane = document.getElementById(target);
+        if (pane) {
+            pane.style.display = 'block';
+        }
+    });
+});
+
+async function loadCompetitionStats(week = "TỔNG KẾT") {
+    try {
+        const res = await fetch(`/api/competition/stats?week=${encodeURIComponent(week)}`);
+        const data = await res.json();
+        if (data.success) {
+            renderCompetitionStats(data);
+        }
+    } catch (e) {
+        console.error("Lỗi tải thi đua:", e);
+    }
+}
+
+function renderCompetitionStats(data) {
+    // 1. Best Seller
+    const bsList = document.getElementById('compListBestSeller');
+    if (bsList) {
+        bsList.innerHTML = '';
+        if (data.best_seller.length === 0) {
+            bsList.innerHTML = '<div style="padding: 10px; text-align: center; opacity: 0.7;">Chưa có dữ liệu. Hãy tạo giao dịch bán hàng ở ca bất kỳ.</div>';
+        } else {
+            data.best_seller.forEach((m, idx) => {
+                if(m.individual_sales > 0) {
+                    bsList.innerHTML += `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 10px; border-radius: var(--radius-sm); background: var(--lacquer-3); border: 1px solid var(--rule);">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-weight: bold; width: 24px; text-align: center; color: ${idx===0 ? '#ff9800' : 'var(--text-color)'};">#${idx+1}</span>
+                                <span style="font-weight: 500;">${m.name}</span>
+                            </div>
+                            <div style="font-weight: bold; color: var(--ink-hi);">${m.individual_sales} <span style="font-size: 0.8rem; font-weight: normal; color: var(--ink-dim);">sp</span></div>
+                        </div>
+                    `;
+                }
+            });
+        }
+    }
+
+    // 2. All Rounder
+    const arList = document.getElementById('compListAllRounder');
+    if (arList) {
+        arList.innerHTML = '';
+        if (data.all_rounder.length === 0) {
+            arList.innerHTML = '<div style="padding: 10px; text-align: center; opacity: 0.7;">Chưa có dữ liệu.</div>';
+        } else {
+            data.all_rounder.forEach((m, idx) => {
+                if(m.total_score > 0) {
+                    arList.innerHTML += `
+                        <div style="display: flex; flex-direction: column; padding: 12px; margin-bottom: 10px; border-radius: var(--radius-sm); background: var(--lacquer-3); border: 1px solid var(--rule);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-weight: bold; width: 24px; text-align: center; color: ${idx===0 ? '#4caf50' : 'var(--text-color)'};">#${idx+1}</span>
+                                    <span style="font-weight: 500;">${m.name}</span>
+                                </div>
+                                <div style="font-weight: bold; font-size: 1.1rem; color: var(--ink-hi);">${m.total_score.toFixed(1)} <span style="font-size: 0.8rem; font-weight: normal; color: var(--ink-dim);">điểm</span></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--ink-dim);">
+                                <span>SL: ${m.sales_score.toFixed(1)}</span>
+                                <span>HS: ${m.prod_score.toFixed(1)}</span>
+                                <span>UT: ${m.rep_score.toFixed(1)}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+        }
+    }
+
+    // 3. Shift Groups
+    const sTable = document.getElementById('compTableShift');
+    if (sTable) {
+        sTable.innerHTML = '';
+        if (data.shift_groups.length === 0) {
+            sTable.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; opacity: 0.7;">Chưa có dữ liệu nhóm ca trực. Hãy xếp ca và ghi nhận bán hàng.</td></tr>';
+        } else {
+            data.shift_groups.forEach((sg, idx) => {
+                sTable.innerHTML += `
+                    <tr>
+                        <td style="font-weight: bold; text-align: center; color: ${idx===0?'#2196f3':''};">#${idx+1}</td>
+                        <td>
+                            <div style="font-weight: bold;">${sg.shift_id}</div>
+                            <div style="font-size: 0.85rem; color: var(--ink-dim);">${sg.members.join(", ")}</div>
+                        </td>
+                        <td style="text-align: center;">${sg.sales_score.toFixed(1)}</td>
+                        <td style="text-align: center;">${sg.rep_score.toFixed(1)}</td>
+                        <td style="text-align: center; font-weight: bold; color: var(--ink-hi);">${sg.total_score.toFixed(1)}</td>
+                    </tr>
+                `;
+            });
+        }
+    }
+
+    // 4. Departments
+    const dTable = document.getElementById('compTableDept');
+    if (dTable) {
+        dTable.innerHTML = '';
+        if (data.departments.length === 0) {
+            dTable.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; opacity: 0.7;">Chưa có dữ liệu ban.</td></tr>';
+        } else {
+            data.departments.forEach((d, idx) => {
+                dTable.innerHTML += `
+                    <tr>
+                        <td style="font-weight: bold; text-align: center; color: ${idx===0?'#9c27b0':''};">#${idx+1}</td>
+                        <td style="font-weight: bold;">${d.department}</td>
+                        <td style="text-align: center;">${d.sales_score.toFixed(1)}</td>
+                        <td style="text-align: center;">${d.prod_score.toFixed(1)}</td>
+                        <td style="text-align: center;">${d.rep_score.toFixed(1)}</td>
+                        <td style="text-align: center; font-weight: bold; color: var(--ink-hi);">${d.total_score.toFixed(1)}</td>
+                    </tr>
+                `;
+            });
+        }
+    }
+}
+
+async function seedMockData() {
+    if (!confirm("Tạo dữ liệu mẫu sẽ thêm doanh thu giả lập và các lỗi vi phạm để kiểm thử bảng xếp hạng. Bạn có chắc chắn muốn thực hiện?")) return;
+    try {
+        const res = await fetch("/api/competition/seed", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message);
+            const currentWeek = document.getElementById('compWeekSelect')?.value || 'TỔNG KẾT';
+            loadCompetitionStats(currentWeek);
+        }
+    } catch (e) {
+        console.error("Lỗi khi tạo dữ liệu mẫu:", e);
+        alert("Có lỗi xảy ra khi tạo dữ liệu mẫu");
+    }
+}
+async function handleCheckoutLivePOS() {
+    const keys = Object.keys(liveCart);
+    const msg = document.getElementById("livePOSMsg");
+    if (keys.length === 0) {
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Giỏ hàng đang trống! Hãy chọn sản phẩm trước.";
+        }
+        return;
+    }
+
+    const seller =
+        document.getElementById("livePOSSelectSeller")?.value || "Thu ngân ca";
+    const custName = document.getElementById("livePOSCustomerName")?.value.trim() || "";
+    const custPhone = document.getElementById("livePOSCustomerPhone")?.value.trim() || "";
+    const paymentMethod = document.getElementById("livePOSPaymentMethod")?.value || "Tiền mặt";
+    const rawNote = document.getElementById("livePOSInputNote")?.value.trim() || "";
+    const shiftId = currentSelectedLiveShiftId || "Live";
+    const channelName = `Ca ${shiftId}`;
+
+    if (msg) {
+        msg.className = "swap-msg";
+        msg.textContent = "Đang thanh toán và ghi nhận giao dịch...";
+    }
+
+    try {
+        const itemsToCheckout = [];
+        for (const id of keys) {
+            itemsToCheckout.push({
+                product_id: id,
+                quantity: liveCart[id].quantity
+            });
+        }
+
+        const res = await fetch("/api/inventory/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                items: itemsToCheckout,
+                channel: channelName,
+                seller: seller,
+                shift_id: shiftId,
+                customer_name: custName,
+                customer_phone: custPhone,
+                payment_method: paymentMethod,
+                note: rawNote || `Bán hàng POS tại Ca-Live ${shiftId}`,
+            }),
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+            liveCart = {};
+            renderLiveCart();
+            if (document.getElementById("livePOSCustomerName")) document.getElementById("livePOSCustomerName").value = "";
+            if (document.getElementById("livePOSCustomerPhone")) document.getElementById("livePOSCustomerPhone").value = "";
+            if (document.getElementById("livePOSInputNote")) document.getElementById("livePOSInputNote").value = "";
+            if (msg) {
+                msg.className = "swap-msg success";
+                msg.textContent = data.message;
+                setTimeout(() => {
+                    msg.textContent = "";
+                    msg.className = "swap-msg";
+                }, 3000);
+            }
+            
+            globalInventoryData = data;
+            renderInventoryKPIs(data.kpis);
+            renderInventoryTable(data.products || []);
+            renderSalesLogsTable(data.sales_logs || []);
+            populateSaleProductOptions(data.products || []);
+            renderLivePOSProductGrid();
+            if (currentSelectedLiveShiftId) {
+                renderLiveShiftSalesTable(currentSelectedLiveShiftId);
+            }
+        } else {
+            if (msg) {
+                msg.className = "swap-msg error";
+                msg.textContent = data.message || "Lỗi khi ghi nhận.";
+            }
+        }
+    } catch (e) {
+        console.error(e);
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi hệ thống khi thanh toán.";
+        }
+    }
 }
