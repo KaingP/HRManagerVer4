@@ -1915,6 +1915,12 @@ body.light-theme .topbar {
     border-radius: var(--radius-sm);
 }
 
+.kpi-icon.purple {
+    color: #8b5cf6 !important;
+    background: rgba(139, 92, 246, 0.1) !important;
+    border-color: rgba(139, 92, 246, 0.2) !important;
+}
+
 .kpi-data {
     min-width: 0;
 }
@@ -2190,13 +2196,48 @@ body.light-theme .risk-table tbody tr:hover {
     color: var(--ink-hi);
 }
 
+.outside-grid {
+    display: grid;
+    grid-template-columns: 290px 1fr;
+    gap: var(--gap, 16px);
+    align-items: start;
+}
+@media (max-width: 960px) {
+    .outside-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 .outside-table {
-    min-width: 620px;
+    width: 100%;
+    min-width: 100%;
+    border-collapse: collapse;
+}
+.outside-table th {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--goldleaf);
+    white-space: nowrap;
+}
+.outside-table td {
+    font-size: 12.5px;
+    vertical-align: middle;
 }
 .outside-table-box {
     max-height: 440px;
     overflow-y: auto;
+    overflow-x: hidden;
     border-radius: var(--radius-sm);
+}
+@media (max-width: 768px) {
+    .outside-table {
+        min-width: 560px;
+    }
+    .outside-table-box {
+        overflow-x: auto;
+    }
 }
 
 .risk-table {
@@ -4254,5 +4295,16 @@ body.light-theme .order-stat-card {
     #orderReceiptModal .modal-footer {
         display: none !important;
     }
+}
+
+/* Admin vs Staff Visibility Controls */
+body.staff-mode .admin-only-elem,
+body:not(.admin-mode) .admin-only-elem {
+    display: none !important;
+}
+
+body.staff-mode .admin-only-cell,
+body:not(.admin-mode) .admin-only-cell {
+    display: none !important;
 }
 

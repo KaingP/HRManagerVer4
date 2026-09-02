@@ -60,6 +60,29 @@ export interface Product {
     note?: string;
 }
 
+export interface OnlineOrderItem {
+    product_id?: string;
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    total_price: number;
+}
+
+export interface OnlineOrder {
+    id: string;
+    customer_name: string;
+    class_name: string;
+    pickup_date: string;
+    pickup_time_slot: string;
+    shift_id: string;
+    shift_label?: string;
+    items: OnlineOrderItem[];
+    total_amount: number;
+    payment_status: "Chưa thanh toán" | "Đã thanh toán";
+    note?: string;
+    created_at: string;
+}
+
 export interface SaleTransaction {
     id: string;
     timestamp: string;
@@ -149,6 +172,62 @@ let ENABLE_CA_NGOAI = true;
 let INCIDENT_LOGS: any[] = [];
 let LATEST_SCHEDULE_RESULT: any = null;
 
+export interface SystemNotification {
+    id: string;
+    type: "UNREACHABLE_BACKUP" | "REPLACEMENT_UPDATED" | "MEMBER_ADDED" | "GENERAL";
+    title: string;
+    message: string;
+    shift_id: string;
+    shift_day?: string;
+    shift_slot?: string;
+    absent_member_id?: string;
+    absent_member_name?: string;
+    backup_member_id?: string;
+    backup_member_name?: string;
+    created_at: string;
+    timestamp_ms: number;
+    target_role: "admin" | "staff" | "all";
+    resolved: boolean;
+}
+
+let SYSTEM_NOTIFICATIONS: SystemNotification[] = [];
+let SCHEDULE_VERSION: number = 1;
+
+function addSystemNotification(notif: Omit<SystemNotification, "id" | "created_at" | "timestamp_ms" | "resolved"> & { id?: string; resolved?: boolean }) {
+    const timestamp = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour12: false,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    });
+    const newNotif: SystemNotification = {
+        id: notif.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        type: notif.type,
+        title: notif.title,
+        message: notif.message,
+        shift_id: notif.shift_id,
+        shift_day: notif.shift_day,
+        shift_slot: notif.shift_slot,
+        absent_member_id: notif.absent_member_id,
+        absent_member_name: notif.absent_member_name,
+        backup_member_id: notif.backup_member_id,
+        backup_member_name: notif.backup_member_name,
+        created_at: timestamp,
+        timestamp_ms: Date.now(),
+        target_role: notif.target_role || "all",
+        resolved: notif.resolved || false,
+    };
+    SYSTEM_NOTIFICATIONS.unshift(newNotif);
+    if (SYSTEM_NOTIFICATIONS.length > 60) {
+        SYSTEM_NOTIFICATIONS = SYSTEM_NOTIFICATIONS.slice(0, 60);
+    }
+    return newNotif;
+}
+
 const DEFAULT_PRODUCTS: Product[] = [];
 
 const DEFAULT_SALES_LOGS: SaleTransaction[] = [];
@@ -157,6 +236,7 @@ let INVENTORY_PRODUCTS: Product[] = [];
 let SALES_LOGS: SaleTransaction[] = [];
 let KPI_ATTENDANCE: any[] = [];
 let SHIFT_AUDITS: ShiftAudit[] = [];
+let ONLINE_ORDERS: OnlineOrder[] = [];
 
 // Optimizer & Shift Configuration Interfaces
 export interface DailyShiftConfig {
@@ -232,8 +312,8 @@ const DEFAULT_OPTIMIZER_CONFIG: OptimizerConfig = {
     start_date: "2026-08-24",
     phong_chinh_count: 4,
     phong_dp_count: 1,
-    min_shifts: 1,
-    max_shifts: 4,
+    min_shifts: 3,
+    max_shifts: 5,
     max_shifts_per_day: 2,
     enable_ca_ngoai: true,
     daily_shift_configs: DEFAULT_DAILY_SHIFT_CONFIGS,
@@ -243,31 +323,81 @@ let OPTIMIZER_CONFIG: OptimizerConfig = JSON.parse(
     JSON.stringify(DEFAULT_OPTIMIZER_CONFIG),
 );
 
+function getShiftNumber(s: { shift_id?: string; slot?: string; start_time?: string; type?: string }): number | null {
+    if (s.type && s.type !== "Phong") return null;
+    const id = (s.shift_id || "").trim().toUpperCase();
+
+    // Check CA001 to CA035
+    const caMatch = id.match(/CA0*(\d+)/i);
+    if (caMatch) {
+        const num = parseInt(caMatch[1], 10);
+        if (num >= 1 && num <= 35) {
+            return ((num - 1) % 5) + 1; // 1->1, 2->2, 3->3, 4->4, 5->5, 6->1, ...
+        }
+    }
+
+    // Check suffix _S1.._S5 or _C1.._C5 or _1.._5 or S1..S5
+    const sufMatch = id.match(/[_\-SC](\d+)$/i);
+    if (sufMatch) {
+        const num = parseInt(sufMatch[1], 10);
+        return ((num - 1) % 5) + 1;
+    }
+
+    // Fallback: match by start_time or slot
+    const st = (s.start_time || "").trim();
+    const sl = (s.slot || "").trim();
+    if (st.startsWith("07") || sl.includes("07") || sl.includes("7h")) return 1;
+    if (st.startsWith("09") || sl.includes("09") || sl.includes("9h")) return 2;
+    if (st.startsWith("11") || st.startsWith("12") || sl.includes("12") || sl.includes("11h")) return 3;
+    if (st.startsWith("13") || st.startsWith("14") || sl.includes("14") || sl.includes("13h")) return 4;
+    if (st.startsWith("15") || st.startsWith("16") || sl.includes("16") || sl.includes("15h")) return 5;
+
+    return null;
+}
+
+const STANDARD_SLOTS = [
+    "07h00 - 09h30",
+    "09h35 - 12h00",
+    "12h05 - 14h00",
+    "14h05 - 16h05",
+    "16h10 - 18h00",
+];
+const LEGACY_SLOTS = [
+    "7h - 9h",
+    "9h - 11h",
+    "11h - 13h",
+    "13h - 15h",
+    "15h - 17h",
+];
+
 function applyDailyConfigsToShifts(shifts: Shift[], dailyConfigs: DailyShiftConfig[]) {
     if (!dailyConfigs || !dailyConfigs.length) return;
     const configMap = new Map<number, DailyShiftConfig>();
-    dailyConfigs.forEach((c) => configMap.set(c.shift_num, c));
+    dailyConfigs.forEach((c) => configMap.set(Number(c.shift_num), c));
 
     for (const s of shifts) {
         if (s.type === "Phong") {
-            const shiftNumMatch =
-                s.shift_id.match(/_S(\d+)/i) ||
-                s.shift_id.match(/_C(\d+)/i) ||
-                s.shift_id.match(/_(\d+)/);
-            if (shiftNumMatch) {
-                const num = parseInt(shiftNumMatch[1], 10);
-                const conf = configMap.get(num);
-                if (conf) {
-                    s.start_time = conf.start_time;
-                    s.end_time = conf.end_time;
-                    s.slot = `${conf.start_time} - ${conf.end_time}`;
-                    s.note = conf.note;
-                    s.chinh_count = conf.chinh_count;
-                    s.dp_count = conf.dp_count;
-                    s.required_count = conf.chinh_count;
-                    s.backup_count = conf.dp_count;
-                    s.active = conf.active;
-                }
+            const num = getShiftNumber(s);
+            if (num && configMap.has(num)) {
+                const conf = configMap.get(num)!;
+                if (conf.start_time) s.start_time = conf.start_time;
+                if (conf.end_time) s.end_time = conf.end_time;
+                const stdSlot = STANDARD_SLOTS[num - 1] || `${conf.start_time} - ${conf.end_time}`;
+                const legSlot = LEGACY_SLOTS[num - 1] || stdSlot;
+                s.slot = `${conf.start_time} - ${conf.end_time}`;
+                s.overlapping_slots = [
+                    stdSlot,
+                    legSlot,
+                    `${conf.start_time} - ${conf.end_time}`,
+                ];
+                if (conf.note !== undefined) s.note = conf.note;
+                const chinh = parseInt(String(conf.chinh_count), 10) || 4;
+                const dp = parseInt(String(conf.dp_count), 10) || 0;
+                s.chinh_count = chinh;
+                s.dp_count = dp;
+                s.required_count = chinh + dp;
+                s.backup_count = dp;
+                s.active = conf.active !== false;
             }
         }
     }
@@ -331,6 +461,7 @@ function persist() {
         sales_logs: SALES_LOGS,
         kpi_attendance: KPI_ATTENDANCE,
         shift_audits: SHIFT_AUDITS,
+        online_orders: ONLINE_ORDERS,
     };
     try {
         const dir = path.dirname(STATE_FILE);
@@ -356,12 +487,17 @@ function applyStartDateToShifts(shifts: Shift[], startDate: string) {
 
 async function runDefaultOptimization() {
     applyStartDateToShifts(CURRENT_SHIFTS, START_DATE);
+    if (OPTIMIZER_CONFIG.daily_shift_configs) {
+        applyDailyConfigsToShifts(CURRENT_SHIFTS, OPTIMIZER_CONFIG.daily_shift_configs);
+    }
     const config = {
         start_date: START_DATE,
-        phong_chinh_count: 3,
-        phong_dp_count: 1,
+        min_shifts_per_member: OPTIMIZER_CONFIG.min_shifts || 3,
+        max_shifts_per_member: OPTIMIZER_CONFIG.max_shifts || 5,
+        max_shifts_per_day: OPTIMIZER_CONFIG.max_shifts_per_day || 2,
         enable_ca_ngoai: ENABLE_CA_NGOAI,
         custom_ca_ngoai: CUSTOM_CA_NGOAI,
+        daily_shift_configs: OPTIMIZER_CONFIG.daily_shift_configs,
     };
     const scheduler = new ShiftScheduler(
         CURRENT_SHIFTS,
@@ -410,6 +546,7 @@ function bootstrapState() {
                 SALES_LOGS = saved.sales_logs || [];
                 KPI_ATTENDANCE = saved.kpi_attendance || [];
                 SHIFT_AUDITS = saved.shift_audits || [];
+                ONLINE_ORDERS = saved.online_orders || [];
 
                 if (saved.optimizer_config) {
                     OPTIMIZER_CONFIG = saved.optimizer_config;
@@ -983,6 +1120,553 @@ app.get("/api/inventory/template-excel", (req, res) => {
         res.setHeader(
             "Content-Disposition",
             'attachment; filename="Bang_Danh_Muc_Hang_Hoa_Mau.xlsx"',
+        );
+        res.send(buf);
+    } catch (err: any) {
+        res.status(500).json({
+            success: false,
+            message: `Lỗi tạo file mẫu: ${err.message}`,
+        });
+    }
+});
+
+// Helper: Match Online Order Date & Slot to System Shift
+function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts: Shift[]): Shift | null {
+    if (!shifts || shifts.length === 0) return null;
+
+    const normSlot = (slotStr || "").toLowerCase();
+    
+    // Determine slot index (0 to 4) if possible
+    let slotIndex = -1;
+    if (normSlot.includes("1") || normSlot.includes("7h") || normSlot.includes("07h")) slotIndex = 0;
+    else if (normSlot.includes("2") || normSlot.includes("9h") || normSlot.includes("09h")) slotIndex = 1;
+    else if (normSlot.includes("3") || normSlot.includes("12h") || normSlot.includes("11h")) slotIndex = 2;
+    else if (normSlot.includes("4") || normSlot.includes("14h") || normSlot.includes("13h")) slotIndex = 3;
+    else if (normSlot.includes("5") || normSlot.includes("16h") || normSlot.includes("15h")) slotIndex = 4;
+
+    // 1. Try exact match on shift.date === pickupDateStr
+    const exactDateShifts = shifts.filter(s => s.date === pickupDateStr);
+    if (exactDateShifts.length > 0) {
+        if (slotIndex >= 0 && exactDateShifts[slotIndex]) {
+            return exactDateShifts[slotIndex];
+        }
+        const matchBySlot = exactDateShifts.find(s => 
+            (s.slot && s.slot.toLowerCase().includes(normSlot)) ||
+            (s.start_time && s.start_time.includes(normSlot)) ||
+            (s.shift_id && s.shift_id.toLowerCase().includes(normSlot))
+        );
+        if (matchBySlot) return matchBySlot;
+        return exactDateShifts[0];
+    }
+
+    // 2. Try match by day name (e.g., pickupDateStr might be "Thứ 2" or "t2")
+    const normDateStr = (pickupDateStr || "").toLowerCase();
+    const dayNameShifts = shifts.filter(s => s.day && s.day.toLowerCase().includes(normDateStr));
+    if (dayNameShifts.length > 0) {
+        if (slotIndex >= 0 && dayNameShifts[slotIndex]) {
+            return dayNameShifts[slotIndex];
+        }
+        return dayNameShifts[0];
+    }
+
+    // 3. Fallback: match any shift by slotIndex or slotStr
+    if (slotIndex >= 0 && shifts[slotIndex]) {
+        return shifts[slotIndex];
+    }
+
+    return shifts[0] || null;
+}
+
+// Helper: Parse Online Orders from Excel File
+function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Product[]): OnlineOrder[] {
+    const workbook = xlsx.read(buffer, { type: "buffer", cellDates: true });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) return [];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rawData: any[] = xlsx.utils.sheet_to_json(worksheet, { defval: "" });
+
+    const newOrders: OnlineOrder[] = [];
+
+    rawData.forEach((row, idx) => {
+        const keys = Object.keys(row);
+        const findVal = (patterns: string[]) => {
+            const key = keys.find(k => patterns.some(p => k.toLowerCase().replace(/[\s\_\-]/g, "").includes(p.toLowerCase().replace(/[\s\_\-]/g, ""))));
+            return key ? row[key] : "";
+        };
+
+        const customerName = String(findVal(["hoten", "hovaten", "tenkhach", "khachhang", "name", "ten"]) || "").trim();
+        const className = String(findVal(["lop", "class"]) || "").trim();
+        let dateVal = findVal(["ngaylay", "ngaydukien", "ngaydukienthanhtoan", "ngay", "date", "pickupdate"]);
+        let slotVal = String(findVal(["khunggio", "calay", "ca", "slot", "khunggiolay", "timeslot"]) || "").trim();
+
+        if (!customerName && !className && !dateVal) {
+            return; // skip empty rows
+        }
+
+        // Format pickup_date
+        let pickupDate = "";
+        if (dateVal instanceof Date) {
+            const y = dateVal.getFullYear();
+            const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+            const d = String(dateVal.getDate()).padStart(2, '0');
+            pickupDate = `${y}-${m}-${d}`;
+        } else if (typeof dateVal === "number") {
+            const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+            const y = jsDate.getFullYear();
+            const m = String(jsDate.getMonth() + 1).padStart(2, '0');
+            const d = String(jsDate.getDate()).padStart(2, '0');
+            pickupDate = `${y}-${m}-${d}`;
+        } else {
+            let strDate = String(dateVal || "").trim();
+            if (strDate.includes("/")) {
+                const parts = strDate.split("/");
+                if (parts.length === 3) {
+                    if (parts[2].length === 4) {
+                        pickupDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                    } else if (parts[0].length === 4) {
+                        pickupDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                    }
+                } else {
+                    pickupDate = strDate;
+                }
+            } else if (strDate.includes("-")) {
+                const parts = strDate.split("-");
+                if (parts.length === 3) {
+                    if (parts[0].length === 4) {
+                        pickupDate = strDate;
+                    } else if (parts[2].length === 4) {
+                        pickupDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                    }
+                } else {
+                    pickupDate = strDate;
+                }
+            } else {
+                pickupDate = strDate;
+            }
+        }
+
+        const orderItems: OnlineOrderItem[] = [];
+
+        // Pattern 1: Pair columns "Mặt hàng 1", "Số lượng 1", "Mặt hàng 2", "Số lượng 2"...
+        let foundPair = false;
+        for (let i = 1; i <= 10; i++) {
+            const itemKey = keys.find(k => {
+                const lk = k.toLowerCase().replace(/[\s\_\-]/g, "");
+                return lk === `mathang${i}` || lk === `tenhang${i}` || lk === `sanpham${i}`;
+            });
+            const qtyKey = keys.find(k => {
+                const lk = k.toLowerCase().replace(/[\s\_\-]/g, "");
+                return lk === `soluong${i}` || lk === `sl${i}`;
+            });
+
+            if (itemKey && row[itemKey]) {
+                foundPair = true;
+                const pName = String(row[itemKey]).trim();
+                const pQty = parseFloat(qtyKey ? row[qtyKey] : 1) || 1;
+                
+                const matchedProd = products.find(p => p.name.toLowerCase() === pName.toLowerCase() || p.id.toLowerCase() === pName.toLowerCase() || p.name.toLowerCase().includes(pName.toLowerCase()));
+                const unitPrice = matchedProd ? matchedProd.price : 0;
+                orderItems.push({
+                    product_id: matchedProd ? matchedProd.id : "",
+                    product_name: matchedProd ? matchedProd.name : pName,
+                    quantity: pQty,
+                    unit_price: unitPrice,
+                    total_price: pQty * unitPrice
+                });
+            }
+        }
+
+        // Pattern 2: Columns matching inventory product names/ids
+        if (!foundPair) {
+            products.forEach(p => {
+                const colKey = keys.find(k => k.trim().toLowerCase() === p.name.trim().toLowerCase() || k.trim().toLowerCase() === p.id.trim().toLowerCase());
+                if (colKey && row[colKey] !== "" && row[colKey] !== null && row[colKey] !== undefined) {
+                    const qty = parseFloat(row[colKey]) || 0;
+                    if (qty > 0) {
+                        orderItems.push({
+                            product_id: p.id,
+                            product_name: p.name,
+                            quantity: qty,
+                            unit_price: p.price,
+                            total_price: qty * p.price
+                        });
+                    }
+                }
+            });
+        }
+
+        // Pattern 3: Single column "Mặt hàng" & "Số lượng"
+        if (orderItems.length === 0) {
+            const singleItemName = String(findVal(["mathang", "tenhang", "sanpham"]) || "").trim();
+            const singleQty = parseFloat(findVal(["soluong", "sl"]) || 1) || 1;
+            if (singleItemName) {
+                const matchedProd = products.find(p => p.name.toLowerCase() === singleItemName.toLowerCase() || p.id.toLowerCase() === singleItemName.toLowerCase());
+                const unitPrice = matchedProd ? matchedProd.price : 0;
+                orderItems.push({
+                    product_id: matchedProd ? matchedProd.id : "",
+                    product_name: matchedProd ? matchedProd.name : singleItemName,
+                    quantity: singleQty,
+                    unit_price: unitPrice,
+                    total_price: singleQty * unitPrice
+                });
+            }
+        }
+
+        const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0);
+
+        // Map shift
+        const mappedShift = matchShiftForOnlineOrder(pickupDate, slotVal, shifts);
+
+        const newOrder: OnlineOrder = {
+            id: `ORD_ONLINE_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${idx}`,
+            customer_name: customerName || "Khách Hàng Online",
+            class_name: className || "K.XĐ",
+            pickup_date: pickupDate || "Chưa xác định",
+            pickup_time_slot: slotVal || "Ca 1",
+            shift_id: mappedShift ? mappedShift.shift_id : (shifts.length > 0 ? shifts[0].shift_id : "UNKNOWN"),
+            shift_label: mappedShift ? `${mappedShift.day} (${mappedShift.date || ""}) - ${mappedShift.slot || mappedShift.start_time}` : (slotVal ? `${pickupDate} - ${slotVal}` : "Ca Lấy"),
+            items: orderItems,
+            total_amount: totalAmount,
+            payment_status: "Chưa thanh toán",
+            created_at: new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })
+        };
+
+        newOrders.push(newOrder);
+    });
+
+    return newOrders;
+}
+
+// Online Orders API Routes
+app.get("/api/online-orders", (req, res) => {
+    const shift_id = req.query.shift_id ? String(req.query.shift_id) : "";
+    let result = ONLINE_ORDERS;
+    if (shift_id) {
+        result = ONLINE_ORDERS.filter(o => o.shift_id === shift_id);
+    }
+    res.json({
+        success: true,
+        online_orders: result,
+    });
+});
+
+app.post("/api/online-orders/upload-excel", upload.single("file") as any, (req: any, res: any) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "Vui lòng chọn file Excel để tải lên!" });
+        }
+        const parsed = parseOnlineOrdersExcel(req.file.buffer, CURRENT_SHIFTS, INVENTORY_PRODUCTS);
+        if (parsed.length === 0) {
+            return res.status(400).json({ success: false, message: "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel!" });
+        }
+        ONLINE_ORDERS = [...ONLINE_ORDERS, ...parsed];
+        persist();
+        res.json({
+            success: true,
+            message: `Đã nhập thành công ${parsed.length} đơn hàng online từ Excel!`,
+            count: parsed.length,
+            online_orders: ONLINE_ORDERS,
+        });
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: `Lỗi xử lý file Excel đơn online: ${err.message}` });
+    }
+});
+
+app.post("/api/online-orders/create", (req, res) => {
+    try {
+        const { customer_name, class_name, pickup_date, pickup_time_slot, items, payment_status } = req.body || {};
+        if (!customer_name || !pickup_date || !pickup_time_slot || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, message: "Vui lòng nhập đầy đủ thông tin khách hàng, ngày lấy, khung giờ và ít nhất 1 sản phẩm!" });
+        }
+
+        const orderItems: OnlineOrderItem[] = items.map((it: any) => {
+            const prod = INVENTORY_PRODUCTS.find(p => p.id === it.product_id || p.name.toLowerCase() === (it.product_name || "").toLowerCase());
+            const pQty = Number(it.quantity) || 1;
+            const pPrice = prod ? prod.price : (Number(it.unit_price) || 0);
+            return {
+                product_id: prod ? prod.id : (it.product_id || ""),
+                product_name: prod ? prod.name : (it.product_name || "Sản phẩm"),
+                quantity: pQty,
+                unit_price: pPrice,
+                total_price: pQty * pPrice,
+            };
+        });
+
+        const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0);
+        const mappedShift = matchShiftForOnlineOrder(pickup_date, pickup_time_slot, CURRENT_SHIFTS);
+
+        const newOrder: OnlineOrder = {
+            id: `ORD_MANUAL_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            customer_name: String(customer_name).trim(),
+            class_name: String(class_name || "K.XĐ").trim(),
+            pickup_date: String(pickup_date).trim(),
+            pickup_time_slot: String(pickup_time_slot).trim(),
+            shift_id: mappedShift ? mappedShift.shift_id : (CURRENT_SHIFTS.length > 0 ? CURRENT_SHIFTS[0].shift_id : "UNKNOWN"),
+            shift_label: mappedShift ? `${mappedShift.day} (${mappedShift.date || ""}) - ${mappedShift.slot || mappedShift.start_time}` : `${pickup_date} - ${pickup_time_slot}`,
+            items: orderItems,
+            total_amount: totalAmount,
+            payment_status: payment_status === "Đã thanh toán" ? "Đã thanh toán" : "Chưa thanh toán",
+            created_at: new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
+        };
+
+        if (newOrder.payment_status === "Đã thanh toán") {
+            const nowTime = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+            newOrder.items.forEach(item => {
+                if (item.product_id) {
+                    const prod = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+                    if (prod) {
+                        prod.sold_count = (prod.sold_count || 0) + item.quantity;
+                    }
+                }
+                SALES_LOGS.push({
+                    id: `SALE_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                    timestamp: nowTime,
+                    product_id: item.product_id || "ONLINE",
+                    product_name: item.product_name,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    total_amount: item.total_price,
+                    channel: "Online",
+                    seller: "Manual Online",
+                    shift_id: newOrder.shift_id,
+                    customer_name: `${newOrder.customer_name} (${newOrder.class_name})`,
+                    payment_method: "Đơn Online",
+                    note: `Thanh toán đơn online thủ công ${newOrder.id}`,
+                    refunded: false,
+                });
+            });
+        }
+
+        ONLINE_ORDERS.unshift(newOrder);
+        persist();
+
+        res.json({
+            success: true,
+            message: "Đã thêm đơn hàng online thủ công thành công!",
+            order: newOrder,
+            online_orders: ONLINE_ORDERS,
+        });
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: `Lỗi tạo đơn hàng: ${err.message}` });
+    }
+});
+
+app.post("/api/online-orders/update-status", (req, res) => {
+    try {
+        const { order_id, payment_status } = req.body || {};
+        if (!order_id || !payment_status) {
+            return res.status(400).json({ success: false, message: "Thiếu order_id hoặc payment_status!" });
+        }
+        const orderIndex = ONLINE_ORDERS.findIndex(o => o.id === order_id);
+        if (orderIndex === -1) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy đơn hàng online!" });
+        }
+        const order = ONLINE_ORDERS[orderIndex];
+        const oldStatus = order.payment_status;
+        order.payment_status = payment_status;
+
+        // If changed to "Đã thanh toán", update inventory stock/sales
+        if (oldStatus !== "Đã thanh toán" && payment_status === "Đã thanh toán") {
+            const nowTime = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+            order.items.forEach(item => {
+                if (item.product_id) {
+                    const prod = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+                    if (prod) {
+                        prod.sold_count = (prod.sold_count || 0) + item.quantity;
+                    }
+                }
+                SALES_LOGS.push({
+                    id: `SALE_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                    timestamp: nowTime,
+                    product_id: item.product_id || "ONLINE",
+                    product_name: item.product_name,
+                    quantity: item.quantity,
+                    unit_price: item.unit_price,
+                    total_amount: item.total_price,
+                    channel: "Online",
+                    seller: "Online Auto",
+                    shift_id: order.shift_id,
+                    customer_name: `${order.customer_name} (${order.class_name})`,
+                    payment_method: "Đơn Online",
+                    note: `Thanh toán đơn online ${order.id}`,
+                    refunded: false,
+                });
+            });
+        } else if (oldStatus === "Đã thanh toán" && payment_status === "Chưa thanh toán") {
+            // Revert inventory sold_count
+            order.items.forEach(item => {
+                if (item.product_id) {
+                    const prod = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+                    if (prod && (prod.sold_count || 0) >= item.quantity) {
+                        prod.sold_count -= item.quantity;
+                    }
+                }
+            });
+        }
+
+        persist();
+        res.json({
+            success: true,
+            message: `Đã chuyển trạng thái đơn hàng thành '${payment_status}'!`,
+            order,
+            online_orders: ONLINE_ORDERS,
+        });
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: `Lỗi cập nhật trạng thái đơn: ${err.message}` });
+    }
+});
+
+app.get("/api/online-orders/template-excel", (req, res) => {
+    try {
+        const wb = xlsx.utils.book_new();
+        const wsData = [
+            ["DANH SÁCH ĐƠN HÀNG ONLINE ĐẶT TRƯỚC", "", "", "", "", "", "", ""],
+            ["Họ và tên", "Lớp", "Ngày dự kiến lấy", "Khung giờ lấy (Ca)", "Mặt hàng 1", "Số lượng 1", "Mặt hàng 2", "Số lượng 2"],
+            ["Nguyễn Văn A", "12A1", "2026-08-25", "Ca 1: 07h00 - 09h30", "Cà phê sữa", 2, "Bánh mì", 1],
+            ["Trần Thị B", "11B2", "2026-08-25", "Ca 2: 09h35 - 12h00", "Trà sữa", 1, "Nước suối", 2],
+            ["Lê Văn C", "10C3", "2026-08-26", "Ca 3: 12h05 - 14h00", "Bánh mì", 3, "", ""],
+        ];
+        const ws = xlsx.utils.aoa_to_sheet(wsData);
+        ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+        ws["!cols"] = [
+            { wch: 22 }, // Họ tên
+            { wch: 10 }, // Lớp
+            { wch: 18 }, // Ngày lấy
+            { wch: 22 }, // Khung giờ
+            { wch: 20 }, // MH 1
+            { wch: 12 }, // SL 1
+            { wch: 20 }, // MH 2
+            { wch: 12 }, // SL 2
+        ];
+        xlsx.utils.book_append_sheet(wb, ws, "DON_HANG_ONLINE");
+        const buf = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", 'attachment; filename="Mau_Nhap_Don_Hang_Online.xlsx"');
+        res.send(buf);
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: `Lỗi tạo file mẫu: ${err.message}` });
+    }
+});
+
+app.post("/api/online-orders/delete", (req, res) => {
+    try {
+        const { order_id, clear_all } = req.body || {};
+        if (clear_all) {
+            ONLINE_ORDERS = [];
+        } else if (order_id) {
+            ONLINE_ORDERS = ONLINE_ORDERS.filter(o => o.id !== order_id);
+        }
+        persist();
+        res.json({
+            success: true,
+            message: clear_all ? "Đã xóa tất cả đơn hàng online!" : "Đã xóa đơn hàng online thành công!",
+            online_orders: ONLINE_ORDERS,
+        });
+    } catch (err: any) {
+        res.status(500).json({ success: false, message: `Lỗi xóa đơn hàng: ${err.message}` });
+    }
+});
+
+// Download Excel Template for Member Availability Schedule
+app.get("/api/members/template-excel", (req, res) => {
+    try {
+        const wb = xlsx.utils.book_new();
+        const wsData = [
+            [
+                "Họ và tên của bạn?",
+                "Bạn là thành viên của ban?",
+                "Nơi sinh sống của bạn",
+                "Phương tiện di chuyển bạn thường sử dụng?",
+                "Công việc hiện tại",
+                "Bạn đang là học sinh trường THPT nào?",
+                "Số điện thoại",
+                "Lịch rảnh của bạn [7h - 10h]",
+                "Lịch rảnh của bạn [9h - 12h]",
+                "Lịch rảnh của bạn [11h - 14h]",
+                "Lịch rảnh của bạn [13h - 16h]",
+                "Lịch rảnh của bạn [15h - 18h]",
+                'Nếu có nhiều thời gian, bạn có cân nhắc tham gia vào "Đội ứng biến linh hoạt" không?',
+                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [7h - 10h]",
+                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [9h - 12h]",
+                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [11h - 14h]",
+                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [13h - 16h]",
+                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [15h - 18h]"
+            ],
+            [
+                "Nguyễn Vân Anh",
+                "Ban Nhân sự",
+                "Thuận An",
+                "Được đưa đón",
+                "Học sinh ( Cấp 3 )",
+                "TRỊNH HOÀI ĐỨC",
+                "0923883626",
+                "Thứ 7",
+                "Thứ 7",
+                "Thứ 7",
+                "Thứ 3",
+                "Chủ nhật",
+                "Có",
+                "Không rảnh ngày nào",
+                "Không rảnh ngày nào",
+                "Chủ nhật",
+                "Thứ 7",
+                "Không rảnh ngày nào"
+            ],
+            [
+                "Hoàng Bảo Sơn",
+                "Ban Tài chính chiến lược",
+                "TP. Hồ Chí Minh",
+                "Đi bộ",
+                "Học sinh ( Cấp 3 )",
+                "THPT CHUYÊN HÙNG VƯƠNG",
+                "0822646861",
+                "Thứ 7",
+                "Thứ 5",
+                "Thứ 3",
+                "Thứ 6",
+                "Thứ 3",
+                "Không",
+                "Không rảnh ngày nào",
+                "Không rảnh ngày nào",
+                "Không rảnh ngày nào",
+                "Không rảnh ngày nào",
+                "Không rảnh ngày nào"
+            ]
+        ];
+
+        const ws = xlsx.utils.aoa_to_sheet(wsData);
+        ws["!cols"] = [
+            { wch: 22 }, // Họ và tên
+            { wch: 25 }, // Ban
+            { wch: 18 }, // Nơi sinh sống
+            { wch: 22 }, // Phương tiện
+            { wch: 20 }, // Công việc
+            { wch: 28 }, // Trường
+            { wch: 15 }, // SĐT
+            { wch: 20 }, // Rảnh 7-10
+            { wch: 20 }, // Rảnh 9-12
+            { wch: 20 }, // Rảnh 11-14
+            { wch: 20 }, // Rảnh 13-16
+            { wch: 20 }, // Rảnh 15-18
+            { wch: 30 }, // Ứng biến
+            { wch: 25 }, // Cam kết 7-10
+            { wch: 25 }, // Cam kết 9-12
+            { wch: 25 }, // Cam kết 11-14
+            { wch: 25 }, // Cam kết 13-16
+            { wch: 25 }  // Cam kết 15-18
+        ];
+
+        xlsx.utils.book_append_sheet(wb, ws, "DANH_SACH_THANH_VIEN");
+        const buf = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+
+        res.setHeader(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader(
+            "Content-Disposition",
+            'attachment; filename="Danh_Sach_Lich_Ranh_Thanh_Vien_Mau.xlsx"',
         );
         res.send(buf);
     } catch (err: any) {
@@ -1755,7 +2439,7 @@ app.post(
                 const sheetName = wb.SheetNames[0];
                 const sheet = wb.Sheets[sheetName];
                 const rows = xlsx.utils.sheet_to_json<any>(sheet);
-                CURRENT_MEMBERS = parseMembersDf(rows);
+                CURRENT_MEMBERS = parseMembersDf(rows, sheet);
                 fs.unlinkSync(file_path); // Clean up temp file
 
                 const dupCount = (CURRENT_MEMBERS as any).duplicateCount || 0;
@@ -1795,7 +2479,7 @@ app.post(
                 const firstSheet = wb.Sheets[wb.SheetNames[0]];
                 const rows = xlsx.utils.sheet_to_json<any>(firstSheet);
 
-                CURRENT_MEMBERS = parseMembersDf(rows);
+                CURRENT_MEMBERS = parseMembersDf(rows, firstSheet);
                 const dupCount = (CURRENT_MEMBERS as any).duplicateCount || 0;
                 const dupStr =
                     dupCount > 0
@@ -1898,11 +2582,115 @@ app.post("/api/shift/update", requireAdmin, async (req, res) => {
     // Save to Excel and disk
     await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
     persist();
+    SCHEDULE_VERSION++;
 
     res.json({
         success: true,
         message: `Đã cập nhật thành công thông tin ca ${shift_id}!`,
         shift: target_shift,
+        schedule_version: SCHEDULE_VERSION,
+    });
+});
+
+app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
+    if (!LATEST_SCHEDULE_RESULT) {
+        return res
+            .status(400)
+            .json({ success: false, message: "Chưa có lịch trực" });
+    }
+
+    const data = req.body || {};
+    const shift_id = data.shift_id;
+    const member_id = data.member_id;
+    const role = data.role === "Dự phòng" ? "Dự phòng" : "Chính";
+    const position_role = data.position_role || (role === "Chính" ? "Bán hàng F&B" : "⚡ Dự bị tiếp ứng");
+    const set_as_leader = Boolean(data.set_as_leader);
+
+    if (!shift_id || !member_id) {
+        return res
+            .status(400)
+            .json({ success: false, message: "Thiếu thông tin ca trực hoặc nhân sự" });
+    }
+
+    const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
+        (s: any) => s.shift_id === shift_id,
+    );
+    if (!target_shift) {
+        return res
+            .status(404)
+            .json({ success: false, message: `Không tìm thấy ca ${shift_id}` });
+    }
+
+    const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
+    if (!member) {
+        return res
+            .status(404)
+            .json({ success: false, message: `Không tìm thấy nhân sự mã ${member_id}` });
+    }
+
+    target_shift.assigned_members = target_shift.assigned_members || [];
+    const existingIndex = target_shift.assigned_members.findIndex(
+        (m: any) => m.member_id === member_id,
+    );
+
+    if (existingIndex >= 0) {
+        target_shift.assigned_members[existingIndex].role = role;
+        target_shift.assigned_members[existingIndex].position_role = position_role;
+    } else {
+        target_shift.assigned_members.push({
+            member_id: member.member_id,
+            name: member.name,
+            department: member.department,
+            residence: member.residence,
+            vehicle: member.vehicle,
+            job: member.job,
+            school: member.school,
+            phone: member.phone,
+            role: role,
+            position_role: position_role,
+            is_standby: member.is_standby,
+            is_committed:
+                member.committed_slots?.[
+                    `${target_shift.day}|${target_shift.slot}`
+                ] || false,
+        });
+    }
+
+    if (set_as_leader) {
+        target_shift.shift_leader = member.name;
+    } else if (!target_shift.shift_leader || target_shift.shift_leader === "Chưa chỉ định") {
+        target_shift.shift_leader = member.name;
+    }
+
+    target_shift.assigned_count = target_shift.assigned_members.length;
+    target_shift.chinh_assigned_count = target_shift.assigned_members.filter(
+        (m: any) => m.role === "Chính",
+    ).length;
+    target_shift.dp_assigned_count = target_shift.assigned_members.filter(
+        (m: any) => m.role === "Dự phòng",
+    ).length;
+    target_shift.is_filled =
+        target_shift.assigned_count >= (target_shift.required_count || 0);
+
+    SCHEDULE_VERSION++;
+    addSystemNotification({
+        type: "MEMBER_ADDED",
+        title: "Thêm nhân sự vào ca trực",
+        message: `Admin đã thêm ${member.name} (${role} - ${position_role}) vào Ca ${shift_id}`,
+        shift_id: shift_id,
+        shift_day: target_shift.day,
+        shift_slot: target_shift.slot,
+        target_role: "all",
+    });
+
+    await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
+    persist();
+
+    return res.json({
+        success: true,
+        message: `Đã thêm thành công ${member.name} vào ca ${shift_id}!`,
+        shift: target_shift,
+        schedule_version: SCHEDULE_VERSION,
     });
 });
 
@@ -1957,25 +2745,29 @@ app.get("/api/contingency/suggest", (req, res) => {
         if (is_busy_elsewhere) return;
 
         // Priority ranking:
-        // 1 = Registered available & Standby team
-        // 2 = Registered available
-        // 3 = Standby team member (off-duty)
-        // 4 = General off-duty member
+        // 1 = Ứng biến có thời gian rảnh trùng giờ
+        // 2 = Nhân sự có thời gian rảnh trùng giờ
+        // 3 = Ứng biến còn lại
+        // 4 = Nhân sự còn lại
         const is_registered_free = overlap_slots.every(
             (sl) => m.availability[`${day}|${sl}`] === true,
         );
         let priority = 4;
-        let label = "Rảnh lịch chung";
+        let label = "👥 Nhân sự còn lại";
+        let category = "other_members";
 
         if (is_registered_free && m.is_standby) {
             priority = 1;
-            label = "⚡ Ứng biến (Đã ĐK Rảnh)";
+            label = "🌟 Ứng biến có thời gian rảnh trùng giờ";
+            category = "standby_free";
         } else if (is_registered_free) {
             priority = 2;
-            label = "✓ Đã ĐK Rảnh";
+            label = "⏰ Nhân sự có thời gian rảnh trùng giờ";
+            category = "member_free";
         } else if (m.is_standby) {
             priority = 3;
-            label = "⚡ Ứng biến";
+            label = "🛡️ Ứng biến còn lại";
+            category = "standby_other";
         }
 
         available_candidates.push({
@@ -1989,6 +2781,7 @@ app.get("/api/contingency/suggest", (req, res) => {
             is_registered_free: is_registered_free,
             priority: priority,
             priority_label: label,
+            category: category,
         });
     });
 
@@ -2007,7 +2800,7 @@ app.get("/api/contingency/suggest", (req, res) => {
     });
 });
 
-app.post("/api/contingency/log-incident", requireAdmin, async (req, res) => {
+app.post("/api/contingency/log-incident", async (req, res) => {
     if (!LATEST_SCHEDULE_RESULT) {
         return res
             .status(400)
@@ -2018,7 +2811,7 @@ app.post("/api/contingency/log-incident", requireAdmin, async (req, res) => {
     const shift_id = data.shift_id;
     const absent_member_id = data.absent_member_id;
     const replacement_member_id = data.replacement_member_id;
-    const status_type = data.status_type || "Vắng đột xuất"; // 'Đi trễ', 'Vắng đột xuất', 'Xin nghỉ trước', 'Có mặt'
+    const status_type = data.status_type || "Vắng không phép"; // 'Có mặt', 'Đi trễ', 'Mất tập trung', 'Bỏ quầy', 'Vắng không phép', 'Vắng đột xuất', 'Xin nghỉ trước'
     const late_minutes = data.late_minutes
         ? parseInt(data.late_minutes, 10)
         : status_type === "Đi trễ"
@@ -2042,42 +2835,148 @@ app.post("/api/contingency/log-incident", requireAdmin, async (req, res) => {
         (m) => m.member_id === replacement_member_id,
     );
 
-    if (rep_m && absent_m) {
-        target_shift.assigned_members = (
-            target_shift.assigned_members || []
-        ).filter((m: any) => m.member_id !== absent_member_id);
-        target_shift.assigned_members.push({
-            member_id: rep_m.member_id,
-            name: rep_m.name,
-            department: rep_m.department,
-            residence: rep_m.residence,
-            vehicle: rep_m.vehicle,
-            job: rep_m.job,
-            school: rep_m.school,
-            phone: rep_m.phone,
-            role: "Dự phòng thay thế",
-            position_role: "Phục vụ / Giao hàng",
-            is_standby: rep_m.is_standby,
-            is_committed: false,
-        });
-        target_shift.assigned_count = target_shift.assigned_members.length;
-    } else if (absent_m && (status_type === "Hủy ca" || status_type === "Vắng đột xuất" || status_type === "Xin nghỉ trước")) {
-        target_shift.assigned_members = (
-            target_shift.assigned_members || []
-        ).filter((m: any) => m.member_id !== absent_member_id);
-        if (target_shift.shift_leader === absent_m.name) {
-            target_shift.shift_leader = target_shift.assigned_members[0]?.name || "Chưa chỉ định";
+    const isAbsentStatus =
+        status_type === "Vắng không phép" ||
+        status_type === "Vắng đột xuất" ||
+        status_type === "Vắng mặt" ||
+        status_type === "Xin nghỉ trước" ||
+        status_type === "Hủy ca" ||
+        status_type.includes("Vắng");
+
+    if (rep_m) {
+        const alreadyHasRep = (target_shift.assigned_members || []).some(
+            (m: any) => m.member_id === rep_m.member_id,
+        );
+        if (!alreadyHasRep) {
+            target_shift.assigned_members.push({
+                member_id: rep_m.member_id,
+                name: rep_m.name,
+                department: rep_m.department,
+                residence: rep_m.residence,
+                vehicle: rep_m.vehicle,
+                job: rep_m.job,
+                school: rep_m.school,
+                phone: rep_m.phone,
+                role: "Dự phòng",
+                position_role: "Phục vụ / Giao hàng",
+                is_standby: rep_m.is_standby,
+                is_committed: false,
+            });
         }
         target_shift.assigned_count = target_shift.assigned_members.length;
         target_shift.chinh_assigned_count = (target_shift.assigned_members || []).filter(
             (m: any) => m.role === "Chính",
         ).length;
         target_shift.dp_assigned_count = (target_shift.assigned_members || []).filter(
-            (m: any) => m.role === "Dự phòng",
+            (m: any) => m.role !== "Chính",
         ).length;
-        target_shift.is_filled =
-            target_shift.assigned_count >= (target_shift.required_count || 0);
     }
+
+    const timestamp = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour12: false,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+    const resp_time = data.response_time !== undefined && data.response_time !== null
+        ? parseInt(data.response_time, 10)
+        : (rep_m || replacement_member_id
+            ? (late_minutes > 0 ? late_minutes : Math.floor(Math.random() * 7) + 6)
+            : null);
+
+    const incident_record = {
+        id: INCIDENT_LOGS.length + 1,
+        shift_id: shift_id,
+        day: target_shift.day,
+        date: target_shift.date || "",
+        slot: target_shift.slot,
+        location: target_shift.location || target_shift.type_label,
+        status_type: status_type,
+        late_minutes: late_minutes,
+        absent_member: absent_m ? absent_m.name : "Chung",
+        absent_member_id: absent_member_id,
+        replacement_member: rep_m ? rep_m.name : "Không thay thế",
+        replacement_member_id: replacement_member_id,
+        response_time: resp_time,
+        note: note,
+        timestamp: timestamp,
+    };
+
+    INCIDENT_LOGS.unshift(incident_record);
+
+    SCHEDULE_VERSION++;
+    if (status_type.includes("Không gọi được") || status_type.includes("Không liên lạc được")) {
+        addSystemNotification({
+            type: "UNREACHABLE_BACKUP",
+            title: "🚨 KHẨN CẤP: Không Gọi Được Dự Phòng!",
+            message: `Ca ${shift_id} (${target_shift.day} - ${target_shift.slot}): Không liên lạc được dự phòng ${rep_m ? rep_m.name : (replacement_member_id || "")} thay cho ${absent_m ? absent_m.name : (absent_member_id || "thành viên vắng")}. Trưởng ca yêu cầu Admin điều phối ngay!`,
+            shift_id: shift_id,
+            shift_day: target_shift.day,
+            shift_slot: target_shift.slot,
+            absent_member_id: absent_member_id,
+            absent_member_name: absent_m?.name || "",
+            backup_member_id: replacement_member_id,
+            backup_member_name: rep_m?.name || "",
+            target_role: "admin",
+        });
+    }
+
+    await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
+    persist();
+
+    // Compute late / absence summary stats
+    const late_logs = INCIDENT_LOGS.filter((i) => i.status_type === "Đi trễ");
+    const absent_logs = INCIDENT_LOGS.filter(
+        (i) =>
+            i.status_type === "Vắng đột xuất" ||
+            i.status_type === "Xin nghỉ trước" ||
+            i.status_type === "Vắng không phép" ||
+            i.status_type === "Vắng mặt" ||
+            i.status_type.includes("Vắng"),
+    );
+
+    res.json({
+        success: true,
+        message: `Đã ghi nhận dữ liệu điểm danh '${status_type}' thành công!`,
+        incident: incident_record,
+        incidents: INCIDENT_LOGS,
+        schedule_version: SCHEDULE_VERSION,
+        stats: {
+            total_incidents: INCIDENT_LOGS.length,
+            total_late: late_logs.length,
+            total_absent: absent_logs.length,
+            replaced_count: INCIDENT_LOGS.filter(
+                (i) => i.replacement_member && i.replacement_member !== "Không thay thế",
+            ).length,
+        },
+    });
+});
+
+app.post("/api/contingency/report-unreachable", async (req, res) => {
+    if (!LATEST_SCHEDULE_RESULT) {
+        return res
+            .status(400)
+            .json({ success: false, message: "Chưa có lịch trực" });
+    }
+
+    const { shift_id, backup_member_id, absent_member_id, note } = req.body || {};
+    if (!shift_id) {
+        return res.status(400).json({ success: false, message: "Thiếu shift_id" });
+    }
+
+    const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
+        (s: any) => s.shift_id === shift_id,
+    );
+    if (!target_shift) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy ca trực" });
+    }
+
+    const absent_m = CURRENT_MEMBERS.find((m) => m.member_id === absent_member_id);
+    const backup_m = CURRENT_MEMBERS.find((m) => m.member_id === backup_member_id);
 
     const timestamp = new Date().toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
@@ -2096,43 +2995,249 @@ app.post("/api/contingency/log-incident", requireAdmin, async (req, res) => {
         date: target_shift.date || "",
         slot: target_shift.slot,
         location: target_shift.location || target_shift.type_label,
-        status_type: status_type,
-        late_minutes: late_minutes,
-        absent_member: absent_m ? absent_m.name : "Chung",
+        status_type: "Vắng mặt (Không gọi được dự phòng)",
+        late_minutes: 0,
+        absent_member: absent_m ? absent_m.name : (absent_member_id || "Chưa xác định"),
         absent_member_id: absent_member_id,
-        replacement_member: rep_m ? rep_m.name : "Không thay thế",
-        replacement_member_id: replacement_member_id,
-        note: note,
+        replacement_member: "Không thay thế",
+        replacement_member_id: null,
+        response_time: null,
+        note: note || `Trưởng ca không liên lạc được nhân sự dự phòng ${backup_m ? backup_m.name : (backup_member_id || "dự phòng")}, báo cáo Quản Trị Viên điều phối người khác`,
         timestamp: timestamp,
     };
 
     INCIDENT_LOGS.unshift(incident_record);
 
+    // Ghi nhận trực tiếp vào lịch sử của ca trực
+    if (!target_shift.history) {
+        target_shift.history = [];
+    }
+    target_shift.history.unshift(incident_record);
+
+    // Cập nhật trạng thái thành viên trong ca trực
+    if (Array.isArray(target_shift.assigned_members)) {
+        target_shift.assigned_members.forEach((m: any) => {
+            if (m.member_id === absent_member_id) {
+                m.attendance_status = "Vắng không phép";
+                m.replacement_status = "Không gọi được dự phòng (Chờ Admin)";
+            }
+            if (m.member_id === backup_member_id) {
+                m.attendance_status = "Không gọi được";
+                m.is_unreachable = true;
+            }
+        });
+    }
+
+    // Cập nhật KPI Attendance
+    const kpiEntry = KPI_ATTENDANCE.find(
+        (k: any) => k.shift_id === shift_id && k.member_id === absent_member_id,
+    );
+    if (kpiEntry) {
+        kpiEntry.status = "Vắng không phép";
+    }
+
+    SCHEDULE_VERSION++;
+    const urgentNotif = addSystemNotification({
+        type: "UNREACHABLE_BACKUP",
+        title: "🚨 KHẨN CẤP: Không Gọi Được Dự Phòng!",
+        message: `Ca ${shift_id} (${target_shift.day} - ${target_shift.slot}): Không liên lạc được dự phòng ${backup_m ? backup_m.name : (backup_member_id || "")} thay cho ${absent_m ? absent_m.name : (absent_member_id || "thành viên vắng")}. Trưởng ca yêu cầu Admin điều phối ngay!`,
+        shift_id: shift_id,
+        shift_day: target_shift.day,
+        shift_slot: target_shift.slot,
+        absent_member_id: absent_member_id,
+        absent_member_name: absent_m?.name || "",
+        backup_member_id: backup_member_id,
+        backup_member_name: backup_m?.name || "",
+        target_role: "admin",
+    });
+
     await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
     persist();
 
-    // Compute late / absence summary stats
-    const late_logs = INCIDENT_LOGS.filter((i) => i.status_type === "Đi trễ");
-    const absent_logs = INCIDENT_LOGS.filter(
-        (i) =>
-            i.status_type === "Vắng đột xuất" ||
-            i.status_type === "Xin nghỉ trước",
+    return res.json({
+        success: true,
+        message: `Đã ghi nhận sự cố không gọi được dự phòng và gửi thông báo khẩn cấp đến Quản Trị Viên!`,
+        incident: incident_record,
+        incidents: INCIDENT_LOGS,
+        schedule_version: SCHEDULE_VERSION,
+        notification: urgentNotif,
+        shift: target_shift,
+        shift_id: shift_id,
+        absent_member_name: absent_m ? absent_m.name : (absent_member_id || "Thành viên vắng"),
+        backup_member_name: backup_m ? backup_m.name : (backup_member_id || "Nhân sự dự phòng"),
+    });
+});
+
+app.post("/api/contingency/update-replacement", requireAdmin, async (req, res) => {
+    if (!LATEST_SCHEDULE_RESULT) {
+        return res
+            .status(400)
+            .json({ success: false, message: "Chưa có lịch trực" });
+    }
+
+    const { incident_id, timestamp, shift_id, absent_member, replacement_member_id, note } = req.body || {};
+
+    let target_incident: any = null;
+    if (incident_id !== undefined && incident_id !== null && incident_id !== "") {
+        const numId = Number(incident_id);
+        target_incident = INCIDENT_LOGS.find((i: any) => i.id === numId || String(i.id) === String(incident_id));
+    } else if (timestamp) {
+        target_incident = INCIDENT_LOGS.find((i: any) => i.timestamp === timestamp);
+    } else if (shift_id && absent_member) {
+        target_incident = INCIDENT_LOGS.find((i: any) => i.shift_id === shift_id && i.absent_member === absent_member);
+    }
+
+    if (!target_incident) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy bản ghi sự cố cần chỉnh sửa" });
+    }
+
+    const targetShiftId = target_incident.shift_id;
+    const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
+        (s: any) => s.shift_id === targetShiftId,
     );
+
+    const old_rep_id = target_incident.replacement_member_id;
+
+    if (replacement_member_id && replacement_member_id !== "none" && replacement_member_id !== "no_replacement") {
+        const new_rep = CURRENT_MEMBERS.find((m) => m.member_id === replacement_member_id);
+        if (!new_rep) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy nhân sự thay thế được chọn" });
+        }
+
+        target_incident.replacement_member = new_rep.name;
+        target_incident.replacement_member_id = new_rep.member_id;
+        if (note !== undefined && note !== "") {
+            target_incident.note = note;
+        }
+
+        if (target_shift) {
+            // Remove old replacement from assigned members if present
+            if (old_rep_id && old_rep_id !== new_rep.member_id) {
+                target_shift.assigned_members = (target_shift.assigned_members || []).filter(
+                    (m: any) => m.member_id !== old_rep_id,
+                );
+            }
+            // Add new replacement if not already in assigned members
+            const alreadyAssigned = (target_shift.assigned_members || []).some(
+                (m: any) => m.member_id === new_rep.member_id,
+            );
+            if (!alreadyAssigned) {
+                target_shift.assigned_members.push({
+                    member_id: new_rep.member_id,
+                    name: new_rep.name,
+                    department: new_rep.department,
+                    residence: new_rep.residence,
+                    vehicle: new_rep.vehicle,
+                    job: new_rep.job,
+                    school: new_rep.school,
+                    phone: new_rep.phone,
+                    role: "Dự phòng thay thế",
+                    position_role: "⚡ Dự bị tiếp ứng",
+                    is_standby: new_rep.is_standby,
+                    is_committed: false,
+                });
+            }
+            target_shift.assigned_count = target_shift.assigned_members.length;
+            target_shift.dp_assigned_count = (target_shift.assigned_members || []).filter(
+                (m: any) => m.role !== "Chính",
+            ).length;
+        }
+    } else {
+        // Remove replacement
+        target_incident.replacement_member = "Không thay thế";
+        target_incident.replacement_member_id = "";
+        if (note !== undefined && note !== "") {
+            target_incident.note = note;
+        }
+
+        if (target_shift && old_rep_id) {
+            target_shift.assigned_members = (target_shift.assigned_members || []).filter(
+                (m: any) => m.member_id !== old_rep_id,
+            );
+            target_shift.assigned_count = target_shift.assigned_members.length;
+            target_shift.dp_assigned_count = (target_shift.assigned_members || []).filter(
+                (m: any) => m.role !== "Chính",
+            ).length;
+        }
+    }
+
+    if (target_shift && target_shift.history) {
+        const histItem = target_shift.history.find(
+            (h: any) => h.id === target_incident.id || h.timestamp === target_incident.timestamp,
+        );
+        if (histItem) {
+            histItem.replacement_member = target_incident.replacement_member;
+            histItem.replacement_member_id = target_incident.replacement_member_id;
+            histItem.note = target_incident.note;
+        }
+    }
+
+    SCHEDULE_VERSION++;
+
+    // Add notification for staff accounts
+    addSystemNotification({
+        type: "REPLACEMENT_UPDATED",
+        title: "Cập nhật nhân sự thay thế",
+        message: `Admin đã điều phối ${target_incident.replacement_member} tiếp ứng cho Ca ${targetShiftId}`,
+        shift_id: targetShiftId,
+        shift_day: target_shift?.day,
+        shift_slot: target_shift?.slot,
+        absent_member_id: target_incident.absent_member_id,
+        absent_member_name: target_incident.absent_member,
+        backup_member_id: target_incident.replacement_member_id,
+        backup_member_name: target_incident.replacement_member,
+        target_role: "all",
+    });
+
+    // Mark any urgent notification for this shift as resolved
+    SYSTEM_NOTIFICATIONS.forEach((n) => {
+        if (n.shift_id === targetShiftId && n.type === "UNREACHABLE_BACKUP") {
+            n.resolved = true;
+        }
+    });
+
+    await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
+    persist();
 
     res.json({
         success: true,
-        message: `Đã ghi nhận dữ liệu điểm danh '${status_type}' thành công!`,
-        incident: incident_record,
+        message: `Đã cập nhật nhân sự thay thế cho ca ${targetShiftId} thành công!`,
+        incident: target_incident,
         incidents: INCIDENT_LOGS,
-        stats: {
-            total_incidents: INCIDENT_LOGS.length,
-            total_late: late_logs.length,
-            total_absent: absent_logs.length,
-            replaced_count: INCIDENT_LOGS.filter(
-                (i) => i.replacement_member !== "Không thay thế",
-            ).length,
-        },
+        schedule_version: SCHEDULE_VERSION,
+        shift: target_shift,
     });
+});
+
+app.get("/api/notifications", (req, res) => {
+    const role = (req.query.role as string) || "all";
+    const since_version = parseInt(req.query.since_version as string, 10) || 0;
+
+    const filtered = SYSTEM_NOTIFICATIONS.filter((n) => {
+        if (role === "admin") return true;
+        return n.target_role === "all" || n.target_role === "staff";
+    });
+
+    res.json({
+        success: true,
+        notifications: filtered.slice(0, 30),
+        schedule_version: SCHEDULE_VERSION,
+        has_new_version: SCHEDULE_VERSION > since_version,
+        server_time: Date.now(),
+    });
+});
+
+app.post("/api/notifications/resolve", requireAdmin, (req, res) => {
+    const { notification_id, shift_id } = req.body || {};
+    if (notification_id) {
+        const notif = SYSTEM_NOTIFICATIONS.find((n) => n.id === notification_id);
+        if (notif) notif.resolved = true;
+    } else if (shift_id) {
+        SYSTEM_NOTIFICATIONS.forEach((n) => {
+            if (n.shift_id === shift_id) n.resolved = true;
+        });
+    }
+    res.json({ success: true, message: "Đã đánh dấu xử lý thông báo" });
 });
 
 app.get("/api/contingency/incidents", (req, res) => {
@@ -2154,6 +3259,44 @@ app.post("/api/contingency/reset", requireAdmin, (req, res) => {
             total_late: 0,
             total_absent: 0,
             replaced_count: 0,
+        },
+    });
+});
+
+app.post("/api/contingency/delete-incident", requireAdmin, (req, res) => {
+    const { id, timestamp, shift_id, absent_member } = req.body || {};
+    
+    if (id !== undefined && id !== null) {
+        const numId = Number(id);
+        INCIDENT_LOGS = INCIDENT_LOGS.filter((item: any) => item.id !== numId && String(item.id) !== String(id));
+    } else if (timestamp) {
+        INCIDENT_LOGS = INCIDENT_LOGS.filter((item: any) => item.timestamp !== timestamp);
+    } else if (shift_id && absent_member) {
+        INCIDENT_LOGS = INCIDENT_LOGS.filter((item: any) => !(item.shift_id === shift_id && item.absent_member === absent_member));
+    }
+
+    persist();
+
+    const late_logs = INCIDENT_LOGS.filter((i: any) => i.status_type === "Đi trễ");
+    const absent_logs = INCIDENT_LOGS.filter(
+        (i: any) =>
+            i.status_type === "Vắng đột xuất" ||
+            i.status_type === "Xin nghỉ trước" ||
+            i.status_type === "Vắng không phép" ||
+            i.status_type === "Vắng mặt",
+    );
+
+    res.json({
+        success: true,
+        message: "Đã xóa bản ghi thành công!",
+        incidents: INCIDENT_LOGS,
+        stats: {
+            total_incidents: INCIDENT_LOGS.length,
+            total_late: late_logs.length,
+            total_absent: absent_logs.length,
+            replaced_count: INCIDENT_LOGS.filter(
+                (i: any) => i.replacement_member && i.replacement_member !== "Không thay thế",
+            ).length,
         },
     });
 });
@@ -2397,10 +3540,10 @@ app.post("/api/schedule/run", requireAdmin, async (req, res) => {
         OPTIMIZER_CONFIG.phong_dp_count = parseInt(data.phong_dp_count, 10) || 1;
     }
     if (data.min_shifts !== undefined) {
-        OPTIMIZER_CONFIG.min_shifts = parseInt(data.min_shifts, 10) || 1;
+        OPTIMIZER_CONFIG.min_shifts = parseInt(data.min_shifts, 10) || 3;
     }
     if (data.max_shifts !== undefined) {
-        OPTIMIZER_CONFIG.max_shifts = parseInt(data.max_shifts, 10) || 4;
+        OPTIMIZER_CONFIG.max_shifts = parseInt(data.max_shifts, 10) || 5;
     }
     if (data.max_shifts_per_day !== undefined) {
         OPTIMIZER_CONFIG.max_shifts_per_day = parseInt(data.max_shifts_per_day, 10) || 2;
@@ -2412,14 +3555,13 @@ app.post("/api/schedule/run", requireAdmin, async (req, res) => {
 
     const config = {
         start_date: START_DATE,
-        min_shifts_per_member: parseInt(data.min_shifts || OPTIMIZER_CONFIG.min_shifts || "1", 10),
-        max_shifts_per_member: parseInt(data.max_shifts || OPTIMIZER_CONFIG.max_shifts || "4", 10),
+        min_shifts_per_member: parseInt(data.min_shifts || OPTIMIZER_CONFIG.min_shifts || "3", 10),
+        max_shifts_per_member: parseInt(data.max_shifts || OPTIMIZER_CONFIG.max_shifts || "5", 10),
         max_shifts_per_day: parseInt(data.max_shifts_per_day || OPTIMIZER_CONFIG.max_shifts_per_day || "2", 10),
-        phong_chinh_count: parseInt(data.phong_chinh_count || OPTIMIZER_CONFIG.phong_chinh_count || "4", 10),
-        phong_dp_count: parseInt(data.phong_dp_count || OPTIMIZER_CONFIG.phong_dp_count || "1", 10),
         enable_ca_ngoai: ENABLE_CA_NGOAI,
         custom_ca_ngoai: CUSTOM_CA_NGOAI,
         active_types: ENABLE_CA_NGOAI ? ["Phong", "Ngoai"] : ["Phong"],
+        daily_shift_configs: OPTIMIZER_CONFIG.daily_shift_configs,
     };
 
     const scheduler = new ShiftScheduler(
@@ -2850,18 +3992,38 @@ app.get("/api/competition/stats", (req, res) => {
         }
     });
     
-    // 3. Reputation (Incidents)
+    // 3. Reputation (Incidents & Violations)
+    // Quy tắc điểm uy tín: Ban đầu mỗi thành viên có 100 điểm.
+    // Đi trễ: -3 điểm; Mất tập trung: -5 điểm; Bỏ quầy: -5 điểm; Vắng không phép: -10 điểm.
+    const PENALTY_MAP: { [key: string]: number } = {
+        "Đi trễ": 3,
+        "Mất tập trung": 5,
+        "Bỏ quầy": 5,
+        "Vắng không phép": 10,
+        "Vắng đột xuất": 10,
+        "Vắng mặt": 10,
+        "Sử dụng điện thoại": 5,
+    };
+
     filteredIncidentLogs.forEach(inc => {
         if (inc.status_type) {
-            const mem = memberStats.find(m => m.name === inc.member);
+            const mem = memberStats.find(m => 
+                (inc.absent_member_id && m.member_id === inc.absent_member_id) ||
+                (inc.absent_member && m.name === inc.absent_member) ||
+                (inc.member && m.name === inc.member)
+            );
             if (mem) {
-                let penalty = 0;
-                if (inc.status_type === "Đi trễ") penalty = 5;
-                if (inc.status_type === "Vắng đột xuất" || inc.status_type === "Vắng không phép") penalty = 20;
-                if (inc.status_type === "Sử dụng điện thoại") penalty = 5;
+                const pType = inc.status_type;
+                const penalty = PENALTY_MAP[pType] !== undefined ? PENALTY_MAP[pType] : 0;
                 if (penalty > 0) {
-                    mem.reputation -= penalty;
-                    mem.violations.push({ type: inc.status_type, penalty });
+                    mem.reputation = Math.max(0, mem.reputation - penalty);
+                    mem.violations.push({
+                        type: pType,
+                        penalty: penalty,
+                        shift_id: inc.shift_id,
+                        timestamp: inc.timestamp,
+                        note: inc.note
+                    });
                 }
             }
         }
@@ -2990,18 +4152,26 @@ app.post("/api/competition/seed", (req, res) => {
             });
         }
 
-        // Thi thoảng tạo lỗi vi phạm (Đi trễ, vắng đột xuất)
-        if (Math.random() < 0.15) { // 15% xác suất có lỗi trong ca
-            const badMember = assignedMembers[Math.floor(Math.random() * assignedMembers.length)].name;
-            const isLate = Math.random() > 0.5;
+        // Thi thoảng tạo lỗi vi phạm (Đi trễ, Mất tập trung, Bỏ quầy, Vắng không phép)
+        if (Math.random() < 0.2) { // 20% xác suất có lỗi trong ca
+            const badMember = assignedMembers[Math.floor(Math.random() * assignedMembers.length)];
+            const violationTypes = ["Đi trễ", "Mất tập trung", "Bỏ quầy", "Vắng không phép"];
+            const chosenViolation = violationTypes[Math.floor(Math.random() * violationTypes.length)];
             const randomWeekIndex = Math.floor(Math.random() * 3) + 1;
+            const hasBackup = Math.random() < 0.6;
             INCIDENT_LOGS.push({
                 id: `INC_MOCK_${Date.now()}_${index}`,
                 shift_id: shift.shift_id,
-                member: badMember,
-                status_type: isLate ? "Đi trễ" : "Vắng đột xuất",
-                note: "Lỗi vi phạm mẫu để kiểm thử",
-                week: `Tuần ${randomWeekIndex}`
+                member: badMember.name,
+                absent_member: badMember.name,
+                absent_member_id: badMember.member_id,
+                replacement_member: hasBackup ? "Dự phòng tiếp ứng" : "Không thay thế",
+                replacement_member_id: hasBackup ? "MEM_DP_MOCK" : null,
+                response_time: hasBackup ? Math.floor(Math.random() * 8) + 6 : null,
+                status_type: chosenViolation,
+                note: `Vi phạm mẫu: ${chosenViolation}`,
+                week: `Tuần ${randomWeekIndex}`,
+                timestamp: `0${randomWeekIndex}/09/2026 10:00`
             });
         }
     });

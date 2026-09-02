@@ -67,35 +67,28 @@
                         <span class="nav-full">Tổng Hợp Đơn Hàng Ca</span>
                         <span class="nav-short">Đơn hàng ca</span>
                     </button>
-                    <button class="nav-item" data-tab="tab-kpi">
-                        <i class="fa-solid fa-award"></i>
-                        <span class="nav-full">Chạy KPI Chuyên Cần</span>
-                        <span class="nav-short">Chạy KPI</span>
+                    <button class="nav-item" data-tab="tab-contingency">
+                        <i class="fa-solid fa-user-clock"></i>
+                        <span class="nav-full">Xử Lý Ca Vắng &amp; Backup</span>
+                        <span class="nav-short">Ca vắng</span>
                     </button>
                     <button class="nav-item" data-tab="tab-analytics">
                         <i class="fa-solid fa-chart-pie"></i>
                         <span class="nav-full">Thống Kê &amp; Heatmap</span>
                         <span class="nav-short">Thống kê</span>
                     </button>
-                    <button class="nav-item" data-tab="tab-contingency">
-                        <i class="fa-solid fa-user-clock"></i>
-                        <span class="nav-full">Xử Lý Ca Vắng &amp; Backup</span>
-                        <span class="nav-short">Ca vắng</span>
+                    <button class="nav-item" data-tab="tab-kpi">
+                        <i class="fa-solid fa-award"></i>
+                        <span class="nav-full">Chạy KPI Chuyên Cần</span>
+                        <span class="nav-short">Chạy KPI</span>
                     </button>
                     <button class="nav-item" data-tab="tab-competition">
                         <i class="fa-solid fa-trophy"></i>
                         <span class="nav-full">Thi Đua Project F&B</span>
                         <span class="nav-short">Thi đua</span>
                     </button>
-                    <button class="nav-item" data-tab="tab-audit">
-                        <i class="fa-solid fa-clipboard-check"></i>
-                        <span class="nav-full"
-                            >Kiểm Tra &amp; Quy Trình HR</span
-                        >
-                        <span class="nav-short">Kiểm tra &amp; HR</span>
-                    </button>
 
-                    <!-- Chỉ hiện trên điện thoại: mở bảng chứa 3 tab ít dùng + xuất Excel -->
+                    <!-- Chỉ hiện trên điện thoại: mở bảng chứa các tab phụ + xuất Excel -->
                     <button
                         class="nav-item more-trigger"
                         id="btnMoreMenu"
@@ -180,6 +173,10 @@
                         <i class="fa-solid fa-receipt"></i>
                         <span class="nav-full">Tổng Hợp Đơn Hàng Ca</span>
                     </button>
+                    <button class="nav-item" data-tab="tab-contingency">
+                        <i class="fa-solid fa-user-clock"></i>
+                        <span class="nav-full">Xử Lý Ca Vắng &amp; Backup</span>
+                    </button>
                     <button class="nav-item" data-tab="tab-kpi">
                         <i class="fa-solid fa-award"></i>
                         <span class="nav-full">Chạy KPI Chuyên Cần</span>
@@ -188,12 +185,6 @@
                         <i class="fa-solid fa-trophy"></i>
                         <span class="nav-full">Thi Đua Project F&B</span>
                         <span class="nav-short">Thi đua</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-audit">
-                        <i class="fa-solid fa-clipboard-check"></i>
-                        <span class="nav-full"
-                            >Kiểm Tra &amp; Quy Trình HR</span
-                        >
                     </button>
                     <div class="more-actions">
                         <a href="/api/schedule/export" class="btn-export">
@@ -322,55 +313,42 @@
 
                 <!-- TAB 2: TINH CHỈNH & TỐI ƯU HÓA -->
                 <section id="tab-optimizer" class="tab-content">
+                    <!-- BẢNG GỘP TINH CHỈNH THAM SỐ & CA TRỰC NGÀY TRỌNG TÂM -->
                     <div class="glass-card max-width-card">
-                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                        <div class="card-header">
                             <div>
                                 <h3>
                                     <i class="fa-solid fa-sliders"></i> Tinh Chỉnh
-                                    Tham Số Phân Công &amp; Tối Ưu Hóa Nhân Sự
+                                    Tham Số Phân Công &amp; Quy Chuẩn Ca Trực Ngày
                                 </h3>
                                 <p>
-                                    Cấu hình định mức nhân sự trực chính và nhân sự
-                                    dự phòng cho các ca phòng Thanh Niên
+                                    Cấu hình tổng thể định mức nhân sự tuần, thời gian &amp; định mức nhân sự chính/dự phòng cho 5 ca trực cố định mỗi ngày
                                 </p>
                             </div>
-                            <div class="admin-only-elem" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                                <button type="button" class="btn-action-secondary" id="btnOptimizerUploadTrigger" style="font-size: 12px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px;">
-                                    <i class="fa-solid fa-cloud-arrow-up"></i> Nạp Dữ Liệu / Google Sheet
-                                </button>
-                            </div>
                         </div>
-                        <form id="optimizerForm" class="config-form">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label
-                                        ><i
-                                            class="fa-solid fa-calendar-day"
-                                        ></i>
-                                        Ngày bắt đầu tuần (Thứ 2)</label
-                                    >
+
+                        <form id="optimizerForm" class="config-form" style="margin-top: 0.5rem;">
+                            <!-- 4 THAM SỐ TUẦN TRÊN CÙNG 1 HÀNG -->
+                            <div class="config-top-params-grid" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; background: rgba(255, 255, 255, 0.03); padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 1rem; align-items: start;">
+                                <div class="form-group" style="margin-bottom: 0; min-width: 0;">
+                                    <label style="font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--ink-hi);">
+                                        <i class="fa-solid fa-calendar-day" style="font-size: 0.8rem; color: var(--goldleaf, #f59e0b); flex-shrink: 0;"></i>
+                                        <span>Ngày bắt đầu tuần</span>
+                                    </label>
                                     <input
                                         type="date"
                                         id="cfgStartDate"
                                         value="2026-08-24"
                                         class="custom-input"
+                                        style="padding: 6px 10px; font-size: 0.85rem; width: 100%; box-sizing: border-box;"
                                     />
-                                    <small
-                                        >Hệ thống tự động tính ngày dương lịch
-                                        (dd/mm/yyyy) cho từng ca từ Thứ 2 đến
-                                        Chủ Nhật</small
-                                    >
+                                    <small style="font-size: 0.7rem; opacity: 0.7; display: block; margin-top: 3px;">Thứ 2 – Chủ Nhật</small>
                                 </div>
-                            </div>
-
-
-
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label
-                                        ><i class="fa-solid fa-chart-line"></i>
-                                        Số ca tối thiểu / người / tuần</label
-                                    >
+                                <div class="form-group" style="margin-bottom: 0; min-width: 0;">
+                                    <label style="font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--ink-hi);">
+                                        <i class="fa-solid fa-chart-line" style="font-size: 0.8rem; color: var(--goldleaf, #f59e0b); flex-shrink: 0;"></i>
+                                        <span>Ca tối thiểu / tuần</span>
+                                    </label>
                                     <input
                                         type="number"
                                         id="cfgMinShifts"
@@ -378,19 +356,15 @@
                                         min="1"
                                         max="10"
                                         class="custom-input"
+                                        style="padding: 6px 10px; font-size: 0.85rem; width: 100%; box-sizing: border-box;"
                                     />
-                                    <small
-                                        >Đảm bảo mọi thành viên đều được tham
-                                        gia đóng góp</small
-                                    >
+                                    <small style="font-size: 0.7rem; opacity: 0.7; display: block; margin-top: 3px;">Định mức tối thiểu/người</small>
                                 </div>
-                                <div class="form-group">
-                                    <label
-                                        ><i
-                                            class="fa-solid fa-battery-half"
-                                        ></i>
-                                        Số ca tối đa / người / tuần</label
-                                    >
+                                <div class="form-group" style="margin-bottom: 0; min-width: 0;">
+                                    <label style="font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--ink-hi);">
+                                        <i class="fa-solid fa-battery-half" style="font-size: 0.8rem; color: var(--goldleaf, #f59e0b); flex-shrink: 0;"></i>
+                                        <span>Ca tối đa / tuần</span>
+                                    </label>
                                     <input
                                         type="number"
                                         id="cfgMaxShifts"
@@ -398,20 +372,15 @@
                                         min="1"
                                         max="10"
                                         class="custom-input"
+                                        style="padding: 6px 10px; font-size: 0.85rem; width: 100%; box-sizing: border-box;"
                                     />
-                                    <small
-                                        >Tránh quá tải và cân bằng việc học tập
-                                        của học sinh/sinh viên</small
-                                    >
+                                    <small style="font-size: 0.7rem; opacity: 0.7; display: block; margin-top: 3px;">Tránh quá tải việc học</small>
                                 </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label
-                                        ><i class="fa-solid fa-sun"></i> Giới
-                                        hạn ca tối đa / ngày</label
-                                    >
+                                <div class="form-group" style="margin-bottom: 0; min-width: 0;">
+                                    <label style="font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--ink-hi);">
+                                        <i class="fa-solid fa-sun" style="font-size: 0.8rem; color: var(--goldleaf, #f59e0b); flex-shrink: 0;"></i>
+                                        <span>Ca tối đa / ngày</span>
+                                    </label>
                                     <input
                                         type="number"
                                         id="cfgMaxDaily"
@@ -419,24 +388,369 @@
                                         min="1"
                                         max="3"
                                         class="custom-input"
+                                        style="padding: 6px 10px; font-size: 0.85rem; width: 100%; box-sizing: border-box;"
                                     />
-                                    <small
-                                        >Tối đa 2 ca/ngày (4 giờ trực) để giữ
-                                        thể lực</small
-                                    >
+                                    <small style="font-size: 0.7rem; opacity: 0.7; display: block; margin-top: 3px;">Tối đa 2 ca/ngày</small>
                                 </div>
                             </div>
 
-                            <div class="action-row">
-                                <button
-                                    type="submit"
-                                    class="btn-primary"
-                                    id="btnRunOptimizer"
-                                >
-                                    <i class="fa-solid fa-play"></i> Thực Thi
-                                    Thuật Toán Phân Ca Tối Ưu (Google OR-Tools
-                                    CP-SAT)
-                                </button>
+                            <!-- BẢNG TINH CHỈNH THAM SỐ CA TRỰC NGÀY -->
+                            <div style="width: 100%; display: flex; flex-direction: column;">
+                                <div style="margin-bottom: 0.5rem;">
+                                    <h4 style="margin: 0; font-size: 0.95rem; color: var(--goldleaf, #f59e0b); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+                                        <span>
+                                            <i class="fa-solid fa-clock-rotate-left"></i>
+                                            Bảng Tinh Chỉnh Tham Số Ca Trực Ngày (5 Ca Cố Định)
+                                        </span>
+                                        <span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted, #94a3b8);">
+                                            (Giờ trực, định mức chính/dự phòng và yêu cầu vận hành)
+                                        </span>
+                                    </h4>
+                                </div>
+
+                                <div class="table-responsive" style="overflow-x: auto; margin-bottom: 0;">
+                                    <table
+                                        class="data-table"
+                                        id="tableDailyShiftConfig"
+                                        style="width: 100%; font-size: 0.85rem;"
+                                    >
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 70px; padding: 6px 8px; text-align: center;">Ca</th>
+                                                <th style="width: 145px; padding: 6px 8px; text-align: center;">Thời gian</th>
+                                                <th style="padding: 6px 8px;">
+                                                    Đặc điểm chính &amp; Yêu cầu vận hành
+                                                </th>
+                                                <th style="width: 185px; padding: 6px 8px; text-align: center;">
+                                                    Số lượng nhân sự
+                                                </th>
+                                                <th style="width: 95px; padding: 6px 8px; text-align: center;">Trạng thái</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <strong class="badge-blue" style="font-size: 0.8rem; padding: 3px 8px; display: inline-block; white-space: nowrap; min-width: 46px; text-align: center;"
+                                                        >Ca 1</strong
+                                                    >
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="time-inputs-inline" style="gap: 4px; justify-content: center;">
+                                                        <input
+                                                            type="text"
+                                                            id="shift1Start"
+                                                            value="07:00"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <span>–</span>
+                                                        <input
+                                                            type="text"
+                                                            id="shift1End"
+                                                            value="09:30"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <input
+                                                        type="text"
+                                                        id="shift1Note"
+                                                        value="Khách đông đột biến vào giờ ra chơi; cần setup phòng trực sớm."
+                                                        class="custom-input full-width-input"
+                                                        style="padding: 4px 8px; font-size: 0.82rem;"
+                                                    />
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="quota-inputs-inline" style="gap: 4px; font-size: 0.8rem; justify-content: center;">
+                                                        <label style="white-space: nowrap;">Chính:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift1Chinh"
+                                                            value="4"
+                                                            min="1"
+                                                            max="10"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <label style="white-space: nowrap;">+ DP:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift1DP"
+                                                            value="1"
+                                                            min="0"
+                                                            max="5"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <span class="badge-success" style="font-size: 0.75rem; padding: 3px 8px; display: inline-block; white-space: nowrap;"
+                                                        >Hoạt động</span
+                                                    >
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <strong class="badge-blue" style="font-size: 0.8rem; padding: 3px 8px; display: inline-block; white-space: nowrap; min-width: 46px; text-align: center;"
+                                                        >Ca 2</strong
+                                                    >
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="time-inputs-inline" style="gap: 4px; justify-content: center;">
+                                                        <input
+                                                            type="text"
+                                                            id="shift2Start"
+                                                            value="09:35"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <span>–</span>
+                                                        <input
+                                                            type="text"
+                                                            id="shift2End"
+                                                            value="12:00"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <input
+                                                        type="text"
+                                                        id="shift2Note"
+                                                        value="Học sinh tan trường &amp; nghỉ trưa, lượng khách (HS/GV) đông."
+                                                        class="custom-input full-width-input"
+                                                        style="padding: 4px 8px; font-size: 0.82rem;"
+                                                    />
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="quota-inputs-inline" style="gap: 4px; font-size: 0.8rem; justify-content: center;">
+                                                        <label style="white-space: nowrap;">Chính:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift2Chinh"
+                                                            value="4"
+                                                            min="1"
+                                                            max="10"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <label style="white-space: nowrap;">+ DP:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift2DP"
+                                                            value="1"
+                                                            min="0"
+                                                            max="5"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <span class="badge-success" style="font-size: 0.75rem; padding: 3px 8px; display: inline-block; white-space: nowrap;"
+                                                        >Hoạt động</span
+                                                    >
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <strong class="badge-blue" style="font-size: 0.8rem; padding: 3px 8px; display: inline-block; white-space: nowrap; min-width: 46px; text-align: center;"
+                                                        >Ca 3</strong
+                                                    >
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="time-inputs-inline" style="gap: 4px; justify-content: center;">
+                                                        <input
+                                                            type="text"
+                                                            id="shift3Start"
+                                                            value="12:05"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <span>–</span>
+                                                        <input
+                                                            type="text"
+                                                            id="shift3End"
+                                                            value="14:00"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <input
+                                                        type="text"
+                                                        id="shift3Note"
+                                                        value="Học sinh chuẩn bị vào ca chiều, lượng khách ổn định."
+                                                        class="custom-input full-width-input"
+                                                        style="padding: 4px 8px; font-size: 0.82rem;"
+                                                    />
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="quota-inputs-inline" style="gap: 4px; font-size: 0.8rem; justify-content: center;">
+                                                        <label style="white-space: nowrap;">Chính:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift3Chinh"
+                                                            value="3"
+                                                            min="1"
+                                                            max="10"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <label style="white-space: nowrap;">+ DP:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift3DP"
+                                                            value="1"
+                                                            min="0"
+                                                            max="5"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <span class="badge-success" style="font-size: 0.75rem; padding: 3px 8px; display: inline-block; white-space: nowrap;"
+                                                        >Hoạt động</span
+                                                    >
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <strong class="badge-blue" style="font-size: 0.8rem; padding: 3px 8px; display: inline-block; white-space: nowrap; min-width: 46px; text-align: center;"
+                                                        >Ca 4</strong
+                                                    >
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="time-inputs-inline" style="gap: 4px; justify-content: center;">
+                                                        <input
+                                                            type="text"
+                                                            id="shift4Start"
+                                                            value="14:05"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <span>–</span>
+                                                        <input
+                                                            type="text"
+                                                            id="shift4End"
+                                                            value="16:05"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <input
+                                                        type="text"
+                                                        id="shift4Note"
+                                                        value="Giờ ra chơi chiều &amp; tan tiết cuối, cần phục vụ nhanh."
+                                                        class="custom-input full-width-input"
+                                                        style="padding: 4px 8px; font-size: 0.82rem;"
+                                                    />
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="quota-inputs-inline" style="gap: 4px; font-size: 0.8rem; justify-content: center;">
+                                                        <label style="white-space: nowrap;">Chính:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift4Chinh"
+                                                            value="4"
+                                                            min="1"
+                                                            max="10"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <label style="white-space: nowrap;">+ DP:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift4DP"
+                                                            value="1"
+                                                            min="0"
+                                                            max="5"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <span class="badge-success" style="font-size: 0.75rem; padding: 3px 8px; display: inline-block; white-space: nowrap;"
+                                                        >Hoạt động</span
+                                                    >
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <strong class="badge-blue" style="font-size: 0.8rem; padding: 3px 8px; display: inline-block; white-space: nowrap; min-width: 46px; text-align: center;"
+                                                        >Ca 5</strong
+                                                    >
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="time-inputs-inline" style="gap: 4px; justify-content: center;">
+                                                        <input
+                                                            type="text"
+                                                            id="shift5Start"
+                                                            value="16:10"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <span>–</span>
+                                                        <input
+                                                            type="text"
+                                                            id="shift5End"
+                                                            value="18:00"
+                                                            class="mini-input"
+                                                            style="width: 50px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <input
+                                                        type="text"
+                                                        id="shift5Note"
+                                                        value="Học sinh ra về; cần bán hàng, dọn dẹp, kiểm kê &amp; khóa cửa."
+                                                        class="custom-input full-width-input"
+                                                        style="padding: 4px 8px; font-size: 0.82rem;"
+                                                    />
+                                                </td>
+                                                <td style="padding: 6px 8px;">
+                                                    <div class="quota-inputs-inline" style="gap: 4px; font-size: 0.8rem; justify-content: center;">
+                                                        <label style="white-space: nowrap;">Chính:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift5Chinh"
+                                                            value="4"
+                                                            min="1"
+                                                            max="10"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                        <label style="white-space: nowrap;">+ DP:</label>
+                                                        <input
+                                                            type="number"
+                                                            id="shift5DP"
+                                                            value="1"
+                                                            min="0"
+                                                            max="5"
+                                                            class="mini-num-input"
+                                                            style="width: 40px; padding: 3px 4px; font-size: 0.82rem; text-align: center;"
+                                                        />
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 6px 8px; text-align: center;">
+                                                    <span class="badge-success" style="font-size: 0.75rem; padding: 3px 8px; display: inline-block; white-space: nowrap;"
+                                                        >Hoạt động</span
+                                                    >
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -505,343 +819,6 @@
                         <div id="optimizerConfigMsg" class="swap-msg" style="display: none; margin-top: 10px;"></div>
                     </div>
 
-                    <!-- BẢNG TINH CHỈNH CA TRỰC NGÀY (QUY CHUẨN 5 CA TRỰC TUẦN) -->
-                    <div
-                        class="glass-card max-width-card"
-                        style="margin-top: 1.5rem"
-                    >
-                        <div class="card-header">
-                            <h3>
-                                <i class="fa-solid fa-clock-rotate-left"></i>
-                                Bảng Tinh Chỉnh Tham Số Ca Trực Ngày & Quy Chuẩn
-                                Nhân Sự
-                            </h3>
-                            <p>
-                                Điều chỉnh thời gian, định mức nhân sự chính/dự
-                                phòng và đặc điểm vận hành của 5 ca trực cố định
-                                mỗi ngày
-                            </p>
-                        </div>
-                        <div class="table-responsive">
-                            <table
-                                class="data-table"
-                                id="tableDailyShiftConfig"
-                            >
-                                <thead>
-                                    <tr>
-                                        <th style="width: 80px">Ca trực</th>
-                                        <th style="width: 170px">Thời gian</th>
-                                        <th>
-                                            Đặc điểm chính &amp; Yêu cầu vận
-                                            hành
-                                        </th>
-                                        <th style="width: 220px">
-                                            Số lượng nhân sự
-                                        </th>
-                                        <th style="width: 100px">Trạng thái</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>
-                                            <strong class="badge-blue"
-                                                >Ca 1</strong
-                                            >
-                                        </td>
-                                        <td>
-                                            <div class="time-inputs-inline">
-                                                <input
-                                                    type="text"
-                                                    id="shift1Start"
-                                                    value="07:00"
-                                                    class="mini-input"
-                                                />
-                                                <span>–</span>
-                                                <input
-                                                    type="text"
-                                                    id="shift1End"
-                                                    value="09:30"
-                                                    class="mini-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <input
-                                                type="text"
-                                                id="shift1Note"
-                                                value="Khách đông đột biến vào giờ ra chơi; cần setup phòng trực sớm."
-                                                class="custom-input full-width-input"
-                                            />
-                                        </td>
-                                        <td>
-                                            <div class="quota-inputs-inline">
-                                                <label>Chính:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift1Chinh"
-                                                    value="4"
-                                                    min="1"
-                                                    max="10"
-                                                    class="mini-num-input"
-                                                />
-                                                <label>+ DP:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift1DP"
-                                                    value="1"
-                                                    min="0"
-                                                    max="5"
-                                                    class="mini-num-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="badge-success"
-                                                >Hoạt động</span
-                                            >
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                            <strong class="badge-blue"
-                                                >Ca 2</strong
-                                            >
-                                        </td>
-                                        <td>
-                                            <div class="time-inputs-inline">
-                                                <input
-                                                    type="text"
-                                                    id="shift2Start"
-                                                    value="09:35"
-                                                    class="mini-input"
-                                                />
-                                                <span>–</span>
-                                                <input
-                                                    type="text"
-                                                    id="shift2End"
-                                                    value="12:00"
-                                                    class="mini-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <input
-                                                type="text"
-                                                id="shift2Note"
-                                                value="Học sinh tan trường &amp; nghỉ trưa, lượng khách (HS/GV) đông."
-                                                class="custom-input full-width-input"
-                                            />
-                                        </td>
-                                        <td>
-                                            <div class="quota-inputs-inline">
-                                                <label>Chính:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift2Chinh"
-                                                    value="4"
-                                                    min="1"
-                                                    max="10"
-                                                    class="mini-num-input"
-                                                />
-                                                <label>+ DP:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift2DP"
-                                                    value="1"
-                                                    min="0"
-                                                    max="5"
-                                                    class="mini-num-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="badge-success"
-                                                >Hoạt động</span
-                                            >
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                            <strong class="badge-blue"
-                                                >Ca 3</strong
-                                            >
-                                        </td>
-                                        <td>
-                                            <div class="time-inputs-inline">
-                                                <input
-                                                    type="text"
-                                                    id="shift3Start"
-                                                    value="12:05"
-                                                    class="mini-input"
-                                                />
-                                                <span>–</span>
-                                                <input
-                                                    type="text"
-                                                    id="shift3End"
-                                                    value="14:00"
-                                                    class="mini-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <input
-                                                type="text"
-                                                id="shift3Note"
-                                                value="Học sinh chuẩn bị vào ca chiều, lượng khách ổn định."
-                                                class="custom-input full-width-input"
-                                            />
-                                        </td>
-                                        <td>
-                                            <div class="quota-inputs-inline">
-                                                <label>Chính:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift3Chinh"
-                                                    value="3"
-                                                    min="1"
-                                                    max="10"
-                                                    class="mini-num-input"
-                                                />
-                                                <label>+ DP:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift3DP"
-                                                    value="1"
-                                                    min="0"
-                                                    max="5"
-                                                    class="mini-num-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="badge-success"
-                                                >Hoạt động</span
-                                            >
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                            <strong class="badge-blue"
-                                                >Ca 4</strong
-                                            >
-                                        </td>
-                                        <td>
-                                            <div class="time-inputs-inline">
-                                                <input
-                                                    type="text"
-                                                    id="shift4Start"
-                                                    value="14:05"
-                                                    class="mini-input"
-                                                />
-                                                <span>–</span>
-                                                <input
-                                                    type="text"
-                                                    id="shift4End"
-                                                    value="16:05"
-                                                    class="mini-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <input
-                                                type="text"
-                                                id="shift4Note"
-                                                value="Giờ ra chơi chiều &amp; tan tiết cuối, cần phục vụ nhanh."
-                                                class="custom-input full-width-input"
-                                            />
-                                        </td>
-                                        <td>
-                                            <div class="quota-inputs-inline">
-                                                <label>Chính:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift4Chinh"
-                                                    value="4"
-                                                    min="1"
-                                                    max="10"
-                                                    class="mini-num-input"
-                                                />
-                                                <label>+ DP:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift4DP"
-                                                    value="1"
-                                                    min="0"
-                                                    max="5"
-                                                    class="mini-num-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="badge-success"
-                                                >Hoạt động</span
-                                            >
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                            <strong class="badge-blue"
-                                                >Ca 5</strong
-                                            >
-                                        </td>
-                                        <td>
-                                            <div class="time-inputs-inline">
-                                                <input
-                                                    type="text"
-                                                    id="shift5Start"
-                                                    value="16:10"
-                                                    class="mini-input"
-                                                />
-                                                <span>–</span>
-                                                <input
-                                                    type="text"
-                                                    id="shift5End"
-                                                    value="18:00"
-                                                    class="mini-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <input
-                                                type="text"
-                                                id="shift5Note"
-                                                value="Học sinh ra về; cần bán hàng, dọn dẹp, kiểm kê &amp; khóa cửa."
-                                                class="custom-input full-width-input"
-                                            />
-                                        </td>
-                                        <td>
-                                            <div class="quota-inputs-inline">
-                                                <label>Chính:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift5Chinh"
-                                                    value="4"
-                                                    min="1"
-                                                    max="10"
-                                                    class="mini-num-input"
-                                                />
-                                                <label>+ DP:</label>
-                                                <input
-                                                    type="number"
-                                                    id="shift5DP"
-                                                    value="1"
-                                                    min="0"
-                                                    max="5"
-                                                    class="mini-num-input"
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="badge-success"
-                                                >Hoạt động</span
-                                            >
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
                     <!-- CẤU HÌNH & QUẢN LÝ CA BÁN NGOÀI (GỘP VÀO TINH CHỈNH TỐI ƯU) -->
                     <div
                         class="outside-shifts-wrapper"
@@ -866,31 +843,34 @@
                             class="grid-2-col outside-grid"
                             id="outsideShiftsGrid"
                         >
-                            <!-- Left Panel: Thêm Ca Ngoài -->
-                            <div class="glass-card">
-                                <div class="card-header">
-                                    <h3>Thêm Ca Ngoài</h3>
+                            <!-- Left Panel: Thêm Ca Ngoài (Nhỏ gọn) -->
+                            <div class="glass-card" style="padding: 16px;">
+                                <div class="card-header" style="margin-bottom: 12px; padding-bottom: 8px;">
+                                    <h3 style="font-size: 1rem;"><i class="fa-solid fa-plus-circle" style="color: var(--goldleaf); font-size: 0.95rem; margin-right: 4px;"></i> Thêm Ca Ngoài</h3>
                                 </div>
                                 <form
                                     id="formAddCaNgoai"
                                     class="add-outside-form"
+                                    style="display: flex; flex-direction: column; gap: 10px;"
                                 >
-                                    <div class="form-group">
-                                        <label>Tên điểm bán:</label>
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <label style="font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">Tên điểm bán:</label>
                                         <input
                                             type="text"
                                             id="inputNgoaiName"
                                             placeholder="Quán Café A"
                                             required
                                             class="custom-input"
+                                            style="padding: 6px 10px; font-size: 0.85rem;"
                                         />
                                     </div>
 
-                                    <div class="form-group">
-                                        <label>Thứ trực:</label>
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <label style="font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">Thứ trực:</label>
                                         <select
                                             id="selectNgoaiDay"
                                             class="custom-select"
+                                            style="padding: 6px 10px; font-size: 0.85rem;"
                                         >
                                             <option value="Thứ 2">Thứ 2</option>
                                             <option value="Thứ 3">Thứ 3</option>
@@ -906,43 +886,39 @@
                                         </select>
                                     </div>
 
-                                    <div class="form-group">
-                                        <label
-                                            >Khung giờ trực (Bắt đầu - Kết
-                                            thúc):</label
-                                        >
-                                        <div class="form-row time-row">
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <label style="font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">Khung giờ (Bắt đầu - Kết thúc):</label>
+                                        <div class="form-row time-row" style="display: flex; align-items: center; gap: 6px;">
                                             <input
                                                 type="text"
                                                 id="inputNgoaiStart"
                                                 value="17:00"
                                                 placeholder="17:00"
                                                 class="custom-input"
+                                                style="padding: 6px 8px; font-size: 0.85rem; text-align: center;"
                                             />
-                                            <span class="time-dash">-</span>
+                                            <span class="time-dash" style="font-weight: 700;">-</span>
                                             <input
                                                 type="text"
                                                 id="inputNgoaiEnd"
                                                 value="19:30"
                                                 placeholder="19:30"
                                                 class="custom-input"
+                                                style="padding: 6px 8px; font-size: 0.85rem; text-align: center;"
                                             />
                                         </div>
-                                        <small class="field-note"
-                                            >Hệ thống tự động đối chiếu lịch
-                                            rảnh theo khung giờ bắt đầu và kết
-                                            thúc (vd: 14h-16h sẽ cần rảnh cả 2
-                                            ca 13h-15h &amp; 15h-17h; ca tối sẽ
-                                            lấy dữ liệu rảnh trễ nhất).</small
+                                        <small class="field-note" style="font-size: 0.7rem; opacity: 0.7; line-height: 1.35; margin-top: 4px; display: block;"
+                                            >Tự động đối chiếu lịch rảnh theo khung giờ bắt đầu và kết thúc.</small
                                         >
                                     </div>
 
-                                    <div class="form-row quota-row">
-                                        <div class="form-group">
-                                            <label>Chính:</label>
+                                    <div class="form-row quota-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                        <div class="form-group" style="margin-bottom: 0;">
+                                            <label style="font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">Chính:</label>
                                             <select
                                                 id="selectNgoaiChinh"
                                                 class="custom-select"
+                                                style="padding: 6px 8px; font-size: 0.85rem;"
                                             >
                                                 <option value="1">
                                                     1 người
@@ -976,11 +952,12 @@
                                                 </option>
                                             </select>
                                         </div>
-                                        <div class="form-group">
-                                            <label>Dự phòng:</label>
+                                        <div class="form-group" style="margin-bottom: 0;">
+                                            <label style="font-size: 0.8rem; font-weight: 600; margin-bottom: 4px;">Dự phòng:</label>
                                             <select
                                                 id="selectNgoaiDP"
                                                 class="custom-select"
+                                                style="padding: 6px 8px; font-size: 0.85rem;"
                                             >
                                                 <option value="0">
                                                     0 người
@@ -1008,6 +985,7 @@
                                         type="submit"
                                         class="btn-add-green"
                                         id="btnAddCaNgoaiBtn"
+                                        style="width: 100%; justify-content: center; padding: 8px 12px; font-size: 0.85rem; margin-top: 4px;"
                                     >
                                         <i class="fa-solid fa-plus"></i> Thêm
                                         vào danh sách
@@ -1015,23 +993,23 @@
                                 </form>
                             </div>
 
-                            <!-- Right Panel: Danh sách Ca ngoài -->
-                            <div class="glass-card">
-                                <div class="card-header">
-                                    <h3>Danh sách Ca ngoài</h3>
+                            <!-- Right Panel: Danh sách Ca ngoài (Mở rộng toàn bộ không gian) -->
+                            <div class="glass-card" style="padding: 16px;">
+                                <div class="card-header" style="margin-bottom: 12px; padding-bottom: 8px;">
+                                    <h3 style="font-size: 1rem;"><i class="fa-solid fa-list-check" style="color: var(--goldleaf); font-size: 0.95rem; margin-right: 4px;"></i> Danh sách Ca ngoài</h3>
                                 </div>
                                 <div class="table-responsive outside-table-box">
                                     <table class="data-table outside-table">
                                         <thead>
                                             <tr>
-                                                <th>STT</th>
-                                                <th>Tên Điểm Bán</th>
-                                                <th>Thứ</th>
-                                                <th>Bắt Đầu</th>
-                                                <th>Kết Thúc</th>
-                                                <th>Chính</th>
-                                                <th>DP</th>
-                                                <th>Thao tác</th>
+                                                <th style="width: 44px; text-align: center; padding: 7px 6px;">STT</th>
+                                                <th style="text-align: left; padding: 7px 10px;">Tên Điểm Bán</th>
+                                                <th style="width: 76px; text-align: center; padding: 7px 6px; white-space: nowrap;">Thứ</th>
+                                                <th style="width: 68px; text-align: center; padding: 7px 6px; white-space: nowrap;">Bắt Đầu</th>
+                                                <th style="width: 68px; text-align: center; padding: 7px 6px; white-space: nowrap;">Kết Thúc</th>
+                                                <th style="width: 58px; text-align: center; padding: 7px 6px; white-space: nowrap;">Chính</th>
+                                                <th style="width: 52px; text-align: center; padding: 7px 6px; white-space: nowrap;">DP</th>
+                                                <th style="width: 78px; text-align: center; padding: 7px 6px; white-space: nowrap;">Thao tác</th>
                                             </tr>
                                         </thead>
                                         <tbody id="caNgoaiTableBody">
@@ -1170,6 +1148,90 @@
                                     </tr>
                                 </thead>
                                 <tbody id="inventoryTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Online Orders Management Card in Tab 5 -->
+                    <div class="glass-card" style="margin-top: 1.5rem">
+                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px;">
+                            <div>
+                                <h3 style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-cart-flatbed" style="color: #38bdf8;"></i> Bảng Quản Lý Đơn Hàng Online Đặt Trước
+                                </h3>
+                                <p>
+                                    Danh sách các đơn đặt online nhập từ Excel hoặc thêm thủ công, hệ thống tự động phân ca trực trả hàng tương ứng
+                                </p>
+                            </div>
+                            <div class="header-actions-group" style="display: flex; align-items: center; gap: 8px;">
+                                <button class="btn-add-green" id="btnOpenAddOnlineOrderModal" style="padding: 6px 12px; font-size: 12.5px;">
+                                    <i class="fa-solid fa-plus"></i> + Thêm đơn thủ công
+                                </button>
+                                <button
+                                    class="btn-export admin-only-elem"
+                                    id="btnUploadOnlineOrdersExcel"
+                                    type="button"
+                                    style="
+                                        background: #0284c7;
+                                        border-color: #0284c7;
+                                        padding: 6px 12px;
+                                        font-size: 12.5px;
+                                    "
+                                >
+                                    <i class="fa-solid fa-cloud-arrow-up"></i> Nhập Đơn Online Excel
+                                </button>
+                                <input
+                                    type="file"
+                                    id="inputOnlineOrdersExcelFile"
+                                    accept=".xlsx,.xls,.csv"
+                                    style="display: none"
+                                />
+                                <button class="btn-action-sm" id="btnRefreshOnlineOrders" style="background: rgba(255,255,255,0.08); color: var(--ink-hi);">
+                                    <i class="fa-solid fa-rotate"></i> Làm mới
+                                </button>
+                                <button class="btn-action-sm btn-action-delete admin-only-elem" id="btnClearAllOnlineOrders">
+                                    <i class="fa-solid fa-trash-can"></i> Xóa tất cả đơn
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- KPI Summary Row for Online Orders -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 1rem;">
+                            <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 8px; padding: 10px 14px;">
+                                <span style="font-size: 11px; color: var(--ink-dim); text-transform: uppercase; font-weight: 600;">TỔNG ĐƠN ONLINE</span>
+                                <strong id="kpiTotalOnlineOrders" style="font-size: 20px; color: #38bdf8; display: block; margin-top: 2px;">0 đơn</strong>
+                            </div>
+                            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.22); border-radius: 8px; padding: 10px 14px;">
+                                <span style="font-size: 11px; color: var(--ink-dim); text-transform: uppercase; font-weight: 600;">CHƯA THANH TOÁN</span>
+                                <strong id="kpiUnpaidOnlineOrders" style="font-size: 20px; color: #fca5a5; display: block; margin-top: 2px;">0 đơn</strong>
+                            </div>
+                            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.22); border-radius: 8px; padding: 10px 14px;">
+                                <span style="font-size: 11px; color: var(--ink-dim); text-transform: uppercase; font-weight: 600;">ĐÃ THANH TOÁN</span>
+                                <strong id="kpiPaidOnlineOrders" style="font-size: 20px; color: #34d399; display: block; margin-top: 2px;">0 đơn</strong>
+                            </div>
+                            <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.22); border-radius: 8px; padding: 10px 14px;">
+                                <span style="font-size: 11px; color: var(--ink-dim); text-transform: uppercase; font-weight: 600;">DOANH THU ĐƠN ONLINE</span>
+                                <strong id="kpiTotalOnlineRevenue" style="font-size: 20px; color: var(--goldleaf); display: block; margin-top: 2px;">0 ₫</strong>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="data-table" id="onlineOrdersTable">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px; text-align: center;">STT</th>
+                                        <th>KHÁCH HÀNG / LỚP</th>
+                                        <th>NGÀY &amp; KHUNG GIỜ LẤY</th>
+                                        <th>CA TRỰC TƯƠNG ỨNG</th>
+                                        <th>MẶT HÀNG &amp; SL</th>
+                                        <th style="text-align: right;">TỔNG TIỀN</th>
+                                        <th style="text-align: center;">TRẠNG THÁI</th>
+                                        <th style="text-align: center; width: 80px;">THAO TÁC</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="onlineOrdersTableBody">
                                     <!-- Populated dynamically -->
                                 </tbody>
                             </table>
@@ -1392,6 +1454,21 @@
                                     0
                                 </h3>
                                 <p>Vắng Không Phép</p>
+                            </div>
+                        </div>
+                        <div class="kpi-card" title="Đánh giá hiệu quả quy trình ứng biến dự phòng: Thời gian phản hồi trung bình khi gọi nhân sự dự phòng tiếp ứng">
+                            <div
+                                class="kpi-icon purple"
+                                style="
+                                    color: #8b5cf6;
+                                    background: rgba(139, 92, 246, 0.1);
+                                "
+                            >
+                                <i class="fa-solid fa-headset"></i>
+                            </div>
+                            <div class="kpi-data">
+                                <h3 id="kpiStatAvgResponseTime" style="color: #8b5cf6">0 phút</h3>
+                                <p>TG Phản Hồi Gọi Dự Phòng TRB</p>
                             </div>
                         </div>
                     </div>
@@ -1738,10 +1815,10 @@
                                 "
                             >
                             <div class="live-shift-bar">
-                                <label for="liveShiftSelect" class="live-shift-label">
+                                <label for="livePOSShiftSelect" class="live-shift-label">
                                     <i class="fa-solid fa-list-check"></i> Chọn Ca:
                                 </label>
-                                <select id="liveShiftSelect" class="live-shift-select">
+                                <select id="livePOSShiftSelect" class="live-shift-select">
                                     <!-- Populated dynamically -->
                                 </select>
                                 <span class="live-shift-rev-badge" id="liveShiftRevSummary">0 ₫ ca này</span>
@@ -2118,138 +2195,83 @@
                         </div>
                     </div>
 
-                    <div
-                        style="
-                            display: grid;
-                            grid-template-columns: repeat(
-                                auto-fit,
-                                minmax(350px, 1fr)
-                            );
-                            gap: 1.5rem;
-                        "
-                    >
-                        <!-- Left Column: Điểm Danh & Ca Vắng Live -->
-                        <div class="glass-card">
-                            <div class="card-header flex-between">
-                                <div>
-                                    <h3>
-                                        <i class="fa-solid fa-user-check"></i>
-                                        Điểm Danh &amp; Ghi Nhận Vắng
-                                    </h3>
-                                    <p id="liveShiftInfoSub">Đang chọn ca: -</p>
-                                </div>
-                                <span
-                                    id="liveShiftBadge"
-                                    class="status-badge badge-success"
-                                    >Đang trực</span
-                                >
+                    <!-- Online Orders List for Selected Live Shift -->
+                    <div class="glass-card" style="margin-top: 1.25rem;">
+                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 10px;">
+                            <div>
+                                <h3 style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-box-open" style="color: #38bdf8;"></i>
+                                    Danh Sách Đơn Hàng Online Ca Trực Này
+                                </h3>
+                                <p style="margin-top: 4px; font-size: 12.5px; color: var(--ink-dim);">
+                                    Danh sách các đơn đặt online khớp với ca làm việc đang chọn. Nhân viên thu ngân chọn trạng thái thanh toán khi giao hàng.
+                                </p>
                             </div>
-
-                            <div
-                                id="liveShiftMemberList"
-                                class="agenda-list"
-                                style="
-                                    margin-top: 1rem;
-                                    max-height: 350px;
-                                    overflow-y: auto;
-                                    padding-right: 4px;
-                                "
-                            >
-                                <!-- Populated dynamically -->
-                            </div>
-
-                            <div
-                                style="
-                                    margin-top: 1.2rem;
-                                    display: flex;
-                                    flex-direction: column;
-                                    gap: 8px;
-                                "
-                            >
-                                <button
-                                    class="btn-primary"
-                                    id="btnConfirmLiveAttendance"
-                                    onclick="submitLiveAttendanceBatch()"
-                                    style="
-                                        width: 100%;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        gap: 8px;
-                                        background: #10b981;
-                                        border-color: #059669;
-                                        font-weight: 700;
-                                        height: 40px;
-                                        font-size: 13px;
-                                    "
-                                >
-                                    <i class="fa-solid fa-cloud-arrow-up"></i>
-                                    Lưu Điểm Danh &amp; Gọi Backup
-                                </button>
-                                <button
-                                    class="btn-secondary"
-                                    id="btnLiveOpenIncidentModal"
-                                    style="
-                                        width: 100%;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        gap: 8px;
-                                        font-size: 13px;
-                                        height: 38px;
-                                        background: rgba(239, 68, 68, 0.1);
-                                        color: #fca5a5;
-                                        border: 1px solid rgba(239, 68, 68, 0.3);
-                                    "
-                                >
-                                    <i class="fa-solid fa-user-shield"></i> Gọi
-                                    Đổi Dự Phòng / Điều Phối Khẩn Cấp
-                                </button>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="tag" id="liveShiftOnlineOrderCountBadge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid #0284c7; font-weight: 700;">
+                                    0 đơn hàng
+                                </span>
                             </div>
                         </div>
+                        <div class="table-responsive" style="margin-top: 10px;">
+                            <table class="data-table" id="liveShiftOnlineOrdersTable">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px; text-align: center;">STT</th>
+                                        <th>KHÁCH HÀNG / LỚP</th>
+                                        <th>KHUNG GIỜ LẤY CA</th>
+                                        <th>CHI TIẾT MẶT HÀNG &amp; SỐ LƯỢNG</th>
+                                        <th style="text-align: right;">TỔNG TIỀN</th>
+                                        <th style="text-align: center; width: 190px;">TRẠNG THÁI THANH TOÁN</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="liveShiftOnlineOrdersTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
 
-                        <!-- Right Column: Shift Sales Transactions -->
-                        <div class="glass-card">
-                            <div class="card-header flex-between">
-                                <div>
-                                    <h3>
-                                        <i class="fa-solid fa-receipt"></i> Nhật
-                                        Ký GD Ca Này
-                                    </h3>
-                                    <p>Ghi nhận riêng cho ca trực đang chọn</p>
-                                </div>
+                    <!-- Shift Sales Transactions -->
+                    <div class="glass-card" style="margin-top: 1.25rem;">
+                        <div class="card-header flex-between">
+                            <div>
+                                <h3 style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-receipt" style="color: var(--goldleaf);"></i> Nhật Ký Giao Dịch Bán Hàng Ca Này
+                                </h3>
+                                <p>Chi tiết các đơn hàng thanh toán riêng cho ca trực đang chọn</p>
                             </div>
-                            <div
-                                class="table-responsive"
-                                style="
-                                    margin-top: 1rem;
-                                    max-height: 400px;
-                                    overflow-y: auto;
-                                "
+                        </div>
+                        <div
+                            class="table-responsive"
+                            style="
+                                margin-top: 1rem;
+                                max-height: 400px;
+                                overflow-y: auto;
+                            "
+                        >
+                            <table
+                                class="data-table data-table-compact"
+                                id="liveShiftSalesTable"
                             >
-                                <table
-                                    class="data-table data-table-compact"
-                                    id="liveShiftSalesTable"
-                                >
-                                    <thead>
-                                        <tr>
-                                            <th>MÃ GD</th>
-                                            <th>THỜI GIAN</th>
-                                            <th>SẢN PHẨM</th>
-                                            <th>SL</th>
-                                            <th>ĐƠN GIÁ</th>
-                                            <th>THÀNH TIỀN</th>
-                                            <th>KHÁCH HÀNG &amp; HTTT</th>
-                                            <th>THU NGÂN</th>
-                                            <th>GHI CHÚ</th>
-                                            <th>HÀNH ĐỘNG</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="liveShiftSalesTableBody">
-                                        <!-- Populated dynamically -->
-                                    </tbody>
-                                </table>
-                            </div>
+                                <thead>
+                                    <tr>
+                                        <th>MÃ GD</th>
+                                        <th>THỜI GIAN</th>
+                                        <th>SẢN PHẨM</th>
+                                        <th>SL</th>
+                                        <th>ĐƠN GIÁ</th>
+                                        <th>THÀNH TIỀN</th>
+                                        <th>KHÁCH HÀNG &amp; HTTT</th>
+                                        <th>THU NGÂN</th>
+                                        <th>GHI CHÚ</th>
+                                        <th>HÀNH ĐỘNG</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="liveShiftSalesTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
@@ -2496,243 +2518,269 @@
                     </div>
                 </section>
 
-                <!-- TAB 6: QUẢN LÝ CA VẮNG & ĐỘI ỨNG BIẾN -->
+                <!-- TAB: XỬ LÝ CA VẮNG, ĐIỂM DANH & BACKUP -->
                 <section id="tab-contingency" class="tab-content">
-                    <div class="grid-2-col">
-                        <!-- Live Attendance & Incident Workflow -->
-                        <div class="glass-card">
-                            <div class="card-header">
-                                <h3>
-                                    <i class="fa-solid fa-user-check"></i> Quy
-                                    Trình Quản Lý Ca Vắng, Đi Trễ & Ghi Nhận Sự
-                                    Cố
+                    <!-- Urgent Dispatch Alert Banner (for Pending Unreachable Backups) -->
+                    <div id="urgentDispatchAlertBanner" style="display: none; margin-bottom: 1.25rem;"></div>
+
+                    <!-- Bảng Điểm Danh & Ghi Nhận Vắng / Sai Phạm Trực Tiếp Theo Ca -->
+                    <div class="glass-card" style="margin-bottom: 1.5rem">
+                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                            <div>
+                                <h3 style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="fa-solid fa-user-check" style="color: #10B981;"></i>
+                                    Điểm Danh &amp; Ghi Nhận Vắng, Sai Phạm Real-time
                                 </h3>
-                                <p>
-                                    Ghi nhận trạng thái điểm danh và kích hoạt
-                                    tức thì nhân sự dự phòng thay thế
-                                </p>
+                                <p id="liveShiftInfoSub" style="margin-top: 4px;">Đang chọn ca: -</p>
                             </div>
-                            <div class="status-handling-box">
-                                <div class="status-pill status-present">
-                                    <i class="fa-solid fa-check"></i> Có Mặt
-                                    Đúng Giờ
-                                </div>
-                                <div class="status-pill status-late">
-                                    <i
-                                        class="fa-solid fa-clock-rotate-left"
-                                    ></i>
-                                    Đi Trễ
-                                </div>
-                                <div class="status-pill status-leave">
-                                    <i class="fa-solid fa-calendar-xmark"></i>
-                                    Xin Nghỉ Trước
-                                </div>
-                                <div class="status-pill status-emergency">
-                                    <i
-                                        class="fa-solid fa-triangle-exclamation"
-                                    ></i>
-                                    Vắng Đột Xuất
-                                </div>
-                            </div>
-
-                            <!-- Incident Logger & Replacement Tool -->
-                            <div class="incident-form-box">
-                                <h4>
-                                    <i class="fa-solid fa-bolt"></i> Điều Phối &
-                                    Bố Trí Nhân Sự Thay Thế
-                                </h4>
-
-                                <div class="form-group">
-                                    <label
-                                        >1. Chọn ca trực phát sinh sự cố:</label
-                                    >
-                                    <select
-                                        id="incidentShiftSelect"
-                                        class="custom-select"
-                                    ></select>
-                                </div>
-
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label
-                                            >2. Thành viên vắng / đi trễ / đổi
-                                            ca:</label
-                                        >
-                                        <select
-                                            id="incidentAbsentSelect"
-                                            class="custom-select"
-                                        ></select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>3. Trạng thái điểm danh:</label>
-                                        <select
-                                            id="incidentStatusSelect"
-                                            class="custom-select"
-                                        >
-                                            <option value="Đi trễ">
-                                                ⏰ Đi trễ
-                                            </option>
-                                            <option value="Vắng đột xuất">
-                                                🚨 Vắng đột xuất (Khẩn cấp)
-                                            </option>
-                                            <option value="Xin nghỉ trước">
-                                                📝 Xin nghỉ trước (&gt;24h)
-                                            </option>
-                                            <option value="Có mặt">
-                                                ✅ Đổi ca / Thay thế thành công
-                                            </option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label
-                                        >4. Gợi ý nhân sự dự phòng thay thế (Đã
-                                        lọc danh sách khả dụng):</label
-                                    >
-                                    <select
-                                        id="incidentReplacementSelect"
-                                        class="custom-select"
-                                    ></select>
-                                    <small
-                                        id="replacementHint"
-                                        class="field-note"
-                                        >Đang tải danh sách nhân sự
-                                        rảnh...</small
-                                    >
-                                </div>
-
-                                <div class="form-group">
-                                    <label>Ghi chú sự cố:</label>
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <div style="position: relative; display: flex; align-items: center;">
                                     <input
                                         type="text"
-                                        id="incidentNote"
-                                        placeholder="Lý do bận, thỏa thuận hỗ trợ..."
+                                        id="contingencyShiftSearch"
+                                        placeholder="🔍 Tìm ca (mã ca, thứ, giờ, phòng, tên)..."
                                         class="custom-input"
+                                        style="
+                                            width: 240px;
+                                            height: 36px;
+                                            font-size: 12.5px;
+                                            padding: 6px 12px;
+                                            background: rgba(0,0,0,0.25);
+                                            border: 1px solid rgba(255,255,255,0.15);
+                                            border-radius: 8px;
+                                            color: var(--ink-hi);
+                                        "
+                                        oninput="handleContingencyShiftSearch(this.value)"
                                     />
                                 </div>
-
-                                <button
-                                    class="btn-primary"
-                                    id="btnSubmitIncident"
-                                >
-                                    <i class="fa-solid fa-user-plus"></i> Xác
-                                    Nhận Thay Ca & Cập Nhật Hệ Thống
-                                </button>
-                                <div
-                                    id="incidentResultMsg"
-                                    class="swap-msg"
-                                ></div>
+                                <div class="live-shift-bar" style="background: rgba(255,255,255,0.06); padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);">
+                                    <label for="liveShiftSelect" class="live-shift-label" style="font-size: 12px; font-weight: 600; color: var(--goldleaf); margin-right: 6px;">
+                                        <i class="fa-solid fa-list-check"></i> Chọn Ca:
+                                    </label>
+                                    <select id="liveShiftSelect" class="live-shift-select" style="font-size: 12.5px; font-weight: 600; padding: 4px 8px; background: transparent; border: none; color: var(--ink-hi); max-width: 320px;">
+                                        <!-- Populated dynamically -->
+                                    </select>
+                                </div>
+                                <span id="liveShiftBadge" class="status-badge badge-success">Đang trực</span>
                             </div>
                         </div>
 
-                        <!-- Incident Logs & Late Arrival Table -->
-                        <div class="glass-card">
-                            <div class="card-header flex-between">
-                                <div>
-                                    <h3>
-                                        <i
-                                            class="fa-solid fa-clock-rotate-left"
-                                        ></i>
-                                        Bảng Báo Cáo Người Đi Trễ & Vắng Mặt
-                                        Tách Biệt
-                                    </h3>
-                                    <p>
-                                        Theo dõi thống kê vi phạm điểm danh, đi
-                                        trễ và tiến độ thay thế nhân sự
-                                    </p>
-                                </div>
-                                <div
-                                    style="
-                                        display: flex;
-                                        gap: 8px;
-                                        flex-wrap: wrap;
-                                    "
-                                >
-                                    <button
-                                        class="btn-primary"
-                                        id="btnExportIncidentExcel"
-                                        style="
-                                            font-size: 12px;
-                                            padding: 7px 14px;
-                                            background: #059669;
-                                            border-color: #047857;
-                                        "
-                                        title="Xuất file Excel báo cáo người vắng, đi trễ & thay thế"
-                                    >
-                                        <i class="fa-solid fa-file-excel"></i>
-                                        Xuất Excel Ca Vắng &amp; Dự Phòng
-                                    </button>
-                                    <button
-                                        class="btn-danger-red"
-                                        id="btnResetIncidents"
-                                        style="
-                                            font-size: 12px;
-                                            padding: 7px 14px;
-                                        "
-                                        title="Xóa toàn bộ lịch sử điểm danh và sự cố"
-                                    >
-                                        <i class="fa-solid fa-trash-can"></i>
-                                        Xóa Lịch Sử Ghi Nhận
-                                    </button>
-                                </div>
-                            </div>
+                        <div id="liveShiftAlertNotice" style="display: none; margin-top: 10px; margin-bottom: 6px;"></div>
 
-                            <div class="incident-kpi-summary">
-                                <div class="inc-kpi-card">
-                                    <span class="inc-title"
-                                        >Tổng Lượt Đi Trễ</span
-                                    >
-                                    <strong
-                                        id="kpiLateCount"
-                                        class="inc-val warn"
-                                        >0</strong
-                                    >
-                                </div>
-                                <div class="inc-kpi-card">
-                                    <span class="inc-title"
-                                        >Tổng Lượt Vắng Mặt</span
-                                    >
-                                    <strong
-                                        id="kpiAbsentCount"
-                                        class="inc-val danger"
-                                        >0</strong
-                                    >
-                                </div>
-                                <div class="inc-kpi-card">
-                                    <span class="inc-title"
-                                        >Đã Bố Trí Thay Thế</span
-                                    >
-                                    <strong
-                                        id="kpiReplacedCount"
-                                        class="inc-val ok"
-                                        >0</strong
-                                    >
-                                </div>
-                            </div>
+                        <div
+                            id="liveShiftMemberList"
+                            class="agenda-list"
+                            style="
+                                margin-top: 1rem;
+                                max-height: 480px;
+                                overflow-y: auto;
+                                padding-right: 4px;
+                            "
+                        >
+                            <!-- Populated dynamically -->
+                        </div>
 
-                            <div
-                                class="table-responsive"
-                                style="margin-top: 1rem"
+                        <div
+                            style="
+                                margin-top: 1.2rem;
+                                display: flex;
+                                gap: 10px;
+                                flex-wrap: wrap;
+                                align-items: center;
+                                justify-content: flex-end;
+                            "
+                            id="liveShiftAttendanceActions"
+                        >
+                            <!-- Nút cho Trưởng Ca / Nhân Viên: Đặt Lại & Lưu Điểm Danh -->
+                            <button
+                                class="btn-action-secondary staff-only-elem"
+                                id="btnResetLiveAttendance"
+                                onclick="resetLiveAttendanceState()"
+                                style="
+                                    display: inline-flex;
+                                    align-items: center;
+                                    gap: 6px;
+                                    padding: 0 16px;
+                                    height: 42px;
+                                    font-size: 13px;
+                                    border-radius: 8px;
+                                    background: rgba(255,255,255,0.06);
+                                    color: var(--ink-dim);
+                                    border: 1px solid var(--border-color);
+                                    cursor: pointer;
+                                "
+                                title="Hủy các thay đổi điểm danh chưa lưu và hoàn tác về trạng thái ban đầu"
                             >
-                                <table class="data-table" id="lateAbsenceTable">
-                                    <thead>
-                                        <tr>
-                                            <th>STT</th>
-                                            <th>THỜI GIAN GHI NHẬN</th>
-                                            <th>CA TRỰC & KHUNG GIỜ</th>
-                                            <th>ĐỊA ĐIỂM</th>
-                                            <th>NGƯỜI VẮNG / TRỄ</th>
-                                            <th>TRẠNG THÁI</th>
-                                            <th>NHÂN SỰ THAY THẾ</th>
-                                            <th>GHI CHÚ</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="lateAbsenceTableBody">
-                                        <!-- Populated dynamically -->
-                                    </tbody>
-                                </table>
+                                <i class="fa-solid fa-rotate-left"></i>
+                                Đặt Lại
+                            </button>
+                            <button
+                                class="btn-primary staff-only-elem"
+                                id="btnConfirmLiveAttendance"
+                                onclick="submitLiveAttendanceBatch()"
+                                style="
+                                    min-width: 200px;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    gap: 8px;
+                                    background: #10b981;
+                                    border-color: #059669;
+                                    font-weight: 700;
+                                    height: 42px;
+                                    font-size: 13.5px;
+                                    border-radius: 8px;
+                                "
+                            >
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                Lưu Điểm Danh
+                            </button>
+
+                            <!-- Nút cho Admin: Thay thế hoàn toàn "Lưu điểm danh & Gọi backup" bằng "Thêm người vào ca" -->
+                            <button
+                                class="btn-primary admin-only-elem"
+                                id="btnAddMemberToLiveShift"
+                                onclick="openAddMemberToShiftModal()"
+                                style="
+                                    min-width: 220px;
+                                    display: none;
+                                    align-items: center;
+                                    justify-content: center;
+                                    gap: 8px;
+                                    background: #2563EB;
+                                    border-color: #1D4ED8;
+                                    font-weight: 700;
+                                    height: 42px;
+                                    font-size: 13.5px;
+                                    border-radius: 8px;
+                                "
+                                title="Thêm nhân sự mới trực tiếp vào ca trực này (Chỉ Admin)"
+                            >
+                                <i class="fa-solid fa-user-plus"></i>
+                                Thêm Người Vào Ca
+                            </button>
+                        </div>
+
+                        <!-- Mini History Section for Current Shift -->
+                        <div id="liveShiftHistorySection" style="margin-top: 14px; border-top: 1px dashed rgba(255,255,255,0.12); padding-top: 12px; display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="font-size: 12.5px; font-weight: 700; color: var(--goldleaf); display: inline-flex; align-items: center; gap: 6px;">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> Lịch Sử Sự Cố &amp; Điểm Danh Ca Này
+                                </span>
+                                <span id="liveShiftHistoryCountBadge" class="tag" style="background: rgba(255,255,255,0.08); font-size: 11px; padding: 2px 7px;">0 ghi nhận</span>
                             </div>
+                            <div id="liveShiftHistoryList" style="display: flex; flex-direction: column; gap: 6px;">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Incident Logs & Late Arrival Table Full Width (Admin Only) -->
+                    <div class="glass-card admin-only-elem">
+                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px;">
+                            <div>
+                                <h3>
+                                    <i
+                                        class="fa-solid fa-clock-rotate-left"
+                                        style="color: var(--goldleaf);"
+                                    ></i>
+                                    Bảng Báo Cáo Người Đi Trễ, Vắng Mặt &amp; Lịch Sử Ghi Nhận
+                                </h3>
+                                <p>
+                                    Theo dõi chi tiết vi phạm điểm danh, tiến độ thay thế dự phòng và quản lý bản ghi
+                                </p>
+                            </div>
+                            <div
+                                style="
+                                    display: flex;
+                                    gap: 8px;
+                                    flex-wrap: wrap;
+                                "
+                            >
+                                <button
+                                    class="btn-primary admin-only-elem"
+                                    id="btnExportIncidentExcel"
+                                    style="
+                                        font-size: 12px;
+                                        padding: 7px 14px;
+                                        background: #059669;
+                                        border-color: #047857;
+                                    "
+                                    title="Xuất file Excel báo cáo người vắng, đi trễ & thay thế"
+                                >
+                                    <i class="fa-solid fa-file-excel"></i>
+                                    Xuất Excel Ca Vắng &amp; Dự Phòng
+                                </button>
+                                <button
+                                    class="btn-danger-red admin-only-elem"
+                                    id="btnResetIncidents"
+                                    style="
+                                        font-size: 12px;
+                                        padding: 7px 14px;
+                                    "
+                                    title="Xóa toàn bộ lịch sử điểm danh và sự cố"
+                                >
+                                    <i class="fa-solid fa-trash-can"></i>
+                                    Xóa Toàn Bộ Lịch Sử
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="incident-kpi-summary">
+                            <div class="inc-kpi-card">
+                                <span class="inc-title"
+                                    >Tổng Lượt Đi Trễ</span
+                                >
+                                <strong
+                                    id="kpiLateCount"
+                                    class="inc-val warn"
+                                    >0</strong
+                                >
+                            </div>
+                            <div class="inc-kpi-card">
+                                <span class="inc-title"
+                                    >Tổng Lượt Vắng Mặt</span
+                                >
+                                <strong
+                                    id="kpiAbsentCount"
+                                    class="inc-val danger"
+                                    >0</strong
+                                >
+                            </div>
+                            <div class="inc-kpi-card">
+                                <span class="inc-title"
+                                    >Đã Bố Trí Thay Thế</span
+                                >
+                                <strong
+                                    id="kpiReplacedCount"
+                                    class="inc-val ok"
+                                    >0</strong
+                                >
+                            </div>
+                        </div>
+
+                        <div
+                            class="table-responsive"
+                            style="margin-top: 1rem; overflow-x: auto;"
+                        >
+                            <table class="data-table" id="lateAbsenceTable" style="width: 100%; min-width: 950px; border-collapse: separate; border-spacing: 0;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px; text-align: center;">STT</th>
+                                        <th style="min-width: 140px; text-align: center;">THỜI GIAN GHI NHẬN</th>
+                                        <th style="min-width: 165px;">CA TRỰC &amp; KHUNG GIỜ</th>
+                                        <th style="min-width: 135px;">ĐỊA ĐIỂM</th>
+                                        <th style="min-width: 150px;">NGƯỜI VẮNG / TRỄ</th>
+                                        <th style="min-width: 170px; text-align: center;">TRẠNG THÁI &amp; SAI PHẠM</th>
+                                        <th style="min-width: 160px;">NHÂN SỰ THAY THẾ</th>
+                                        <th style="min-width: 180px;">GHI CHÚ</th>
+                                        <th style="width: 90px; text-align: center;" class="admin-only-cell">HÀNH ĐỘNG</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lateAbsenceTableBody">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </section>
@@ -2756,6 +2804,20 @@
                                 <button class="btn btn-primary" onclick="loadCompetitionStats(document.getElementById('compWeekSelect').value)">
                                     <i class="fa-solid fa-arrows-rotate"></i> Làm mới
                                 </button>
+                            </div>
+                        </div>
+
+                        <!-- Reputation Rules Banner -->
+                        <div style="margin: 12px 16px 16px 16px; padding: 10px 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px;">
+                            <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink-hi);">
+                                <i class="fa-solid fa-shield-heart" style="color: #3b82f6; font-size: 14px;"></i>
+                                <span>Cơ chế Uy Tín: Khởi điểm <strong style="color: #34d399;">100đ</strong>/thành viên</span>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 11.5px;">
+                                <span class="tag" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">⏰ Đi trễ: <strong>-3đ</strong></span>
+                                <span class="tag" style="background: rgba(234, 88, 12, 0.15); color: #fb923c; border: 1px solid rgba(234, 88, 12, 0.3);">📱 Mất tập trung: <strong>-5đ</strong></span>
+                                <span class="tag" style="background: rgba(225, 29, 72, 0.15); color: #fda4af; border: 1px solid rgba(225, 29, 72, 0.3);">🚶 Bỏ quầy: <strong>-5đ</strong></span>
+                                <span class="tag" style="background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3);">🚨 Vắng không phép: <strong>-10đ</strong></span>
                             </div>
                         </div>
 
@@ -2835,81 +2897,6 @@
                                     </table>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                </section>
-                <!-- TAB 8: KIỂM TRA TÍNH HỢP LỆ & QUY TRÌNH HR RỦI RO -->
-                <section id="tab-audit" class="tab-content">
-                    <div class="glass-card">
-                        <div class="card-header">
-                            <h3>
-                                <i class="fa-solid fa-clipboard-check"></i> Báo
-                                Cáo Thẩm Định & Tuân Thủ Quy Chuẩn Nhân Sự
-                            </h3>
-                            <p>
-                                Kiểm tra tự động các ràng buộc Hard Constraints
-                                & Soft Constraints
-                            </p>
-                        </div>
-
-                        <div class="audit-summary-banner pass" id="auditBanner">
-                            <div class="banner-icon">
-                                <i class="fa-solid fa-circle-check"></i>
-                            </div>
-                            <div class="banner-text">
-                                <h4>
-                                    HỆ THỐNG ĐẠT CHUẨN 100% (TẤT CẢ RÀNG BUỘC ĐÃ
-                                    ĐƯỢC THỎA MÃN)
-                                </h4>
-                                <p>
-                                    Không phát hiện bất kỳ xung đột trùng ca,
-                                    không vi phạm lịch rảnh và không có phòng
-                                    trống.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div
-                            class="audit-checklist-grid"
-                            id="auditChecklistGrid"
-                        >
-                            <!-- Check cards populated by JS -->
-                        </div>
-                    </div>
-
-                    <!-- QUY TRÌNH HR & RỦI RO VẬN HÀNH -->
-                    <div class="glass-card" style="margin-top: 1.5rem">
-                        <div class="card-header">
-                            <h3>
-                                <i class="fa-solid fa-book-bookmark"></i> Quy
-                                Trình Quản Trị Nhân Sự & Dự Trù Rủi Ro (Nhiệm Vụ
-                                2)
-                            </h3>
-                            <p>
-                                Quy trình 5 bước vận hành nhân sự và kịch bản
-                                ứng biến rủi ro chi tiết
-                            </p>
-                        </div>
-                        <div class="protocols-nav" id="protocolsNav">
-                            <button class="p-nav-btn active" data-sec="sec-1">
-                                1. Thu Thập Lịch Rảnh
-                            </button>
-                            <button class="p-nav-btn" data-sec="sec-2">
-                                2. Lịch Trực Tuần
-                            </button>
-                            <button class="p-nav-btn" data-sec="sec-3">
-                                3. Quản Lý & Giám Sát
-                            </button>
-                            <button class="p-nav-btn" data-sec="sec-4">
-                                4. Phân Bổ Điểm Ngoài
-                            </button>
-                            <button class="p-nav-btn" data-sec="sec-5">
-                                5. Dự Trù Rủi Ro Vận Hành
-                            </button>
-                        </div>
-
-                        <div class="protocol-body" id="protocolBody">
-                            <!-- Populated dynamically -->
                         </div>
                     </div>
                 </section>
@@ -3198,6 +3185,76 @@
                             id="btnSaveProductModal"
                         >
                             <i class="fa-solid fa-floppy-disk"></i> Lưu Sản Phẩm
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- MODAL: Thêm Đơn Hàng Online Thủ Công -->
+        <div class="modal-backdrop" id="addOnlineOrderModal">
+            <div class="modal-box glass-card" style="max-width: 650px;">
+                <div class="modal-header">
+                    <h3>
+                        <i class="fa-solid fa-cart-plus" style="color: #38bdf8;"></i> Thêm Đơn Hàng Online Thủ Công
+                    </h3>
+                    <button class="modal-close" id="btnCloseAddOnlineOrderModal">&times;</button>
+                </div>
+                <form id="addOnlineOrderForm">
+                    <div class="modal-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Họ và Tên Khách Hàng <span style="color: var(--cinnabar)">*</span>:</label>
+                                <input type="text" id="inputManualCustomerName" placeholder="vd: Nguyễn Văn A" required class="custom-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Lớp / Đơn Vị:</label>
+                                <input type="text" id="inputManualClassName" placeholder="vd: 12A1" class="custom-input" />
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Ngày Dự Kiến Lấy <span style="color: var(--cinnabar)">*</span>:</label>
+                                <input type="date" id="inputManualPickupDate" required class="custom-input" />
+                            </div>
+                            <div class="form-group">
+                                <label>Khung Giờ Lấy (Ca) <span style="color: var(--cinnabar)">*</span>:</label>
+                                <select id="inputManualPickupSlot" class="custom-select" required>
+                                    <option value="Ca 1: 07h00 - 09h30">Ca 1: 07h00 - 09h30</option>
+                                    <option value="Ca 2: 09h35 - 12h00">Ca 2: 09h35 - 12h00</option>
+                                    <option value="Ca 3: 12h05 - 14h00">Ca 3: 12h05 - 14h00</option>
+                                    <option value="Ca 4: 14h05 - 16h30">Ca 4: 14h05 - 16h30</option>
+                                    <option value="Ca 5: 16h35 - 19h00">Ca 5: 16h35 - 19h00</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span>Mặt Hàng &amp; Số Lượng <span style="color: var(--cinnabar)">*</span>:</span>
+                                <button type="button" class="btn-action-sm" id="btnAddManualItemRow" style="background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid #0284c7; padding: 2px 8px; font-weight: 600;">
+                                    <i class="fa-solid fa-plus"></i> Thêm món
+                                </button>
+                            </label>
+                            <div id="manualItemsContainer" style="display: flex; flex-direction: column; gap: 8px;">
+                                <!-- Item row populated dynamically -->
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Trạng Thái Thanh Toán:</label>
+                            <select id="inputManualPaymentStatus" class="custom-select">
+                                <option value="Chưa thanh toán">🔴 Chưa thanh toán</option>
+                                <option value="Đã thanh toán">🟢 Đã thanh toán</option>
+                            </select>
+                        </div>
+                        <div id="addOnlineOrderModalMsg" class="swap-msg"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" id="btnCancelAddOnlineOrderModal">Hủy</button>
+                        <button type="submit" class="btn-primary" id="btnSaveAddOnlineOrderModal" style="background: #0284c7; border-color: #0284c7;">
+                            <i class="fa-solid fa-floppy-disk"></i> Tạo Đơn Hàng
                         </button>
                     </div>
                 </form>
@@ -3965,6 +4022,293 @@
                     </button>
                     <button type="button" class="btn-primary" id="btnConfirmUploadInvExcel" disabled style="display: inline-flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-cloud-arrow-up"></i> Xác Nhận Nạp Vào Kho
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL GỌI NHÂN SỰ DỰ PHÒNG TRONG CA -->
+        <div class="modal-backdrop" id="callBackupModal">
+            <div class="modal-box glass-card" style="max-width: 540px;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-phone-volume" style="color: #10B981;"></i> Gọi Nhân Sự Dự Phòng Trong Ca</h3>
+                    <button type="button" class="modal-close" onclick="closeCallBackupModal()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 1.25rem;">
+                    <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+                        <div style="font-size: 13px; color: var(--ink-hi);">
+                            Nhân sự dự phòng được gọi: <strong id="callBackupName" style="color: #34D399; font-size: 14px;"></strong>
+                        </div>
+                        <div id="callBackupInfo" style="font-size: 11.5px; color: var(--ink-dim); margin-top: 3px;"></div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-user-xmark" style="color: #EF4444; margin-right: 4px;"></i> Thay thế cho thành viên nào vắng trong ca?
+                        </label>
+                        <select id="callBackupAbsentSelect" class="custom-select full-width-input" style="height: 38px; font-size: 13px; font-weight: 500;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-comment-dots" style="margin-right: 4px;"></i> Ghi chú nhận ca:
+                        </label>
+                        <input type="text" id="callBackupNoteInput" class="custom-input full-width-input" placeholder="Ví dụ: Đã liên hệ nhận ca thành công, có mặt sau 10p..." value="Đã gọi nhân sự dự phòng tiếp ứng ca trực" />
+                    </div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn-action-secondary" onclick="closeCallBackupModal()">
+                        Hủy
+                    </button>
+                    <button type="button" class="btn-primary" id="btnConfirmCallBackup" style="display: inline-flex; align-items: center; gap: 6px; background: #059669; border-color: #10B981;">
+                        <i class="fa-solid fa-check"></i> Xác Nhận Gọi &amp; Ghi Nhận Thay Thế
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL KHÔNG GỌI ĐƯỢC NHÂN SỰ DỰ PHÒNG -->
+        <div class="modal-backdrop" id="unreachableBackupModal">
+            <div class="modal-box glass-card" style="max-width: 540px;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-phone-slash" style="color: #EF4444;"></i> Không Gọi Được Nhân Sự Dự Phòng?</h3>
+                    <button type="button" class="modal-close" onclick="closeUnreachableBackupModal()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 1.25rem;">
+                    <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+                        <div style="font-size: 13px; color: var(--ink-hi);">
+                            Nhân sự dự phòng không liên lạc được: <strong id="unreachableBackupName" style="color: #FCA5A5; font-size: 14px;"></strong>
+                        </div>
+                        <div style="font-size: 11.5px; color: var(--ink-dim); margin-top: 4px;">
+                            Hệ thống sẽ lưu dữ liệu này vào <strong>Lịch sử ghi nhận</strong> để Quản trị viên (Admin) điều phối nhân sự thay thế ngoài ca.
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-user-xmark" style="color: #EF4444; margin-right: 4px;"></i> Thành viên đang vắng mặt cần người thay:
+                        </label>
+                        <select id="unreachableBackupAbsentSelect" class="custom-select full-width-input" style="height: 38px; font-size: 13px; font-weight: 500;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-comment-dots" style="margin-right: 4px;"></i> Lý do / Chi tiết:
+                        </label>
+                        <input type="text" id="unreachableBackupNoteInput" class="custom-input full-width-input" placeholder="Ví dụ: Gọi 3 cuộc không nghe máy, bận việc đột xuất..." value="Không liên lạc được nhân sự dự phòng trong ca, chờ Admin điều phối" />
+                    </div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn-action-secondary" onclick="closeUnreachableBackupModal()">
+                        Hủy
+                    </button>
+                    <button type="button" class="btn-primary" id="btnConfirmUnreachableBackup" style="display: inline-flex; align-items: center; gap: 6px; background: #DC2626; border-color: #EF4444;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Ghi Nhận &amp; Báo Admin Điều Phối
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL THÔNG BÁO XÁC NHẬN SỰ CỐ ĐÃ GHI VÀO LỊCH SỬ VÀ BÁO ADMIN -->
+        <div class="modal-backdrop" id="unreachableReportAlertModal" style="display: none; z-index: 100000;">
+            <div class="modal-box glass-card" style="max-width: 540px; border-left: 4px solid #EF4444;">
+                <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    <h3 style="color: #EF4444; display: flex; align-items: center; gap: 8px; font-size: 16px;">
+                        <i class="fa-solid fa-triangle-exclamation"></i> ĐÃ GHI NHẬN &amp; BÁO CÁO ADMIN
+                    </h3>
+                    <button type="button" class="modal-close" onclick="closeUnreachableReportAlertModal()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 1.25rem;">
+                    <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                            <span class="tag" style="background: #DC2626; color: #FFFFFF; font-weight: 700; font-size: 11px; padding: 2px 8px; border-radius: 4px;">
+                                <i class="fa-solid fa-phone-slash"></i> Không gọi được dự phòng
+                            </span>
+                            <strong style="color: #FCA5A5; font-size: 13.5px;" id="unreachableAlertShiftBadge">Ca trực: --</strong>
+                        </div>
+                        <div style="font-size: 12.5px; color: var(--ink-hi); margin-top: 6px; line-height: 1.5;">
+                            Đã ghi nhận sự cố không liên lạc được nhân sự dự phòng <strong style="color: #F87171;" id="unreachableAlertBackupName">--</strong> thay thế cho thành viên <strong style="color: #FBBF24;" id="unreachableAlertAbsentName">--</strong>.
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px;">
+                        <div style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px;">
+                            <i class="fa-solid fa-check-double" style="color: #10B981; margin-top: 2px;"></i>
+                            <div>
+                                <strong style="color: #34D399;">Đã ghi nhận vào Lịch Sử Ca Trực:</strong>
+                                <div style="color: var(--ink-dim); font-size: 11.5px; margin-top: 2px;">
+                                    Sự cố đã được lưu vào dòng thời gian của ca và xuất hiện trong Bảng Báo Cáo Sự Cố &amp; Điểm Danh.
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: flex-start; gap: 8px;">
+                            <i class="fa-solid fa-bell" style="color: #F59E0B; margin-top: 2px;"></i>
+                            <div>
+                                <strong style="color: #FBBF24;">Đã gửi cảnh báo khẩn cấp đến Quản Trị Viên:</strong>
+                                <div style="color: var(--ink-dim); font-size: 11.5px; margin-top: 2px;">
+                                    Quản trị viên đã nhận được thông báo đỏ để vào hệ thống điều phối nhân sự thay thế phù hợp.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="font-size: 12px; color: var(--ink-dim); font-style: italic; text-align: center;">
+                        <i class="fa-solid fa-info-circle" style="color: var(--goldleaf);"></i> Bạn có thể theo dõi tiến độ điều phối trong Bảng Báo Cáo Lịch Sử bên dưới.
+                    </div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+                    <button type="button" class="btn-action-secondary" onclick="closeUnreachableReportAlertModal()">
+                        <i class="fa-solid fa-xmark"></i> Đóng thông báo
+                    </button>
+                    <button type="button" class="btn-primary" onclick="viewShiftHistoryFromAlert()" style="background: #2563EB; border-color: #1D4ED8; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-clock-rotate-left"></i> Xem Bảng Lịch Sử Ca
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL QUẢN TRỊ VIÊN ĐIỀU PHỐI / GÁN NHÂN SỰ THAY THẾ TỪ LỊCH SỬ GHI NHẬN -->
+        <div class="modal-backdrop" id="adminAssignReplacementModal">
+            <div class="modal-box glass-card" style="max-width: 760px; max-height: 90vh; display: flex; flex-direction: column;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-user-shield" style="color: #F59E0B;"></i> Điều Phối Nhân Sự Thay Thế (Quản Trị Viên)</h3>
+                    <button type="button" class="modal-close" onclick="closeAdminAssignReplacementModal()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 1.25rem; overflow-y: auto; flex: 1;">
+                    <!-- Shift & Incident Info Card -->
+                    <div id="adminAssignShiftInfoBadge" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;">
+                        <!-- Rendered dynamically -->
+                    </div>
+
+                    <!-- Search Input Box -->
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-magnifying-glass" style="margin-right: 4px; color: var(--goldleaf);"></i> Tìm kiếm nhân sự thay thế:
+                        </label>
+                        <input type="text" id="adminAssignSearchInput" class="custom-input full-width-input" placeholder="Nhập tên, số điện thoại, phòng ban, chuyên môn..." oninput="handleAdminAssignSearch(this.value)" style="height: 38px; font-size: 13.5px;" />
+                    </div>
+
+                    <!-- Candidates List by 4 Priority Groups -->
+                    <div style="margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label style="font-size: 12.5px; font-weight: 700; color: var(--ink-hi);">
+                                <i class="fa-solid fa-list-ol" style="margin-right: 4px;"></i> Danh sách đề xuất ưu tiên theo lịch rảnh &amp; đội ứng biến:
+                            </label>
+                            <span id="adminAssignCandidateCount" style="font-size: 11.5px; color: var(--ink-dim);"></span>
+                        </div>
+                        <div id="adminAssignCandidateList" style="display: flex; flex-direction: column; gap: 12px; max-height: 360px; overflow-y: auto; padding-right: 4px;">
+                            <!-- Dynamic candidate groups -->
+                        </div>
+                    </div>
+
+                    <!-- Note input -->
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label style="font-size: 12px; font-weight: 600; color: var(--ink-light); margin-bottom: 4px; display: block;">
+                            Ghi chú điều phối (tùy chọn):
+                        </label>
+                        <input type="text" id="adminAssignNoteInput" class="custom-input full-width-input" placeholder="Ví dụ: Admin điều phối tiếp ứng ngoài ca..." />
+                    </div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn-action-secondary" onclick="closeAdminAssignReplacementModal()">
+                        Hủy
+                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn-action-sm" onclick="setAdminAssignReplacementNone()" style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 7px 14px; font-weight: 600; font-size: 12.5px; border-radius: 6px; cursor: pointer;">
+                            <i class="fa-solid fa-user-slash"></i> Hủy Người Thay
+                        </button>
+                        <button type="button" class="btn-primary" id="btnConfirmAdminAssign" onclick="submitAdminAssignReplacement()" style="display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-circle-check"></i> Xác Nhận Gán Người Thay Thế
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL THÊM NGƯỜI VÀO CA (DÀNH CHO ADMIN) -->
+        <div class="modal-backdrop" id="addMemberToShiftModal" style="display: none;">
+            <div class="modal-box glass-card" style="max-width: 580px;">
+                <div class="modal-header">
+                    <h3><i class="fa-solid fa-user-plus" style="color: #60A5FA;"></i> Thêm Nhân Sự Vào Ca Trực</h3>
+                    <button type="button" class="modal-close" onclick="closeAddMemberToShiftModal()">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 1.25rem;">
+                    <div id="addMemberShiftInfoBadge" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px;">
+                        <!-- Current shift info -->
+                    </div>
+
+                    <!-- Member selection with search -->
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-user-check" style="color: var(--goldleaf); margin-right: 4px;"></i> Chọn nhân sự muốn thêm vào ca:
+                        </label>
+                        <input type="text" id="addMemberSearchInput" class="custom-input full-width-input" placeholder="🔍 Nhập tên, SĐT, phòng ban để lọc nhanh..." oninput="filterAddMemberDropdown(this.value)" style="margin-bottom: 6px; height: 36px; font-size: 13px;" />
+                        <select id="addMemberSelect" class="custom-select full-width-input" style="height: 38px; font-size: 13px; font-weight: 500;">
+                            <!-- Populated dynamically from globalMembers -->
+                        </select>
+                    </div>
+
+                    <!-- Role selection: Chính vs Dự phòng -->
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-id-badge" style="margin-right: 4px;"></i> Vai trò trong ca:
+                        </label>
+                        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 16px; border-radius: 6px; border: 1px solid rgba(16,185,129,0.3); background: rgba(16,185,129,0.08); font-size: 13px;">
+                                <input type="radio" name="addMemberRoleRadio" value="Chính" checked style="accent-color: #10B981; transform: scale(1.15);" />
+                                <strong style="color: #34D399;"><i class="fa-solid fa-user-check"></i> Trực Chính</strong>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 16px; border-radius: 6px; border: 1px solid rgba(245,158,11,0.3); background: rgba(245,158,11,0.08); font-size: 13px;">
+                                <input type="radio" name="addMemberRoleRadio" value="Dự phòng" style="accent-color: #F59E0B; transform: scale(1.15);" />
+                                <strong style="color: #FBBF24;"><i class="fa-solid fa-shield-halved"></i> Dự Phòng / Tiếp Ứng</strong>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Position / Duty -->
+                    <div class="form-group" style="margin-bottom: 14px;">
+                        <label style="font-size: 12.5px; font-weight: 600; color: var(--ink-light); margin-bottom: 6px; display: block;">
+                            <i class="fa-solid fa-briefcase" style="margin-right: 4px;"></i> Phân công nhiệm vụ:
+                        </label>
+                        <input type="text" id="addMemberPositionInput" class="custom-input full-width-input" list="addMemberPositionList" value="Bán hàng F&B" placeholder="Nhập hoặc chọn nhiệm vụ..." style="height: 38px; font-size: 13px;" />
+                        <datalist id="addMemberPositionList">
+                            <option value="Bán hàng F&B" />
+                            <option value="Pha chế" />
+                            <option value="Thu ngân / Tiếp tân" />
+                            <option value="Hậu cần / Tiếp ứng" />
+                            <option value="Phục vụ / Giao hàng" />
+                            <option value="⚡ Dự bị tiếp ứng" />
+                        </datalist>
+                    </div>
+
+                    <!-- Checkbox: Đặt làm trưởng ca -->
+                    <div class="form-group" style="margin-bottom: 6px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-hi); cursor: pointer;">
+                            <input type="checkbox" id="addMemberAsLeaderCheckbox" style="accent-color: #FBBF24; width: 17px; height: 17px;" />
+                            <span><i class="fa-solid fa-crown" style="color: #FBBF24;"></i> Đặt nhân sự này làm <strong>Trưởng Ca</strong></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn-action-secondary" onclick="closeAddMemberToShiftModal()">
+                        Hủy
+                    </button>
+                    <button type="button" class="btn-primary" id="btnConfirmAddMemberToShift" onclick="submitAddMemberToShift()" style="display: inline-flex; align-items: center; gap: 6px; background: #2563EB; border-color: #1D4ED8;">
+                        <i class="fa-solid fa-user-plus"></i> Xác Nhận Thêm Vào Ca
                     </button>
                 </div>
             </div>

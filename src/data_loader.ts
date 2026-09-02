@@ -41,21 +41,28 @@ export interface Member {
 export const DAY_MAP: { [key: string]: string } = {
   'thứ 2': 'Thứ 2',
   'thứ hai': 'Thứ 2',
+  'thứ2': 'Thứ 2',
   't2': 'Thứ 2',
   'thứ 3': 'Thứ 3',
   'thứ ba': 'Thứ 3',
+  'thứ3': 'Thứ 3',
   't3': 'Thứ 3',
   'thứ 4': 'Thứ 4',
   'thứ tư': 'Thứ 4',
+  'thứ4': 'Thứ 4',
   't4': 'Thứ 4',
   'thứ 5': 'Thứ 5',
   'thứ năm': 'Thứ 5',
+  'thứ5': 'Thứ 5',
   't5': 'Thứ 5',
   'thứ 6': 'Thứ 6',
   'thứ sáu': 'Thứ 6',
+  'thứ6': 'Thứ 6',
   't6': 'Thứ 6',
   'thứ 7': 'Thứ 7',
   'thứ bảy': 'Thứ 7',
+  'thứ bẩy': 'Thứ 7',
+  'thứ7': 'Thứ 7',
   't7': 'Thứ 7',
   'chủ nhật': 'Chủ Nhật',
   'cn': 'Chủ Nhật'
@@ -125,8 +132,9 @@ export function calculateDateForDay(startDateStr: string, dayName: string): stri
 
 export function parseDaysFromText(text: any): Set<string> {
   const days = new Set<string>();
-  if (!text || typeof text !== 'string') return days;
-  const textLower = text.toLowerCase().trim();
+  if (text === null || text === undefined || text === '') return days;
+  const textStr = String(text).trim();
+  const textLower = textStr.toLowerCase();
   if (textLower.includes('không rảnh') || textLower.includes('ko rảnh') || textLower.includes('bận')) {
     return days;
   }
@@ -246,21 +254,117 @@ export function loadShiftsMaster(filePath: string = "Danh_sach_ca.xlsx"): Shift[
   return shifts;
 }
 
-export function parseMembersDf(rows: any[]): Member[] {
+export function parseMembersDf(rows: any[], sheet?: xlsx.WorkSheet): Member[] {
   const members: Member[] = [];
-  if (!rows || rows.length === 0) return members;
+  if ((!rows || rows.length === 0) && !sheet) return members;
 
-  // Check for duplicates first (by name or phone, keeping the latest response)
+  // Build matrix representation
+  let matrix: any[][] = [];
+
+  if (sheet) {
+    matrix = xlsx.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '' });
+  } else if (rows && rows.length > 0) {
+    if (Array.isArray(rows[0])) {
+      matrix = rows;
+    } else {
+      const keys = Object.keys(rows[0]);
+      matrix.push(keys);
+      for (const rowObj of rows) {
+        matrix.push(keys.map(k => rowObj[k]));
+      }
+    }
+  }
+
+  if (matrix.length === 0) return members;
+
+  // Find header row in matrix
+  let headerRowIdx = -1;
+  for (let r = 0; r < Math.min(15, matrix.length); r++) {
+    const rowLine = (matrix[r] || []).map(cell => String(cell || '')).join(' ').toLowerCase();
+    if (
+      (rowLine.includes('họ') || rowLine.includes('tên') || rowLine.includes('member') || rowLine.includes('name')) &&
+      (rowLine.includes('ban') || rowLine.includes('sđt') || rowLine.includes('điện thoại') || rowLine.includes('rảnh') || rowLine.includes('cam kết') || rowLine.includes('trường') || rowLine.includes('phone'))
+    ) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+
+  if (headerRowIdx === -1) {
+    headerRowIdx = 0;
+  }
+
+  const headerRow = (matrix[headerRowIdx] || []).map(cell => String(cell || '').trim());
+  const dataRowsMatrix = matrix.slice(headerRowIdx + 1);
+
+  // Column index maps
+  let colName = -1;
+  let colDept = -1;
+  let colResidence = -1;
+  let colVehicle = -1;
+  let colJob = -1;
+  let colSchool = -1;
+  let colPhone = -1;
+  let colStandby = -1;
+
+  const slotColMap: { [key: string]: number } = {};
+  const commitColMap: { [key: string]: number } = {};
+
+  for (let c = 0; c < headerRow.length; c++) {
+    const colStr = headerRow[c];
+    const colLower = colStr.toLowerCase().replaceAll('\n', ' ');
+
+    if (colName === -1 && (colLower.includes('họ và tên') || colLower.includes('họ tên') || (colLower.includes('tên') && !colLower.includes('trường')))) {
+      colName = c;
+    } else if (colDept === -1 && (colLower.includes('ban') || colLower.includes('bộ phận'))) {
+      colDept = c;
+    } else if (colResidence === -1 && (colLower.includes('sinh sống') || colLower.includes('nơi ở') || colLower.includes('địa chỉ'))) {
+      colResidence = c;
+    } else if (colVehicle === -1 && (colLower.includes('phương tiện') || colLower.includes('di chuyển'))) {
+      colVehicle = c;
+    } else if (colJob === -1 && (colLower.includes('công việc') || colLower.includes('nghề nghiệp'))) {
+      colJob = c;
+    } else if (colSchool === -1 && (colLower.includes('trường') || colLower.includes('thpt'))) {
+      colSchool = c;
+    } else if (colPhone === -1 && (colLower.includes('điện thoại') || colLower.includes('sđt') || colLower.includes('phone'))) {
+      colPhone = c;
+    } else if (colStandby === -1 && (colLower.includes('ứng biến') || colLower.includes('linh hoạt'))) {
+      colStandby = c;
+    }
+
+    if (colLower.includes('rảnh') && !colLower.includes('cam kết')) {
+      if (colLower.includes('7h')) slotColMap['07h00 - 09h30'] = c;
+      else if (colLower.includes('9h')) slotColMap['09h35 - 12h00'] = c;
+      else if (colLower.includes('11h') || colLower.includes('12h')) slotColMap['12h05 - 14h00'] = c;
+      else if (colLower.includes('13h') || colLower.includes('14h')) slotColMap['14h05 - 16h05'] = c;
+      else if (colLower.includes('15h') || colLower.includes('16h')) slotColMap['16h10 - 18h00'] = c;
+    }
+
+    if (colLower.includes('cam kết')) {
+      if (colLower.includes('7h')) commitColMap['07h00 - 09h30'] = c;
+      else if (colLower.includes('9h')) commitColMap['09h35 - 12h00'] = c;
+      else if (colLower.includes('11h') || colLower.includes('12h')) commitColMap['12h05 - 14h00'] = c;
+      else if (colLower.includes('13h') || colLower.includes('14h')) commitColMap['14h05 - 16h05'] = c;
+      else if (colLower.includes('15h') || colLower.includes('16h')) commitColMap['16h10 - 18h00'] = c;
+    }
+  }
+
+  // Deduplication & Parsing
   const seenNames = new Set<string>();
   const seenPhones = new Set<string>();
-  const uniqueRows: any[] = [];
   let duplicateCount = 0;
   const duplicateDetails: string[] = [];
+  const validDataRows: any[][] = [];
 
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i];
-    const name = String(row['Họ và tên của bạn?'] || row['Họ và tên'] || `Thành viên ${i + 1}`).trim();
-    let phoneVal = String(row['Số điện thoại'] || row['SĐT'] || '').trim();
+  for (let i = dataRowsMatrix.length - 1; i >= 0; i--) {
+    const row = dataRowsMatrix[i];
+    if (!row || row.length === 0) continue;
+
+    const rawName = colName !== -1 ? String(row[colName] || '').trim() : '';
+    let phoneVal = colPhone !== -1 ? String(row[colPhone] || '').trim() : '';
+
+    if (!rawName && !phoneVal) continue;
+
     if (phoneVal.endsWith('.0')) {
       phoneVal = phoneVal.slice(0, -2);
     }
@@ -268,16 +372,16 @@ export function parseMembersDf(rows: any[]): Member[] {
       phoneVal = '0' + phoneVal;
     }
 
-    const nameKey = name.toLowerCase().replace(/\s+/g, ' '); // normalize spaces
+    const nameKey = rawName.toLowerCase().replace(/\s+/g, ' ');
     const phoneKey = phoneVal;
 
     let isDuplicate = false;
     if (nameKey && seenNames.has(nameKey)) {
       isDuplicate = true;
-      duplicateDetails.push(`Trùng tên: "${name}"`);
+      duplicateDetails.push(`Trùng tên: "${rawName}"`);
     } else if (phoneKey && phoneKey !== '0900000000' && phoneKey !== '090.000.0000' && seenPhones.has(phoneKey)) {
       isDuplicate = true;
-      duplicateDetails.push(`Trùng SĐT: "${name}" (${phoneVal})`);
+      duplicateDetails.push(`Trùng SĐT: "${rawName}" (${phoneVal})`);
     }
 
     if (isDuplicate) {
@@ -285,44 +389,22 @@ export function parseMembersDf(rows: any[]): Member[] {
     } else {
       if (nameKey) seenNames.add(nameKey);
       if (phoneKey && phoneKey !== '0900000000' && phoneKey !== '090.000.0000') seenPhones.add(phoneKey);
-      uniqueRows.unshift(row); // Keep the original first-to-last order for unique entries
+      validDataRows.unshift(row);
     }
   }
 
-  // Find column maps
-  const keys = Object.keys(rows[0]);
-  const slotColMap: { [key: string]: string } = {};
-  const commitColMap: { [key: string]: string } = {};
-
-  for (const col of keys) {
-    const colClean = String(col).trim();
-    if (colClean.includes('Lịch rảnh')) {
-      if (colClean.includes('7h')) slotColMap['07h00 - 09h30'] = col;
-      else if (colClean.includes('9h')) slotColMap['09h35 - 12h00'] = col;
-      else if (colClean.includes('11h') || colClean.includes('12h')) slotColMap['12h05 - 14h00'] = col;
-      else if (colClean.includes('13h') || colClean.includes('14h')) slotColMap['14h05 - 16h05'] = col;
-      else if (colClean.includes('15h') || colClean.includes('16h')) slotColMap['16h10 - 18h00'] = col;
-    }
-    if (colClean.toLowerCase().includes('cam kết')) {
-      if (colClean.includes('7h')) commitColMap['07h00 - 09h30'] = col;
-      else if (colClean.includes('9h')) commitColMap['09h35 - 12h00'] = col;
-      else if (colClean.includes('11h') || colClean.includes('12h')) commitColMap['12h05 - 14h00'] = col;
-      else if (colClean.includes('13h') || colClean.includes('14h')) commitColMap['14h05 - 16h05'] = col;
-      else if (colClean.includes('15h') || colClean.includes('16h')) commitColMap['16h10 - 18h00'] = col;
-    }
-  }
-
-  for (let idx = 0; idx < uniqueRows.length; idx++) {
-    const row = uniqueRows[idx];
+  for (let idx = 0; idx < validDataRows.length; idx++) {
+    const row = validDataRows[idx];
     const memberId = `TV${String(idx + 1).padStart(3, '0')}`;
-    const name = String(row['Họ và tên của bạn?'] || row['Họ và tên'] || `Thành viên ${idx + 1}`).trim();
-    const dept = String(row['Bạn là thành viên của ban?'] || row['Ban'] || 'Ban Sự kiện').trim();
-    const residence = String(row['Nơi sinh sống của bạn'] || row['Nơi sinh sống'] || 'Bình Dương').trim();
-    const vehicle = String(row['Phương tiện di chuyển bạn thường sử dụng?'] || row['Phương tiện'] || 'Xe máy').trim();
-    const job = String(row['Công việc hiện tại'] || 'Học sinh ( Cấp 3 )').trim();
-    const school = String(row['Bạn đang là học sinh trường THPT nào?'] || '').trim();
 
-    let phoneVal = String(row['Số điện thoại'] || row['SĐT'] || '0900000000').trim();
+    const name = colName !== -1 && row[colName] ? String(row[colName]).trim() : `Thành viên ${idx + 1}`;
+    const dept = colDept !== -1 && row[colDept] ? String(row[colDept]).trim() : 'Ban Sự kiện';
+    const residence = colResidence !== -1 && row[colResidence] ? String(row[colResidence]).trim() : 'Bình Dương';
+    const vehicle = colVehicle !== -1 && row[colVehicle] ? String(row[colVehicle]).trim() : 'Xe máy';
+    const job = colJob !== -1 && row[colJob] ? String(row[colJob]).trim() : 'Học sinh ( Cấp 3 )';
+    const school = colSchool !== -1 && row[colSchool] ? String(row[colSchool]).trim() : '';
+
+    let phoneVal = colPhone !== -1 && row[colPhone] ? String(row[colPhone]).trim() : '0900000000';
     if (phoneVal.endsWith('.0')) {
       phoneVal = phoneVal.slice(0, -2);
     }
@@ -330,15 +412,16 @@ export function parseMembersDf(rows: any[]): Member[] {
       phoneVal = '0' + phoneVal;
     }
 
-    const flexibleResp = String(row['Nếu có nhiều thời gian, bạn có cân nhắc tham gia vào "Đội ứng biến linh hoạt" không?'] || row['Đội ứng biến'] || '').trim().toLowerCase();
+    const flexibleResp = colStandby !== -1 && row[colStandby] ? String(row[colStandby]).trim().toLowerCase() : '';
     const isStandby = flexibleResp.includes('có') || flexibleResp.includes('yes');
 
-    // Parse availability & committed slots
+    // Availability & Committed slots
     const availability: { [key: string]: boolean } = {};
     const committedSlots: { [key: string]: boolean } = {};
 
-    for (const [slotName, colName] of Object.entries(slotColMap)) {
-      const freeDays = parseDaysFromText(row[colName]);
+    for (const [slotName, cIdx] of Object.entries(slotColMap)) {
+      const cellVal = row[cIdx];
+      const freeDays = parseDaysFromText(cellVal);
       const legacySlot = LEGACY_SLOT_MAP[slotName];
       for (const d of DAYS_LIST) {
         const isFree = freeDays.has(d);
@@ -347,8 +430,9 @@ export function parseMembersDf(rows: any[]): Member[] {
       }
     }
 
-    for (const [slotName, colName] of Object.entries(commitColMap)) {
-      const commitDays = parseDaysFromText(row[colName]);
+    for (const [slotName, cIdx] of Object.entries(commitColMap)) {
+      const cellVal = row[cIdx];
+      const commitDays = parseDaysFromText(cellVal);
       const legacySlot = LEGACY_SLOT_MAP[slotName];
       for (const d of DAYS_LIST) {
         const hasCommit = commitDays.has(d);
@@ -361,7 +445,6 @@ export function parseMembersDf(rows: any[]): Member[] {
       }
     }
 
-    // Ensure all standard keys exist
     for (const d of DAYS_LIST) {
       for (const slotName of SLOT_KEYS) {
         const key = `${d}|${slotName}`;
@@ -422,7 +505,7 @@ export function loadMembersData(filePath: string = "Danh_sach_dang_ky_truc_ca_50
   const sheet = wb.Sheets[firstSheetName];
   if (!sheet) return [];
   const rows = xlsx.utils.sheet_to_json<any>(sheet);
-  return parseMembersDf(rows);
+  return parseMembersDf(rows, sheet);
 }
 
 export function getAvailabilityHeatmap(members: Member[]) {

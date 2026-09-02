@@ -104,17 +104,37 @@ export class ShiftScheduler {
     // 1. Add Room Shifts (Phòng Thanh Niên)
     const phong_shifts = this.shifts.filter(s => s.type === 'Phong');
     for (const s of phong_shifts) {
+      if (s.active === false) continue;
       const s_copy = { ...s };
       if (this.config.start_date) {
         const computedDate = calculateDateForDay(this.config.start_date, s.day);
         if (computedDate) s_copy.date = computedDate;
       }
-      const chinh_req = this.config.phong_chinh_count !== undefined ? this.config.phong_chinh_count : (s.required_count || 3);
-      const dp_req = this.config.phong_dp_count !== undefined ? this.config.phong_dp_count : 1;
+      const chinh_req = s.chinh_count !== undefined
+        ? s.chinh_count
+        : (this.config.phong_chinh_count !== undefined ? this.config.phong_chinh_count : (s.required_count || 4));
+      const dp_req = s.dp_count !== undefined
+        ? s.dp_count
+        : (this.config.phong_dp_count !== undefined ? this.config.phong_dp_count : 1);
       s_copy.chinh_count = chinh_req;
       s_copy.dp_count = dp_req;
       s_copy.required_count = chinh_req + dp_req;
-      s_copy.overlapping_slots = [s.slot];
+      const shiftNumMatch = s.shift_id.match(/CA0*(\d+)/i);
+      let standardSlots: string[] = [];
+      if (shiftNumMatch) {
+        const num = parseInt(shiftNumMatch[1], 10);
+        if (num >= 1 && num <= 35) {
+          const shiftIdx = (num - 1) % 5;
+          const std = ['07h00 - 09h30', '09h35 - 12h00', '12h05 - 14h00', '14h05 - 16h05', '16h10 - 18h00'][shiftIdx];
+          const leg = ['7h - 9h', '9h - 11h', '11h - 13h', '13h - 15h', '15h - 17h'][shiftIdx];
+          standardSlots = [std, leg];
+        }
+      }
+      s_copy.overlapping_slots = Array.from(new Set([
+        ...(s.overlapping_slots || []),
+        ...standardSlots,
+        s.slot
+      ].filter(Boolean)));
       active_shifts.push(s_copy);
     }
 
@@ -206,7 +226,10 @@ export class ShiftScheduler {
 
         // Personal max shift check
         const current_count = member_totals[m.member_id] || 0;
-        const max_limit = (m.max_shifts || 4) + (allowExtraShift ? 2 : 0);
+        const user_max = this.config.max_shifts_per_member !== undefined
+          ? this.config.max_shifts_per_member
+          : (m.max_shifts || 4);
+        const max_limit = user_max + (allowExtraShift ? 1 : 0);
         if (current_count >= max_limit) return false;
 
         // Daily overload limit
@@ -225,7 +248,7 @@ export class ShiftScheduler {
         if (doubleBooked) return false;
 
         // Availability check
-        const is_reg_free = overlap_slots.every(sl => m.availability[`${day}|${sl}`] === true);
+        const is_reg_free = overlap_slots.some(sl => m.availability[`${day}|${sl}`] === true);
         if (is_reg_free) return true;
 
         // Standby off-duty mobilization fallback
@@ -260,8 +283,14 @@ export class ShiftScheduler {
 
       // 3. Fairness: prioritize members with fewer assigned shifts
       const cur_count = member_totals[m.member_id] || 0;
-      if (cur_count < target_avg) {
-        score += (this.config.weight_fairness || 8) * 12 * (target_avg - cur_count);
+      const min_limit = this.config.min_shifts_per_member || 1;
+      const user_max_limit = this.config.max_shifts_per_member || 4;
+      if (cur_count < min_limit) {
+        score += (this.config.weight_fairness || 8) * 16 * (min_limit - cur_count);
+      } else if (cur_count < target_avg) {
+        score += (this.config.weight_fairness || 8) * 10 * (target_avg - cur_count);
+      } else if (cur_count >= user_max_limit) {
+        score -= 250;
       } else {
         score -= (this.config.weight_fairness || 8) * 8 * (cur_count - target_avg + 1);
       }
@@ -357,7 +386,7 @@ export class ShiftScheduler {
           let swapped = false;
           const overlap_slots = shift.overlapping_slots || [shift.slot];
           const neededEligible = this.members.filter(m => {
-            return overlap_slots.every(sl => m.availability[`${shift.day}|${sl}`] === true);
+            return overlap_slots.some(sl => m.availability[`${shift.day}|${sl}`] === true);
           });
 
           for (const cand of neededEligible) {
@@ -373,12 +402,15 @@ export class ShiftScheduler {
                   const rep = replacements[0];
                   // Remove cand from otherIdx and add rep
                   current_assignments[otherIdx] = current_assignments[otherIdx].filter(id => id !== cand.member_id);
+                  member_days[cand.member_id][active_shifts[otherIdx].day] = Math.max(0, (member_days[cand.member_id][active_shifts[otherIdx].day] || 1) - 1);
+
                   current_assignments[otherIdx].push(rep.member_id);
                   member_totals[rep.member_id]++;
                   member_days[rep.member_id][active_shifts[otherIdx].day] = (member_days[rep.member_id][active_shifts[otherIdx].day] || 0) + 1;
 
                   // Place cand in idx
                   current_assignments[idx].push(cand.member_id);
+                  member_days[cand.member_id][shift.day] = (member_days[cand.member_id][shift.day] || 0) + 1;
                   swapped = true;
                   break;
                 }
@@ -389,9 +421,12 @@ export class ShiftScheduler {
 
           if (!swapped) {
             // Standby Emergency Pool fallback
+            const user_max_limit = this.config.max_shifts_per_member || 5;
             const standbyEligible = this.members.filter(m => {
               if (!m.is_standby) return false;
               if (current_assignments[idx].includes(m.member_id)) return false;
+              const cur_count = member_totals[m.member_id] || 0;
+              if (cur_count >= user_max_limit) return false;
               const dCount = (member_days[m.member_id] && member_days[m.member_id][shift.day]) || 0;
               return dCount < max_per_day + 1;
             });
@@ -420,9 +455,17 @@ export class ShiftScheduler {
         trial_score -= penalty * (req - assigned_count);
       });
 
+      const min_limit = this.config.min_shifts_per_member || 1;
+      const user_max_limit = this.config.max_shifts_per_member || 4;
       this.members.forEach(m => {
         const total_s = member_totals[m.member_id] || 0;
         trial_score -= (this.config.weight_fairness || 8) * Math.abs(total_s - target_avg) * 5;
+        if (total_s < min_limit) {
+          trial_score -= 80 * (min_limit - total_s);
+        }
+        if (total_s > user_max_limit) {
+          trial_score -= 300 * (total_s - user_max_limit);
+        }
 
         active_shifts.forEach((shift, j) => {
           if (current_assignments[j].includes(m.member_id)) {
@@ -560,6 +603,7 @@ export class ShiftScheduler {
     return {
       success: true,
       status: 'OPTIMAL',
+      config: this.config,
       assigned_shifts,
       member_stats,
       audit_results,

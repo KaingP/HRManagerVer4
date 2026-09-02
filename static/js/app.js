@@ -65,6 +65,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     loadIncidentLogs();
     loadProtocols();
     loadInventoryData();
+    initOnlineOrdersExcelHandlers();
+    loadOnlineOrders();
+    startRealtimeSync();
 });
 
 let globalScheduleData = null;
@@ -219,17 +222,39 @@ function updateAuthUI(isAdmin) {
     // Update Topbar Admin Actions (only visible in admin mode AND on optimizer tab)
     updateTopbarAdminActions();
 
+    // Toggle live shift attendance action buttons: Admin gets "Thêm người vào ca", Staff gets "Lưu điểm danh" & "Đặt lại"
+    const btnConfirmAttendance = document.getElementById("btnConfirmLiveAttendance");
+    const btnResetAttendance = document.getElementById("btnResetLiveAttendance");
+    const btnAddMember = document.getElementById("btnAddMemberToLiveShift");
+
+    if (isAdmin) {
+        if (btnConfirmAttendance) btnConfirmAttendance.style.display = "none";
+        if (btnResetAttendance) btnResetAttendance.style.display = "none";
+        if (btnAddMember) btnAddMember.style.display = "inline-flex";
+    } else {
+        if (btnConfirmAttendance) btnConfirmAttendance.style.display = "inline-flex";
+        if (btnResetAttendance) btnResetAttendance.style.display = "inline-flex";
+        if (btnAddMember) btnAddMember.style.display = "none";
+    }
+
     // Re-render components with role considerations
     if (globalScheduleData) {
         renderDutyBoard();
         renderMemberTable();
+        if (currentSelectedLiveShiftId) {
+            renderLiveShiftDetails(currentSelectedLiveShiftId);
+        }
     }
     if (globalKpiAttendance) {
         renderKpiAttendance();
     }
+    if (globalIncidentLogs) {
+        renderIncidentLogs(globalIncidentLogs);
+    }
     if (globalInventoryData && globalInventoryData.products) {
         renderInventoryTable(globalInventoryData.products);
     }
+
 }
 
 function openAdminLoginModal(notice) {
@@ -339,6 +364,17 @@ function initTabs() {
                 loadKpiData();
             } else if (targetTab === "tab-competition") {
                 loadCompetitionStats();
+            } else if (targetTab === "tab-contingency") {
+                populateIncidentShiftDropdown();
+                if (currentSelectedLiveShiftId) {
+                    loadLiveShiftDetailsAndCandidates(currentSelectedLiveShiftId);
+                } else {
+                    populateLiveShiftDropdown();
+                }
+            } else if (targetTab === "tab-live-shift") {
+                if (currentSelectedLiveShiftId) {
+                    renderLiveShiftSalesTable(currentSelectedLiveShiftId);
+                }
             }
 
             if (pageTitle && titles[targetTab]) {
@@ -725,19 +761,17 @@ function initEventListeners() {
             renderMemberTable();
         });
 
-    // Optimizer Form
+    // Optimizer Form & Save Config
     document
         .getElementById("optimizerForm")
         ?.addEventListener("submit", (e) => {
             e.preventDefault();
-            if (currentUserRole !== "admin") {
-                openAdminLoginModal(
-                    "Bạn cần đăng nhập quyền Quản trị viên để chạy thuật toán tối ưu xếp ca!",
-                );
-                return;
-            }
-            runOptimizerWithParams(getOptimizerFullConfigFromUI());
+            handleSaveOptimizerConfig();
         });
+
+    document
+        .getElementById("btnSaveOptimizerSettingsHeader")
+        ?.addEventListener("click", handleSaveOptimizerConfig);
 
     // Optimizer Config Backup & Restore Listeners
     document
@@ -1003,7 +1037,19 @@ function initEventListeners() {
     document
         .getElementById("liveShiftSelect")
         ?.addEventListener("change", (e) => {
-            loadLiveShiftDetailsAndCandidates(e.target.value);
+            const val = e.target.value;
+            const posSelect = document.getElementById("livePOSShiftSelect");
+            if (posSelect && posSelect.value !== val) posSelect.value = val;
+            loadLiveShiftDetailsAndCandidates(val);
+        });
+
+    document
+        .getElementById("livePOSShiftSelect")
+        ?.addEventListener("change", (e) => {
+            const val = e.target.value;
+            const attSelect = document.getElementById("liveShiftSelect");
+            if (attSelect && attSelect.value !== val) attSelect.value = val;
+            loadLiveShiftDetailsAndCandidates(val);
         });
 
     document
@@ -1079,8 +1125,20 @@ function initEventListeners() {
     document
         .getElementById("btnExportIncidentExcel")
         ?.addEventListener("click", () => {
-            window.open("/api/contingency/export-excel", "_blank");
+            if (currentUserRole !== "admin") {
+                openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để xuất file Excel ca vắng & dự phòng!");
+                return;
+            }
+            exportIncidentLogsExcel();
         });
+
+    // Contingency Shift Search input listener
+    document
+        .getElementById("contingencyShiftSearch")
+        ?.addEventListener("input", (e) => {
+            populateLiveShiftDropdown(e.target.value);
+        });
+
 
     // KPI Event Listeners
     document
@@ -1203,7 +1261,7 @@ function renderCaNgoaiTable() {
     if (!tbody) return;
 
     if (!globalCaNgoai.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="table-empty">Chưa có ca bán ngoài nào. Thêm từ bảng bên trái.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="table-empty" style="text-align: center; padding: 24px 12px; color: var(--ink-dim);">Chưa có ca bán ngoài nào. Thêm từ bảng bên trái.</td></tr>`;
         return;
     }
 
@@ -1211,15 +1269,15 @@ function renderCaNgoaiTable() {
     globalCaNgoai.forEach((item, idx) => {
         html += `
             <tr>
-                <td class="cell-center mk-num">${idx + 1}</td>
-                <td><strong>${item.name}</strong></td>
-                <td class="cell-center">${item.day}</td>
-                <td class="cell-center mk-num">${item.start_time}</td>
-                <td class="cell-center mk-num">${item.end_time}</td>
-                <td class="cell-center mk-lead">${item.chinh}</td>
-                <td class="cell-center mk-dp">${item.dp}</td>
-                <td class="cell-center">
-                    <button class="btn-delete-row" onclick="deleteCaNgoaiItem('${item.id}')">
+                <td class="cell-center mk-num" style="text-align: center; padding: 8px 6px;">${idx + 1}</td>
+                <td style="padding: 8px 10px;"><strong style="color: var(--ink-hi);">${item.name}</strong></td>
+                <td class="cell-center" style="text-align: center; padding: 8px 6px; white-space: nowrap;">${item.day}</td>
+                <td class="cell-center mk-num" style="text-align: center; padding: 8px 6px; white-space: nowrap;">${item.start_time}</td>
+                <td class="cell-center mk-num" style="text-align: center; padding: 8px 6px; white-space: nowrap;">${item.end_time}</td>
+                <td class="cell-center mk-lead" style="text-align: center; padding: 8px 6px; white-space: nowrap; font-weight: 700;">${item.chinh}</td>
+                <td class="cell-center mk-dp" style="text-align: center; padding: 8px 6px; white-space: nowrap; font-weight: 700;">${item.dp}</td>
+                <td class="cell-center" style="text-align: center; padding: 8px 6px; white-space: nowrap;">
+                    <button class="btn-delete-row" onclick="deleteCaNgoaiItem('${item.id}')" style="padding: 3px 8px; font-size: 0.75rem; min-height: 26px; border-radius: 4px;" title="Xóa ca ngoài này">
                         <i class="fa-solid fa-trash-can"></i> Xóa
                     </button>
                 </td>
@@ -1335,10 +1393,8 @@ function applyDailyShiftConfigsToUI(configs) {
 
 function getOptimizerFullConfigFromUI() {
     const startDate = document.getElementById("cfgStartDate")?.value || "2026-08-24";
-    const phongChinh = parseInt(document.getElementById("cfgPhongChinh")?.value || "4", 10);
-    const phongDP = parseInt(document.getElementById("cfgPhongDP")?.value || "1", 10);
-    const minShifts = parseInt(document.getElementById("cfgMinShifts")?.value || "1", 10);
-    const maxShifts = parseInt(document.getElementById("cfgMaxShifts")?.value || "4", 10);
+    const minShifts = parseInt(document.getElementById("cfgMinShifts")?.value || "3", 10);
+    const maxShifts = parseInt(document.getElementById("cfgMaxShifts")?.value || "5", 10);
     const maxDaily = parseInt(document.getElementById("cfgMaxDaily")?.value || "2", 10);
     const enableCaNgoai = document.getElementById("chkMasterNgoai")
         ? document.getElementById("chkMasterNgoai").checked
@@ -1347,8 +1403,6 @@ function getOptimizerFullConfigFromUI() {
 
     return {
         start_date: startDate,
-        phong_chinh_count: phongChinh,
-        phong_dp_count: phongDP,
         min_shifts: minShifts,
         max_shifts: maxShifts,
         max_shifts_per_day: maxDaily,
@@ -1642,12 +1696,20 @@ const DAY_ABBR = {
     "Chủ Nhật": "CN",
 };
 const BOARD_SLOTS = [
-    "7h - 9h",
-    "9h - 11h",
-    "11h - 13h",
-    "13h - 15h",
-    "15h - 17h",
+    "07:00 - 09:30",
+    "09:35 - 12:00",
+    "12:05 - 14:00",
+    "14:05 - 16:05",
+    "16:10 - 18:00",
 ];
+
+const SLOT_LABEL_MAP = {
+    "07:00 - 09:30": { ca: "Ca 1", time: "07:00 – 09:30" },
+    "09:35 - 12:00": { ca: "Ca 2", time: "09:35 – 12:00" },
+    "12:05 - 14:00": { ca: "Ca 3", time: "12:05 – 14:00" },
+    "14:05 - 16:05": { ca: "Ca 4", time: "14:05 – 16:05" },
+    "16:10 - 18:00": { ca: "Ca 5", time: "16:10 – 18:00" },
+};
 const NGOAI_ROW = "__ngoai__";
 
 let agendaDay = null;
@@ -1666,12 +1728,102 @@ function esc(str) {
     );
 }
 
-// Ca bán ngoài có giờ tự đặt ('17:00 - 19:30') nên không khớp 5 khung chuẩn.
-// Chúng đi vào hàng "điểm bán ngoài" ở dưới cùng.
+// Phân loại hàng cho ca trực trên bảng tuần (Ca 1 -> Ca 5 cho phòng, hoặc Ca ngoài ở dưới cùng)
 function boardRowOf(shift) {
-    return BOARD_SLOTS.includes(shift.slot) && shift.type === "Phong"
-        ? shift.slot
-        : NGOAI_ROW;
+    if (!shift) return NGOAI_ROW;
+
+    // Nếu rõ ràng là ca ngoài
+    if (
+        shift.type === "Ngoai" ||
+        (shift.type_label && shift.type_label.toLowerCase().includes("ngoài")) ||
+        (shift.location && !shift.location.toLowerCase().includes("phòng") && shift.type !== "Phong")
+    ) {
+        return NGOAI_ROW;
+    }
+
+    const slotStr = String(shift.slot || "").trim();
+    const startStr = String(shift.start_time || "").trim();
+    const idStr = String(shift.shift_id || "").trim();
+
+    // 1. Khớp chính xác với BOARD_SLOTS
+    if (BOARD_SLOTS.includes(slotStr)) return slotStr;
+
+    // 2. Nhận diện Ca 1 (07:00 - 09:30)
+    if (
+        startStr.startsWith("07") ||
+        startStr.startsWith("7:") ||
+        startStr.startsWith("7h") ||
+        slotStr.includes("07h00") ||
+        slotStr.includes("7h - 9h") ||
+        slotStr.includes("07:00") ||
+        idStr.endsWith("1") ||
+        idStr.endsWith("6")
+    ) {
+        return "07:00 - 09:30";
+    }
+
+    // 3. Nhận diện Ca 2 (09:35 - 12:00)
+    if (
+        startStr.startsWith("09") ||
+        startStr.startsWith("9:") ||
+        startStr.startsWith("9h") ||
+        slotStr.includes("09h35") ||
+        slotStr.includes("9h - 11h") ||
+        slotStr.includes("09:35") ||
+        idStr.endsWith("2") ||
+        idStr.endsWith("7")
+    ) {
+        return "09:35 - 12:00";
+    }
+
+    // 4. Nhận diện Ca 3 (12:05 - 14:00)
+    if (
+        startStr.startsWith("11") ||
+        startStr.startsWith("12:0") ||
+        startStr.startsWith("12h") ||
+        slotStr.includes("12h05") ||
+        slotStr.includes("11h - 13h") ||
+        slotStr.includes("12:05") ||
+        idStr.endsWith("3") ||
+        idStr.endsWith("8")
+    ) {
+        return "12:05 - 14:00";
+    }
+
+    // 5. Nhận diện Ca 4 (14:05 - 16:05)
+    if (
+        startStr.startsWith("13") ||
+        startStr.startsWith("14:0") ||
+        startStr.startsWith("14h") ||
+        slotStr.includes("14h05") ||
+        slotStr.includes("13h - 15h") ||
+        slotStr.includes("14:05") ||
+        idStr.endsWith("4") ||
+        idStr.endsWith("9")
+    ) {
+        return "14:05 - 16:05";
+    }
+
+    // 6. Nhận diện Ca 5 (16:10 - 18:00)
+    if (
+        startStr.startsWith("15") ||
+        startStr.startsWith("16:1") ||
+        startStr.startsWith("16h") ||
+        slotStr.includes("16h10") ||
+        slotStr.includes("15h - 17h") ||
+        slotStr.includes("16:10") ||
+        idStr.endsWith("5") ||
+        idStr.endsWith("0")
+    ) {
+        return "16:10 - 18:00";
+    }
+
+    // Mặc định ca phòng nếu không xác định được
+    if (shift.type === "Phong") {
+        return "07:00 - 09:30";
+    }
+
+    return NGOAI_ROW;
 }
 
 function getFilteredShifts() {
@@ -1693,11 +1845,12 @@ function getFilteredShifts() {
             const hit =
                 s.shift_id.toLowerCase().includes(searchQuery) ||
                 s.location.toLowerCase().includes(searchQuery) ||
-                s.assigned_members.some(
+                (s.assigned_members || []).some(
                     (m) =>
-                        m.name.toLowerCase().includes(searchQuery) ||
-                        m.department.toLowerCase().includes(searchQuery) ||
-                        m.phone.includes(searchQuery),
+                        m &&
+                        (((m.name || "").toLowerCase().includes(searchQuery)) ||
+                        ((m.department || "").toLowerCase().includes(searchQuery)) ||
+                        ((m.phone || "").includes(searchQuery))),
                 );
             if (!hit) return false;
         }
@@ -1750,9 +1903,10 @@ function getMemberShiftCounts() {
     if (!globalScheduleData || !globalScheduleData.assigned_shifts)
         return counts;
     globalScheduleData.assigned_shifts.forEach((s) => {
+        if (!s) return;
         (s.assigned_members || []).forEach((m) => {
             // Cảnh báo vi phạm số ca không tính những ca dự phòng (chỉ tính ca trực chính)
-            if (m.name && m.role === "Chính") {
+            if (m && m.name && m.role === "Chính") {
                 counts[m.name] = (counts[m.name] || 0) + 1;
             }
         });
@@ -1769,7 +1923,7 @@ function getMaxShiftsLimit() {
         return parseInt(globalScheduleData.config.max_shifts_per_member, 10);
     }
     const el = document.getElementById("cfgMaxShifts");
-    return el ? parseInt(el.value, 10) || 4 : 4;
+    return el ? parseInt(el.value, 10) || 5 : 5;
 }
 
 function renderAlertStrip(filtered, shortShifts, totalGap) {
@@ -1781,7 +1935,7 @@ function renderAlertStrip(filtered, shortShifts, totalGap) {
     );
 
     let overlimitBanner = "";
-    // Chỉ hiển thị cảnh báo vượt ca cho Admin, nhân viên chỉ xem phân công ca thông thường
+    // Chỉ hiển thị cảnh báo vượt ca cho Admin, nhân sự chỉ xem bảng phân ca tuần thông thường
     if (isAdmin && overlimitMembers.length > 0) {
         overlimitBanner = `<div class="alert-strip danger-overlimit" style="margin-bottom: 8px; background: rgba(220, 38, 38, 0.18); border: 1px solid var(--cinnabar); color: #FCA5A5; padding: 10px 14px; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 10px; font-size: 13px;">
             <i class="fa-solid fa-triangle-exclamation" style="color: var(--cinnabar); font-size: 16px;"></i>
@@ -1790,7 +1944,12 @@ function renderAlertStrip(filtered, shortShifts, totalGap) {
     }
 
     let statusStrip = "";
-    if (totalGap === 0) {
+    if (!isAdmin) {
+        statusStrip = `<div class="alert-strip ok" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">
+                    <i class="fa-solid fa-calendar-check" style="color: #10b981;"></i>
+                    <span><strong>Bảng Phân Ca Tuần:</strong> Lịch phân công ca trực tuần cho nhân sự (${filtered.length} ca trực). Nhân sự theo dõi ca trực và vị trí phụ trách bên dưới.</span>
+                </div>`;
+    } else if (totalGap === 0) {
         statusStrip = `<div class="alert-strip ok">
                     <i class="fa-solid fa-circle-check"></i>
                     <span>Đủ người cả <b>${filtered.length}</b> ca. Bảng phân công đã hoàn chỉnh.</span>
@@ -1821,10 +1980,20 @@ function renderBoardGrid(rows, buckets, dateOfDay) {
     });
 
     rows.forEach((row) => {
-        cells +=
-            row === NGOAI_ROW
-                ? `<div class="board-slotlabel"><b>Ngoài</b>điểm bán</div>`
-                : `<div class="board-slotlabel"><b>${esc(row.split(" - ")[0])}</b>–${esc(row.split(" - ")[1])}</div>`;
+        if (row === NGOAI_ROW) {
+            cells += `<div class="board-slotlabel" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 6px 4px;">
+                        <b style="color: var(--cinnabar, #e05638); font-size: 11.5px; white-space: nowrap;">Ngoài</b>
+                        <small style="font-size: 9px; opacity: 0.85; white-space: nowrap; color: var(--paper-ink-dim);">Điểm bán</small>
+                      </div>`;
+        } else {
+            const meta = SLOT_LABEL_MAP[row];
+            const caName = meta ? meta.ca : "";
+            const timeStr = meta ? meta.time : row;
+            cells += `<div class="board-slotlabel" style="display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 6px 4px;">
+                        ${caName ? `<b style="font-size: 11.5px; color: var(--paper-ink); margin-bottom: 2px; white-space: nowrap;">${caName}</b>` : ""}
+                        <small style="font-size: 8.8px; font-weight: 600; color: var(--paper-ink-dim); line-height: 1.25; white-space: nowrap;">${esc(timeStr)}</small>
+                      </div>`;
+        }
 
         BOARD_DAYS.forEach((day) => {
             const list = buckets[row + "|" + day];
@@ -1868,9 +2037,11 @@ function renderBoardGrid(rows, buckets, dateOfDay) {
 function renderShiftSlip(s) {
     const isAdmin = currentUserRole === "admin";
     const gap = shiftGap(s);
-    const members = s.assigned_members || [];
-    const chinh = members.filter((m) => m.role === "Chính");
-    const dp = members.filter((m) => m.role !== "Chính");
+    const members = (s.assigned_members || []).filter(Boolean);
+    const chinh = members.filter((m) => m && m.role === "Chính");
+    const dp = members.filter((m) => m && m.role !== "Chính");
+    const chinhCount = chinh.length;
+    const totalAssigned = s.assigned_count || members.length;
 
     const shiftCounts = getMemberShiftCounts();
     const maxShifts = getMaxShiftsLimit();
@@ -1878,17 +2049,19 @@ function renderShiftSlip(s) {
     let hasOverlimit = false;
     let lines = "";
     chinh.concat(dp).forEach((m) => {
-        const isLeader = s.shift_leader === m.name;
+        if (!m) return;
+        const mName = m.name || "N/A";
+        const isLeader = s.shift_leader === mName;
         const isDp = m.role !== "Chính";
-        const totalCount = shiftCounts[m.name] || 0;
+        const totalCount = shiftCounts[mName] || 0;
         const isOver = isAdmin && totalCount > maxShifts;
         if (isOver) hasOverlimit = true;
 
         const overClass = isOver ? "line-overlimit" : "";
-        const titleText = `${esc(m.name)} — ${esc(m.department)}${isAdmin ? ` (${totalCount}/${maxShifts} ca)` : ""}${isOver ? " [⚠️ VƯỢT QUÁ SỐ CA TỐI ĐA]" : ""} — Nhiệm vụ: ${esc(m.task || "Bán hàng F&B")}`;
+        const titleText = `${esc(mName)} — ${esc(m.department || "")}${isAdmin ? ` (${totalCount}/${maxShifts} ca)` : ""}${isOver ? " [⚠️ VƯỢT QUÁ SỐ CA TỐI ĐA]" : ""} — Nhiệm vụ: ${esc(m.task || "Bán hàng F&B")}`;
 
         lines += `<span class="assign-line ${isDp ? "line-dp" : "line-filled"} ${overClass}" title="${titleText}">
-                    <span class="assign-name">${esc(m.name)}${isOver ? " ⚠️" : ""}</span>
+                    <span class="assign-name">${esc(mName)}${isOver ? " ⚠️" : ""}</span>
                     ${isLeader ? '<i class="lead-mark fa-solid fa-star" title="Trưởng ca"></i>' : ""}
                   </span>`;
     });
@@ -1899,7 +2072,7 @@ function renderShiftSlip(s) {
                     title="${esc(s.shift_id)} — ${esc(s.location)} (${esc(s.slot)})">
                 <span class="cell-top">
                     <span class="cell-code">${esc(s.shift_id)} ${hasOverlimit ? "🚨" : ""}</span>
-                    <span class="cell-count">${s.assigned_count}/${s.required_count}</span>
+                    <span class="cell-count" title="Số người trực chính / Tổng số người được sắp trong ca">${chinhCount}/${totalAssigned}</span>
                 </span>
                 <span class="assign-lines">${lines}</span>
             </button>`;
@@ -1946,22 +2119,24 @@ function renderAgenda(filtered, shortShifts) {
     const list = ofDay
         .map((s) => {
             const gap = shiftGap(s);
-            const members = s.assigned_members || [];
-            const chinh = members.filter((m) => m.role === "Chính");
-            const dp = members.filter((m) => m.role !== "Chính");
+            const members = (s.assigned_members || []).filter(Boolean);
+            const chinh = members.filter((m) => m && m.role === "Chính");
+            const dp = members.filter((m) => m && m.role !== "Chính");
 
             let people = chinh
                 .concat(dp)
                 .map((m) => {
-                    const isLeader = s.shift_leader === m.name;
+                    if (!m) return "";
+                    const mName = m.name || "N/A";
+                    const isLeader = s.shift_leader === mName;
                     const isDp = m.role !== "Chính";
-                    const totalCount = shiftCounts[m.name] || 0;
+                    const totalCount = shiftCounts[mName] || 0;
                     const isOver = isAdmin && totalCount > maxShifts;
 
                     return `<span class="agenda-person ${isDp ? "dp" : ""} ${isLeader ? "lead" : ""} ${isOver ? "overlimit" : ""}">
                         <span class="dot"></span>
-                        <span>${esc(m.name)}</span>
-                        ${isOver ? `<span class="tag overlimit-tag" style="background:#991B1B; color:#FFF; font-weight:700;">⚠️ ${totalCount}/${maxShifts} ca</span>` : `<span class="tag">${isLeader ? "Trưởng ca" : isDp ? "Dự phòng" : esc(m.department.replace("Ban ", ""))}</span>`}
+                        <span>${esc(mName)}</span>
+                        ${isOver ? `<span class="tag overlimit-tag" style="background:#991B1B; color:#FFF; font-weight:700;">⚠️ ${totalCount}/${maxShifts} ca</span>` : `<span class="tag">${isLeader ? "Trưởng ca" : isDp ? "Dự phòng" : esc((m.department || "").replace("Ban ", ""))}</span>`}
                     </span>`;
                 })
                 .join("");
@@ -1969,11 +2144,13 @@ function renderAgenda(filtered, shortShifts) {
                 people += `<span class="agenda-gap"><i class="fa-solid fa-user-plus"></i> Còn trống một suất</span>`;
             }
 
+            const chinhCount = chinh.length;
+            const totalAssigned = s.assigned_count || members.length;
             return `<button type="button" class="agenda-shift ${gap ? "is-short" : ""}"
                         onclick="openShiftEditModal('${esc(s.shift_id)}')">
                     <span class="agenda-shift-head">
                         <strong>${esc(s.slot)}</strong>
-                        <span>${esc(s.location)}<br>${esc(s.shift_id)} · ${s.assigned_count}/${s.required_count} người</span>
+                        <span>${esc(s.location)}<br>${esc(s.shift_id)} · ${chinhCount}/${totalAssigned} người</span>
                     </span>
                     <span class="agenda-roster">${people}</span>
                 </button>`;
@@ -2009,9 +2186,11 @@ window.openShiftEditModal = function (shiftId) {
         : `<i class="fa-solid fa-eye"></i> Chi Tiết Ca Trực ${esc(s.shift_id)} (${esc(s.day)} - ${esc(s.slot)}) <span style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.15); margin-left:8px;">Chỉ Xem</span>`;
 
     let leaderOptions = "";
-    s.assigned_members.forEach((m) => {
-        const sel = s.shift_leader === m.name ? "selected" : "";
-        leaderOptions += `<option value="${esc(m.name)}" ${sel}>⭐ ${esc(m.name)} (${esc(m.department)} - ${esc(m.role)})</option>`;
+    (s.assigned_members || []).forEach((m) => {
+        if (!m) return;
+        const mName = m.name || "N/A";
+        const sel = s.shift_leader === mName ? "selected" : "";
+        leaderOptions += `<option value="${esc(mName)}" ${sel}>⭐ ${esc(mName)} (${esc(m.department || "")} - ${esc(m.role || "")})</option>`;
     });
 
     const shiftLocation =
@@ -2019,7 +2198,9 @@ window.openShiftEditModal = function (shiftId) {
         (s.type === "Ngoai" ? "Điểm Bán Ngoài Ca" : "Phòng Thanh Niên");
 
     let membersListHtml = "";
-    s.assigned_members.forEach((m, idx) => {
+    (s.assigned_members || []).forEach((m, idx) => {
+        if (!m) return;
+        const mName = m.name || "N/A";
         const isDp = m.role !== "Chính";
         const defaultRole = isDp
             ? "⚡ Dự bị tiếp ứng & Hỗ trợ"
@@ -2031,7 +2212,7 @@ window.openShiftEditModal = function (shiftId) {
         const posRole = m.position_role || defaultRole;
 
         const removeBtn = isAdmin
-            ? `<button type="button" class="btn-action-sm btn-action-delete" style="padding: 2px 7px; font-size: 11px; margin-left: 6px; background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" onclick="handleCancelMemberInShift('${m.member_id}', '${esc(m.name)}')" title="Rút nhân sự này khỏi ca trực"><i class="fa-solid fa-user-minus"></i> Hủy</button>`
+            ? `<button type="button" class="btn-action-sm btn-action-delete" style="padding: 2px 7px; font-size: 11px; margin-left: 6px; background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" onclick="handleCancelMemberInShift('${m.member_id}', '${esc(mName)}')" title="Rút nhân sự này khỏi ca trực"><i class="fa-solid fa-user-minus"></i> Hủy</button>`
             : "";
 
         membersListHtml += `
@@ -2039,9 +2220,9 @@ window.openShiftEditModal = function (shiftId) {
                 <div class="mer-who">
                     <div class="mer-name-line">
                         <span class="mer-index">#${idx + 1}</span>
-                        <strong>${esc(m.name)}</strong>
+                        <strong>${esc(mName)}</strong>
                         <span class="mer-dept-pill">${esc((m.department || "").replace("Ban ", ""))}</span>
-                        ${s.shift_leader === m.name ? '<span class="mer-lead-badge"><i class="fa-solid fa-star"></i> Trưởng ca</span>' : ""}
+                        ${s.shift_leader === mName ? '<span class="mer-lead-badge"><i class="fa-solid fa-star"></i> Trưởng ca</span>' : ""}
                         ${removeBtn}
                     </div>
                     <div class="mer-meta">
@@ -2078,11 +2259,14 @@ window.openShiftEditModal = function (shiftId) {
         ? `<div class="swap-msg info" style="display:block; margin-bottom: 12px; background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2);"><i class="fa-solid fa-lock"></i> <b>Chế độ chỉ xem:</b> Nhân viên không phải Admin không thể chỉnh sửa thông tin ca trực. Vui lòng đăng nhập Quản trị viên để thay đổi.</div>`
         : "";
 
+    const chinhCount = (s.assigned_members || []).filter((m) => m.role === "Chính").length;
+    const totalAssigned = s.assigned_count || (s.assigned_members || []).length;
+
     const bodyHtml = `
         ${readOnlyNotice}
         <div class="shift-modal-summary-banner">
             <div class="sms-loc"><i class="fa-solid fa-location-dot"></i> <strong>${esc(shiftLocation)}</strong> &bull; <span class="sms-time">${esc(s.day)} (${esc(s.slot)})</span></div>
-            <div class="sms-meta">Loại ca: <b>${esc(s.type_label)}</b> &bull; Quy mô: <b>${s.assigned_count}/${s.required_count} người</b></div>
+            <div class="sms-meta">Loại ca: <b>${esc(s.type_label)}</b> &bull; Quy mô: <b>${chinhCount}/${totalAssigned} người</b></div>
         </div>
 
         <div class="form-group mb-16">
@@ -2344,10 +2528,11 @@ function renderHeatmapTable(heatmapData) {
         tableHtml += `<tr><td>${row.day}</td>`;
         row.slots.forEach((cell) => {
             const memberNames =
-                cell.free_members
+                (cell.free_members || [])
                     .slice(0, 10)
-                    .map((m) => m.name)
-                    .join(", ") + (cell.free_members.length > 10 ? "..." : "");
+                    .map((m) => (m && m.name ? m.name : ""))
+                    .filter(Boolean)
+                    .join(", ") + ((cell.free_members || []).length > 10 ? "..." : "");
             tableHtml += `
                 <td class="lvl-${cell.level}" title="${row.day} (${cell.slot}): ${cell.count} thành viên rảnh\n${memberNames}">
                     <div class="heat-cell-val">${cell.count}</div>
@@ -2526,8 +2711,10 @@ async function handleIncidentShiftChange() {
 
     let absentOpts =
         '<option value="">-- Chọn người vắng / đi trễ / đổi ca --</option>';
-    s.assigned_members.forEach((m) => {
-        absentOpts += `<option value="${m.member_id}">${esc(m.name)} (${esc(m.role)} - ${esc(m.department)})</option>`;
+    (s.assigned_members || []).forEach((m) => {
+        if (!m) return;
+        const mName = m.name || m.member_id;
+        absentOpts += `<option value="${m.member_id}">${esc(mName)} (${esc(m.role || "")} - ${esc(m.department || "")})</option>`;
     });
     if (absentSel) absentSel.innerHTML = absentOpts;
 
@@ -2535,14 +2722,16 @@ async function handleIncidentShiftChange() {
         if (hint) hint.textContent = "Đang tra cứu nhân sự khả dụng...";
         const res = await fetch(`/api/contingency/suggest?shift_id=${shiftId}`);
         const data = await res.json();
-        if (data.success) {
+        if (data && data.success) {
             let repOpts =
                 '<option value="">-- Chọn nhân sự thay thế --</option>';
-            data.candidates.forEach((c) => {
+            (data.candidates || []).forEach((c) => {
+                if (!c) return;
+                const cName = c.name || c.member_id;
                 const badge =
                     c.priority_label ||
                     (c.is_standby ? "⚡ [Đội ứng biến]" : "✓ Rảnh");
-                repOpts += `<option value="${c.member_id}">${badge} ${c.name} - ${c.department} (SĐT: ${c.phone})</option>`;
+                repOpts += `<option value="${c.member_id}">${badge} ${cName} - ${c.department || ""} (SĐT: ${c.phone || ""})</option>`;
             });
             if (repSel) repSel.innerHTML = repOpts;
             if (hint)
@@ -2615,6 +2804,7 @@ async function loadIncidentLogs() {
         if (data.success) {
             globalIncidentLogs = data.incidents || [];
             renderIncidentLogs(globalIncidentLogs);
+            renderKpiStats();
         }
     } catch (e) {
         console.error("Error loading incidents:", e);
@@ -2628,11 +2818,28 @@ function renderIncidentLogs(incidents) {
     const kpiAbsent = document.getElementById("kpiAbsentCount");
     const kpiReplaced = document.getElementById("kpiReplacedCount");
 
-    if (!incidents || !incidents.length) {
+    const isAdmin = (currentUserRole === "admin");
+
+    // For staff (non-admin), filter logs to only show incidents in the current selected shift
+    let displayedIncidents = (incidents || []).slice();
+    if (!isAdmin) {
+        if (currentSelectedLiveShiftId) {
+            displayedIncidents = displayedIncidents.filter(
+                (inc) => inc.shift_id === currentSelectedLiveShiftId,
+            );
+        } else {
+            displayedIncidents = [];
+        }
+    }
+
+    if (!displayedIncidents || !displayedIncidents.length) {
+        const emptyMsg = isAdmin
+            ? "Chưa có sự cố điểm danh nào được ghi nhận trên toàn hệ thống."
+            : `Chưa có dữ liệu đi trễ hoặc vắng mặt nào trong ca ${esc(currentSelectedLiveShiftId || "này")}.`;
         if (container)
-            container.innerHTML = `<div class="empty-note">Chưa có sự cố điểm danh nào được ghi nhận.</div>`;
+            container.innerHTML = `<div class="empty-note">${emptyMsg}</div>`;
         if (tbody)
-            tbody.innerHTML = `<tr><td colspan="8" class="table-empty">Chưa có dữ liệu đi trễ hoặc vắng mặt nào.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="table-empty">${emptyMsg}</td></tr>`;
         if (kpiLate) kpiLate.textContent = "0";
         if (kpiAbsent) kpiAbsent.textContent = "0";
         if (kpiReplaced) kpiReplaced.textContent = "0";
@@ -2643,18 +2850,23 @@ function renderIncidentLogs(incidents) {
     let absentCount = 0;
     let replacedCount = 0;
 
-    // Render cards list
+    // Render cards list (if present)
     let html = "";
-    incidents.forEach((inc) => {
+    displayedIncidents.forEach((inc) => {
         if (inc.status_type === "Đi trễ") lateCount++;
         if (
             inc.status_type === "Vắng đột xuất" ||
-            inc.status_type === "Xin nghỉ trước"
+            inc.status_type === "Vắng không phép" ||
+            inc.status_type === "Vắng mặt" ||
+            inc.status_type === "Xin nghỉ trước" ||
+            (inc.status_type && inc.status_type.includes("Vắng"))
         )
             absentCount++;
         if (
             inc.replacement_member &&
-            inc.replacement_member !== "Không thay thế"
+            inc.replacement_member !== "Không thay thế" &&
+            inc.replacement_member !== "none" &&
+            inc.replacement_member !== "no_replacement"
         )
             replacedCount++;
 
@@ -2671,37 +2883,77 @@ function renderIncidentLogs(incidents) {
     });
     if (container) container.innerHTML = html;
 
-    // Render separate Late Arrival & Absence Table
+    // Render Late Arrival & Absence Table (9 columns)
     if (tbody) {
         let tableRows = "";
-        incidents.forEach((inc, idx) => {
+        displayedIncidents.forEach((inc, idx) => {
             let badgeClass = "badge-secondary";
-            let statusLabel = inc.status_type;
+            let statusLabel = inc.status_type || "Ghi nhận";
 
             if (inc.status_type === "Đi trễ") {
                 badgeClass = "badge-warning";
-                statusLabel = "⏰ Đi trễ";
-            } else if (inc.status_type === "Vắng đột xuất") {
+                statusLabel = "⏰ Đi trễ (-3đ)";
+            } else if (inc.status_type === "Mất tập trung") {
+                badgeClass = "badge-warning";
+                statusLabel = "📱 Mất tập trung (-5đ)";
+            } else if (inc.status_type === "Bỏ quầy") {
                 badgeClass = "badge-danger";
-                statusLabel = "🚨 Vắng đột xuất";
+                statusLabel = "🚶 Bỏ quầy (-5đ)";
+            } else if (inc.status_type === "Vắng không phép" || inc.status_type === "Vắng đột xuất" || inc.status_type === "Vắng mặt") {
+                badgeClass = "badge-danger";
+                statusLabel = "🚨 Vắng không phép (-10đ)";
             } else if (inc.status_type === "Xin nghỉ trước") {
                 badgeClass = "badge-info";
                 statusLabel = "📝 Xin nghỉ trước";
             } else if (inc.status_type === "Có mặt") {
                 badgeClass = "badge-success";
-                statusLabel = "✅ Đổi ca thành công";
+                statusLabel = "✅ Có mặt đúng giờ";
+            } else if (inc.status_type && inc.status_type.includes("Đã gọi dự phòng")) {
+                badgeClass = "badge-success";
+                statusLabel = "📞 Đã gọi dự phòng";
+            } else if (inc.status_type && inc.status_type.includes("Không gọi được")) {
+                badgeClass = "badge-danger";
+                statusLabel = "⚠️ Không gọi được DP (Chờ Admin)";
             }
+
+            const repName = (inc.replacement_member && inc.replacement_member !== "none" && inc.replacement_member !== "no_replacement")
+                ? inc.replacement_member
+                : "Không thay thế";
+
+            let repBadge = "";
+            if (repName !== "Không thay thế") {
+                repBadge = `<strong style="color: var(--patina-lt);"><i class="fa-solid fa-user-shield" style="margin-right: 4px;"></i>${esc(repName)}</strong>`;
+            } else if (inc.status_type && inc.status_type.includes("Không gọi được")) {
+                repBadge = `<span style="color: #F87171; font-size: 11.5px; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ Admin gán</span>`;
+            } else {
+                repBadge = `<span style="color: var(--ink-dim); font-size: 11.5px;">Không thay thế</span>`;
+            }
+
+            const actionBtn = isAdmin
+                ? `<div style="display: inline-flex; gap: 4px; align-items: center;">
+                    <button type="button" class="btn-action-sm btn-action-edit" onclick="openAdminAssignReplacementModal('${esc(inc.id || '')}', '${esc(inc.timestamp || '')}', '${esc(inc.shift_id || '')}', '${esc(inc.absent_member || '')}', '${esc(inc.replacement_member || '')}', '${esc(inc.status_type || '')}', '${esc(inc.note || '')}')" title="Gán / Đổi người thay thế cho ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="fa-solid fa-user-pen"></i> Đổi người
+                    </button>
+                    <button type="button" class="btn-action-sm btn-danger-red" onclick="deleteSingleIncident('${esc(inc.id || '')}', '${esc(inc.timestamp || '')}', '${esc(inc.shift_id || '')}', '${esc(inc.absent_member || '')}')" title="Xóa lịch sử ghi nhận ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                        <i class="fa-solid fa-trash-can"></i> Xóa
+                    </button>
+                </div>`
+                : "";
 
             tableRows += `
                 <tr>
                     <td class="cell-center mk-num">${idx + 1}</td>
-                    <td class="cell-center mk-num">${esc(inc.timestamp)}</td>
-                    <td><span class="shift-id-tag">${esc(inc.shift_id)}</span> <span style="margin-left: 4px; font-weight: 500;">${esc(inc.day)} ${esc(inc.slot)}</span></td>
+                    <td class="cell-center mk-num" style="font-size: 11.5px; white-space: nowrap;">${esc(inc.timestamp || "")}</td>
+                    <td>
+                        <span class="shift-id-tag">${esc(inc.shift_id)}</span>
+                        <span style="margin-left: 5px; font-weight: 600; color: var(--ink-hi);">${esc(inc.day || "")} ${esc(inc.slot || "")}</span>
+                    </td>
                     <td><span style="color: var(--goldleaf); font-weight: 500;">${esc(inc.location || "Phòng Thanh Niên")}</span></td>
-                    <td><strong style="color: var(--cinnabar-lt);">${esc(inc.absent_member)}</strong></td>
+                    <td><strong style="color: var(--cinnabar-lt); font-size: 13px;">${esc(inc.absent_member)}</strong></td>
                     <td class="cell-center"><span class="status-badge ${badgeClass}">${statusLabel}</span></td>
-                    <td><strong style="color: var(--patina-lt);">${esc(inc.replacement_member)}</strong></td>
-                    <td style="color: var(--ink-dim); font-size: 12px;">${esc(inc.note || "-")}</td>
+                    <td>${repBadge}</td>
+                    <td style="color: var(--ink-dim); font-size: 12px; max-width: 200px;">${esc(inc.note || "-")}</td>
+                    <td class="cell-center admin-only-cell">${actionBtn}</td>
                 </tr>
             `;
         });
@@ -2712,6 +2964,87 @@ function renderIncidentLogs(incidents) {
     if (kpiAbsent) kpiAbsent.textContent = String(absentCount);
     if (kpiReplaced) kpiReplaced.textContent = String(replacedCount);
 }
+
+// Single incident deletion
+window.deleteSingleIncident = function (id, timestamp, shiftId, absentMember) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để xóa lịch sử ghi nhận!");
+        return;
+    }
+
+    openConfirmModal({
+        title: "Xác Nhận Xóa Bản Ghi Lịch Sử",
+        message: `Bạn có chắc chắn muốn xóa bản ghi điểm danh / sự cố của "${absentMember || 'thành viên'}" tại Ca ${shiftId || ''}?`,
+        confirmBtnText: "Xóa Bản Ghi",
+        onConfirm: async () => {
+            try {
+                const res = await authFetch("/api/contingency/delete-incident", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: id || undefined,
+                        timestamp: timestamp || undefined,
+                        shift_id: shiftId || undefined,
+                        absent_member: absentMember || undefined,
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("✓ Đã xóa bản ghi lịch sử thành công!", "success");
+                    await loadIncidentLogs();
+                    await loadCurrentSchedule();
+                } else {
+                    alert("Lỗi khi xóa: " + (data.message || "Không thể xóa bản ghi"));
+                }
+            } catch (e) {
+                console.error("Lỗi xóa bản ghi sự cố:", e);
+                alert("Lỗi kết nối khi xóa bản ghi: " + e.message);
+            }
+        },
+    });
+};
+
+// Export incident logs to CSV/Excel
+function exportIncidentLogsExcel() {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để xuất file Excel ca vắng & dự phòng!");
+        return;
+    }
+
+    const incidents = globalIncidentLogs || [];
+    if (!incidents.length) {
+        showToast("Chưa có dữ liệu ghi nhận ca vắng & dự phòng để xuất!", "warning");
+        return;
+    }
+
+    let csvContent = "\uFEFFSTT,Thời Gian Ghi Nhận,Mã Ca Trực,Thứ,Khung Giờ,Địa Điểm,Người Vắng / Đi Trễ,Trạng Thái & Sai Phạm,Nhân Sự Thay Thế,Ghi Chú\n";
+    incidents.forEach((inc, idx) => {
+        const row = [
+            idx + 1,
+            `"${(inc.timestamp || "").replace(/"/g, '""')}"`,
+            `"${(inc.shift_id || "").replace(/"/g, '""')}"`,
+            `"${(inc.day || "").replace(/"/g, '""')}"`,
+            `"${(inc.slot || "").replace(/"/g, '""')}"`,
+            `"${(inc.location || "Phòng Thanh Niên").replace(/"/g, '""')}"`,
+            `"${(inc.absent_member || "").replace(/"/g, '""')}"`,
+            `"${(inc.status_type || "").replace(/"/g, '""')}"`,
+            `"${(inc.replacement_member || "Không thay thế").replace(/"/g, '""')}"`,
+            `"${(inc.note || "").replace(/"/g, '""')}"`
+        ];
+        csvContent += row.join(",") + "\n";
+    });
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_Cao_Ca_Vang_Va_Du_Phong_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Đã xuất file báo cáo ca vắng & dự phòng Excel (CSV) thành công!", "success");
+}
+
 
 // Data Upload & Google Sheet Sync
 async function handleSyncGoogleSheet() {
@@ -3012,8 +3345,10 @@ async function loadInventoryData() {
             renderLivePOSProductGrid();
             if (currentSelectedLiveShiftId) {
                 renderLiveShiftSalesTable(currentSelectedLiveShiftId);
+                loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
             }
             renderAllShiftOrdersTab();
+            loadOnlineOrders();
         }
     } catch (e) {
         console.error("Error loading inventory data:", e);
@@ -3496,34 +3831,104 @@ function getShiftTimeDistance(shift) {
     return dayDiff * 100 + hourDiff;
 }
 
-function populateLiveShiftDropdown() {
+function populateLiveShiftDropdown(filterKeyword = "") {
     const select = document.getElementById("liveShiftSelect");
-    if (!select || !globalScheduleData || !globalScheduleData.assigned_shifts)
+    const posSelect = document.getElementById("livePOSShiftSelect");
+    if (!globalScheduleData || !globalScheduleData.assigned_shifts)
         return;
 
-    const shifts = [...globalScheduleData.assigned_shifts];
-    shifts.sort((a, b) => getShiftTimeDistance(a) - getShiftTimeDistance(b));
+    const allShifts = [...globalScheduleData.assigned_shifts];
+    allShifts.sort((a, b) => getShiftTimeDistance(a) - getShiftTimeDistance(b));
+
+    const kw = (filterKeyword || "").toLowerCase().trim();
+    let shifts = allShifts;
+    if (kw) {
+        shifts = allShifts.filter((s) => {
+            const timeLabel = formatShiftTimeValue(s).toLowerCase();
+            const shiftIdMatch = (s.shift_id || "").toLowerCase().includes(kw);
+            const dayMatch = (s.day || "").toLowerCase().includes(kw);
+            const slotMatch = (s.slot || "").toLowerCase().includes(kw);
+            const locMatch = (
+                s.location ||
+                (s.type === "Ngoai" ? "Điểm Bán Ngoài" : "Phòng Thanh Niên")
+            )
+                .toLowerCase()
+                .includes(kw);
+            const leaderMatch = (s.shift_leader || "")
+                .toLowerCase()
+                .includes(kw);
+            const memberMatch = (s.assigned_members || []).some((m) =>
+                m && (m.name || "").toLowerCase().includes(kw),
+            );
+            return (
+                shiftIdMatch ||
+                dayMatch ||
+                slotMatch ||
+                locMatch ||
+                leaderMatch ||
+                memberMatch ||
+                timeLabel.includes(kw)
+            );
+        });
+    }
 
     let html = "";
-    shifts.forEach((s, idx) => {
-        const isClosest = idx === 0;
-        const badge = isClosest ? "🔴" : "🗓️";
-        const loc =
-            s.location ||
-            (s.type === "Ngoai" ? "Điểm Bán Ngoài" : "Phòng Thanh Niên");
-        const leader = s.shift_leader ? ` • Trưởng ca: ${s.shift_leader}` : "";
-        const timeLabel = formatShiftTimeValue(s);
-        html += `<option value="${s.shift_id}" ${isClosest ? "selected" : ""}>
-            ${badge} Ca ${s.shift_id} • ${s.day} • ${timeLabel} • ${loc} [${s.assigned_count}/${s.required_count} TV]${leader}
-        </option>`;
-    });
+    if (shifts.length === 0) {
+        html = `<option value="">-- Không tìm thấy ca trực nào phù hợp --</option>`;
+    } else {
+        shifts.forEach((s) => {
+            const isClosest = s.shift_id === allShifts[0]?.shift_id;
+            const badge = isClosest ? "🔴 [Đang trực]" : "🗓️";
+            const loc =
+                s.location ||
+                (s.type === "Ngoai" ? "Điểm Bán Ngoài" : "Phòng Thanh Niên");
+            const leader = s.shift_leader ? ` • Trưởng ca: ${s.shift_leader}` : "";
+            const timeLabel = formatShiftTimeValue(s);
+            const isSelected = s.shift_id === currentSelectedLiveShiftId;
+            const chinhCount = (s.assigned_members || []).filter((m) => m && m.role === "Chính").length;
+            const totalAssigned = s.assigned_count || (s.assigned_members || []).length;
+            html += `<option value="${s.shift_id}" ${isSelected ? "selected" : ""}>
+                ${badge} Ca ${s.shift_id} • ${s.day} • ${timeLabel} • ${loc} [${chinhCount}/${totalAssigned} TV]${leader}
+            </option>`;
+        });
+    }
 
-    select.innerHTML = html;
-    if (shifts.length > 0) {
-        currentSelectedLiveShiftId = shifts[0].shift_id;
-        loadLiveShiftDetailsAndCandidates(shifts[0].shift_id);
+    if (select) {
+        select.innerHTML = html;
+        if (shifts.length > 0) {
+            const targetShiftId = shifts.some((s) => s.shift_id === currentSelectedLiveShiftId)
+                ? currentSelectedLiveShiftId
+                : shifts[0].shift_id;
+            select.value = targetShiftId;
+            currentSelectedLiveShiftId = targetShiftId;
+            loadLiveShiftDetailsAndCandidates(targetShiftId);
+        }
+    }
+
+    if (posSelect && !kw) {
+        let posHtml = "";
+        allShifts.forEach((s, idx) => {
+            const isClosest = idx === 0;
+            const badge = isClosest ? "🔴" : "🗓️";
+            const loc =
+                s.location ||
+                (s.type === "Ngoai" ? "Điểm Bán Ngoài" : "Phòng Thanh Niên");
+            const leader = s.shift_leader ? ` • Trưởng ca: ${s.shift_leader}` : "";
+            const timeLabel = formatShiftTimeValue(s);
+            const chinhCount = (s.assigned_members || []).filter((m) => m && m.role === "Chính").length;
+            const totalAssigned = s.assigned_count || (s.assigned_members || []).length;
+            posHtml += `<option value="${s.shift_id}" ${isClosest ? "selected" : ""}>
+                ${badge} Ca ${s.shift_id} • ${s.day} • ${timeLabel} • ${loc} [${chinhCount}/${totalAssigned} TV]${leader}
+            </option>`;
+        });
+        posSelect.innerHTML = posHtml;
     }
 }
+
+window.handleContingencyShiftSearch = function (keyword) {
+    populateLiveShiftDropdown(keyword);
+};
+
 
 // Global state for live attendance screen
 let localAttendanceState = {}; // Key: member_id, Value: { status: string|null, replacementId: string|null, isModified: boolean }
@@ -3531,6 +3936,11 @@ let currentShiftCandidates = []; // Suggested backup candidates
 
 async function loadLiveShiftDetailsAndCandidates(shiftId) {
     currentSelectedLiveShiftId = shiftId;
+
+    const select = document.getElementById("liveShiftSelect");
+    if (select && select.value !== shiftId) select.value = shiftId;
+    const posSelect = document.getElementById("livePOSShiftSelect");
+    if (posSelect && posSelect.value !== shiftId) posSelect.value = shiftId;
 
     // 1. Fetch suggestions/candidates for this shift
     try {
@@ -3556,25 +3966,75 @@ async function loadLiveShiftDetailsAndCandidates(shiftId) {
         if (shift) {
             const incidents = globalIncidentLogs || [];
             (shift.assigned_members || []).forEach((m) => {
+                if (!m) return;
+                const mName = m.name || m.member_id || "";
                 const lastLog = incidents.find(
                     (l) =>
+                        l &&
                         l.shift_id === shiftId &&
-                        (l.absent_member === m.name ||
-                            l.absent_member_id === m.member_id),
+                        ((l.absent_member && l.absent_member === mName) ||
+                            (l.absent_member_id && l.absent_member_id === m.member_id)),
                 );
+
+                const isUnreach = lastLog && (
+                    lastLog.status_type === "Vắng mặt (Không gọi được dự phòng)" ||
+                    (lastLog.status_type && lastLog.status_type.includes("Không gọi được"))
+                );
+
+                // Check if this member is acting as replacement for someone in this shift
+                const repLog = incidents.find(
+                    (l) =>
+                        l &&
+                        l.shift_id === shiftId &&
+                        ((l.replacement_member && l.replacement_member === mName) ||
+                            (l.replacement_member_id && l.replacement_member_id === m.member_id)),
+                );
+
                 localAttendanceState[m.member_id] = {
-                    status: lastLog ? lastLog.status_type : null,
+                    status: lastLog ? lastLog.status_type : (repLog ? "Có mặt" : null),
                     replacementId: lastLog
                         ? lastLog.replacement_member_id || ""
                         : "",
+                    unreachable: !!isUnreach,
+                    isBackupActivated: !!repLog,
+                    replacedAbsentMemberId: repLog ? repLog.absent_member_id : "",
+                    replacedAbsentMemberName: repLog ? repLog.absent_member : "",
                     isModified: false,
                 };
             });
         }
     }
 
-    // 3. Render
+    // 3. Render shift details and incident logs (filtered for staff)
     renderLiveShiftDetails(shiftId);
+    loadLiveShiftOnlineOrders(shiftId);
+    if (globalIncidentLogs) {
+        renderIncidentLogs(globalIncidentLogs);
+    }
+}
+
+function getMemberReputationScore(memberId, memberName) {
+    let rep = 100;
+    const logs = globalIncidentLogs || [];
+    logs.forEach((l) => {
+        if (
+            (l.absent_member_id && l.absent_member_id === memberId) ||
+            (l.absent_member && l.absent_member === memberName) ||
+            (l.member && l.member === memberName)
+        ) {
+            const st = l.status_type;
+            if (st === "Đi trễ") rep -= 3;
+            else if (st === "Mất tập trung") rep -= 5;
+            else if (st === "Bỏ quầy") rep -= 5;
+            else if (
+                st === "Vắng không phép" ||
+                st === "Vắng đột xuất" ||
+                st === "Vắng mặt"
+            )
+                rep -= 10;
+        }
+    });
+    return Math.max(0, rep);
 }
 
 function renderLiveShiftDetails(shiftId) {
@@ -3584,7 +4044,44 @@ function renderLiveShiftDetails(shiftId) {
     );
     if (!shift) return;
 
+    const isAdmin = currentUserRole === "admin";
+
     currentSelectedLiveShiftId = shiftId;
+
+    let allMembersInShift = [...(shift.assigned_members || [])].filter(Boolean);
+
+    // Ensure the Shift Leader is present in the members list
+    if (shift.shift_leader && shift.shift_leader !== "Chưa chỉ định") {
+        const leaderName = shift.shift_leader;
+        const leaderExists = allMembersInShift.some(
+            (m) => m && (m.name === leaderName || m.member_id === leaderName)
+        );
+        if (!leaderExists) {
+            const gMem = (globalMembers || []).find(
+                (m) => m && (m.name === leaderName || m.member_id === leaderName)
+            );
+            if (gMem) {
+                allMembersInShift.unshift({
+                    member_id: gMem.member_id,
+                    name: gMem.name,
+                    phone: gMem.phone || "",
+                    department: gMem.department || "Ban Quản Lý",
+                    role: "Chính",
+                    position_role: "⭐ Trưởng ca / Điều phối",
+                });
+            } else {
+                allMembersInShift.unshift({
+                    member_id: `leader_${shift.shift_id}`,
+                    name: leaderName,
+                    phone: "",
+                    department: "Trưởng ca",
+                    role: "Chính",
+                    position_role: "⭐ Trưởng ca / Điều phối",
+                });
+            }
+        }
+    }
+
     const subEl = document.getElementById("liveShiftInfoSub");
     if (subEl) {
         const loc =
@@ -3601,8 +4098,10 @@ function renderLiveShiftDetails(shiftId) {
     if (memberListEl) {
         let memHtml = "";
 
-        (shift.assigned_members || []).forEach((m) => {
-            const isLeader = shift.shift_leader === m.name;
+        allMembersInShift.forEach((m) => {
+            if (!m) return;
+            const mName = m.name || m.member_id || "N/A";
+            const isLeader = shift.shift_leader === mName;
             const isDp = m.role !== "Chính";
             const task =
                 m.position_role ||
@@ -3612,114 +4111,283 @@ function renderLiveShiftDetails(shiftId) {
             const localState = localAttendanceState[m.member_id] || {
                 status: null,
                 replacementId: "",
+                unreachable: false,
+                isBackupActivated: false,
+                replacedAbsentMemberId: "",
+                replacedAbsentMemberName: "",
                 isModified: false,
             };
+            const isBackupActivated = isDp && (localState.isBackupActivated || (localState.replacedAbsentMemberId && localState.replacedAbsentMemberId !== ""));
+            const isUnreachable = isDp && (localState.unreachable === true || localState.status === "Không gọi được dự phòng");
             const currentStatus = localState.status;
+            const memberRep = getMemberReputationScore(m.member_id, mName);
 
             let cardBg = "rgba(255,255,255,0.03)";
             let cardBorder = "1px solid rgba(255,255,255,0.08)";
-            let cardLeftBorder = "4px solid var(--goldleaf)";
+            let cardLeftBorder = "4px solid rgba(255,255,255,0.2)";
             let statusBadge =
-                '<span class="tag" style="background:rgba(255,255,255,0.06); color:var(--ink-dim); border:1px solid rgba(255,255,255,0.1); padding:3px 8px;"><i class="fa-regular fa-circle"></i> Chưa điểm danh</span>';
+                '<span class="tag" style="background:rgba(255,255,255,0.06); color:var(--ink-dim); border:1px solid rgba(255,255,255,0.1); padding:4px 9px;"><i class="fa-regular fa-circle"></i> Chưa điểm danh</span>';
 
-            if (currentStatus === "Có mặt") {
-                cardBg = "rgba(16,185,129,0.08)";
-                cardBorder = "1px solid rgba(16,185,129,0.25)";
-                cardLeftBorder = "4px solid #10B981";
-                statusBadge =
-                    '<span class="tag" style="background:rgba(16,185,129,0.25); color:#34D399; border:1px solid #059669; padding:3px 8px; font-weight:700;"><i class="fa-solid fa-circle-check"></i> Có mặt đúng giờ</span>';
-            } else if (currentStatus === "Đi trễ") {
-                cardBg = "rgba(245,158,11,0.08)";
-                cardBorder = "1px solid rgba(245,158,11,0.25)";
-                cardLeftBorder = "4px solid #F59E0B";
-                statusBadge =
-                    '<span class="tag" style="background:rgba(245,158,11,0.25); color:#FBBF24; border:1px solid #D97706; padding:3px 8px; font-weight:700;"><i class="fa-solid fa-clock-rotate-left"></i> Báo đi trễ</span>';
-            } else if (
-                currentStatus === "Vắng đột xuất" ||
-                currentStatus === "Xin nghỉ trước" ||
-                currentStatus === "Vắng mặt"
-            ) {
+            if (isUnreachable) {
                 cardBg = "rgba(239,68,68,0.08)";
                 cardBorder = "1px solid rgba(239,68,68,0.25)";
                 cardLeftBorder = "4px solid #EF4444";
                 statusBadge =
-                    '<span class="tag" style="background:rgba(239,68,68,0.25); color:#FCA5A5; border:1px solid #DC2626; padding:3px 8px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> Vắng mặt khẩn cấp</span>';
+                    '<span class="tag" style="background:rgba(239,68,68,0.22); color:#FCA5A5; border:1px solid #DC2626; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-phone-slash"></i> Không gọi được (Chờ lưu)</span>';
+            } else if (isBackupActivated) {
+                if (currentStatus === "Có mặt" || !currentStatus) {
+                    cardBg = "rgba(16,185,129,0.08)";
+                    cardBorder = "1px solid rgba(16,185,129,0.25)";
+                    cardLeftBorder = "4px solid #10B981";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(16,185,129,0.22); color:#34D399; border:1px solid #059669; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-circle-check"></i> Đang tiếp ứng: Có mặt</span>';
+                } else if (currentStatus === "Đi trễ") {
+                    cardBg = "rgba(245,158,11,0.08)";
+                    cardBorder = "1px solid rgba(245,158,11,0.25)";
+                    cardLeftBorder = "4px solid #F59E0B";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(245,158,11,0.22); color:#FBBF24; border:1px solid #D97706; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-clock-rotate-left"></i> Tiếp ứng: Đi trễ (-3đ)</span>';
+                } else if (currentStatus === "Mất tập trung") {
+                    cardBg = "rgba(234,88,12,0.08)";
+                    cardBorder = "1px solid rgba(234,88,12,0.25)";
+                    cardLeftBorder = "4px solid #EA580C";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(234,88,12,0.22); color:#FB923C; border:1px solid #EA580C; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-mobile-screen"></i> Tiếp ứng: Mất tập trung (-5đ)</span>';
+                } else if (currentStatus === "Bỏ quầy") {
+                    cardBg = "rgba(225,29,72,0.08)";
+                    cardBorder = "1px solid rgba(225,29,72,0.25)";
+                    cardLeftBorder = "4px solid #E11D48";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(225,29,72,0.22); color:#FDA4AF; border:1px solid #E11D48; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-person-walking-arrow-right"></i> Tiếp ứng: Bỏ quầy (-5đ)</span>';
+                } else if (
+                    currentStatus === "Vắng không phép" ||
+                    currentStatus === "Vắng đột xuất" ||
+                    currentStatus === "Vắng mặt"
+                ) {
+                    cardBg = "rgba(239,68,68,0.08)";
+                    cardBorder = "1px solid rgba(239,68,68,0.25)";
+                    cardLeftBorder = "4px solid #EF4444";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(239,68,68,0.22); color:#FCA5A5; border:1px solid #DC2626; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> Tiếp ứng: Vắng (-10đ)</span>';
+                } else if (currentStatus === "Xin nghỉ trước") {
+                    cardBg = "rgba(59,130,246,0.08)";
+                    cardBorder = "1px solid rgba(59,130,246,0.25)";
+                    cardLeftBorder = "4px solid #3B82F6";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(59,130,246,0.22); color:#93C5FD; border:1px solid #2563EB; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-clipboard-check"></i> Tiếp ứng: Xin nghỉ trước</span>';
+                }
+            } else {
+                if (currentStatus === "Có mặt") {
+                    cardBg = "rgba(16,185,129,0.08)";
+                    cardBorder = "1px solid rgba(16,185,129,0.25)";
+                    cardLeftBorder = "4px solid #10B981";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(16,185,129,0.22); color:#34D399; border:1px solid #059669; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-circle-check"></i> Có mặt đúng giờ</span>';
+                } else if (currentStatus === "Đi trễ") {
+                    cardBg = "rgba(245,158,11,0.08)";
+                    cardBorder = "1px solid rgba(245,158,11,0.25)";
+                    cardLeftBorder = "4px solid #F59E0B";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(245,158,11,0.22); color:#FBBF24; border:1px solid #D97706; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-clock-rotate-left"></i> Đi trễ (-3đ)</span>';
+                } else if (currentStatus === "Mất tập trung") {
+                    cardBg = "rgba(234,88,12,0.08)";
+                    cardBorder = "1px solid rgba(234,88,12,0.25)";
+                    cardLeftBorder = "4px solid #EA580C";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(234,88,12,0.22); color:#FB923C; border:1px solid #EA580C; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-mobile-screen"></i> Mất tập trung (-5đ)</span>';
+                } else if (currentStatus === "Bỏ quầy") {
+                    cardBg = "rgba(225,29,72,0.08)";
+                    cardBorder = "1px solid rgba(225,29,72,0.25)";
+                    cardLeftBorder = "4px solid #E11D48";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(225,29,72,0.22); color:#FDA4AF; border:1px solid #E11D48; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-person-walking-arrow-right"></i> Bỏ quầy (-5đ)</span>';
+                } else if (
+                    currentStatus === "Vắng không phép" ||
+                    currentStatus === "Vắng đột xuất" ||
+                    currentStatus === "Vắng mặt"
+                ) {
+                    cardBg = "rgba(239,68,68,0.08)";
+                    cardBorder = "1px solid rgba(239,68,68,0.25)";
+                    cardLeftBorder = "4px solid #EF4444";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(239,68,68,0.22); color:#FCA5A5; border:1px solid #DC2626; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> Vắng không phép (-10đ)</span>';
+                } else if (currentStatus === "Xin nghỉ trước") {
+                    cardBg = "rgba(59,130,246,0.08)";
+                    cardBorder = "1px solid rgba(59,130,246,0.25)";
+                    cardLeftBorder = "4px solid #3B82F6";
+                    statusBadge =
+                        '<span class="tag" style="background:rgba(59,130,246,0.22); color:#93C5FD; border:1px solid #2563EB; padding:4px 9px; font-weight:700;"><i class="fa-solid fa-clipboard-check"></i> Xin nghỉ trước</span>';
+                }
             }
 
             // Build replacement dropdown HTML if marked as absent
             let replacementHtml = "";
             const isAbsent =
+                currentStatus === "Vắng không phép" ||
                 currentStatus === "Vắng đột xuất" ||
                 currentStatus === "Xin nghỉ trước" ||
                 currentStatus === "Vắng mặt";
+
             if (isAbsent) {
-                let optionsHtml = `<option value="">-- Chọn nhân sự thay thế --</option>`;
-                optionsHtml += `<option value="no_replacement" ${localState.replacementId === "no_replacement" || !localState.replacementId ? "selected" : ""}>Không cần thay thế / Chờ tự ứng phó</option>`;
+                if (isAdmin) {
+                    let optionsHtml = `<option value="">-- Chọn nhân sự thay thế --</option>`;
+                    optionsHtml += `<option value="no_replacement" ${localState.replacementId === "no_replacement" || !localState.replacementId ? "selected" : ""}>Không cần thay thế / Chờ tự ứng phó</option>`;
 
-                (currentShiftCandidates || []).forEach((cand) => {
-                    const selectedAttr =
-                        localState.replacementId === cand.member_id
-                            ? "selected"
-                            : "";
-                    optionsHtml += `<option value="${esc(cand.member_id)}" ${selectedAttr}>${esc(cand.name)} [${esc(cand.priority_label)}] - ${esc(cand.phone)}</option>`;
-                });
+                    (currentShiftCandidates || []).forEach((cand) => {
+                        const selectedAttr =
+                            localState.replacementId === cand.member_id
+                                ? "selected"
+                                : "";
+                        optionsHtml += `<option value="${esc(cand.member_id)}" ${selectedAttr}>${esc(cand.name)} [${esc(cand.priority_label)}] - ${esc(cand.phone)}</option>`;
+                    });
 
-                replacementHtml = `
-                    <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 4px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border: 1px dashed rgba(239,68,68,0.3);">
-                        <label style="font-size: 12px; font-weight: 600; color: #FCA5A5;"><i class="fa-solid fa-people-arrows"></i> Chỉ Định Nhân Sự Thay Thế (Backup):</label>
-                        <select class="custom-select" style="font-size: 13px; font-weight: 500; height: 36px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card-alt); color: var(--ink-hi);" onchange="setLocalReplacement('${esc(m.member_id)}', this.value)">
-                            ${optionsHtml}
-                        </select>
-                    </div>
-                `;
-            }
-
-            // Render buttons: only for 'Chính' members by default. Backup members don't need check-in unless abnormalities occur.
-            let buttonsHtml = "";
-            if (!isDp) {
-                buttonsHtml = `
-                    <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
-                        <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Có mặt')" style="background: ${currentStatus === "Có mặt" ? "#059669" : "rgba(16,185,129,0.15)"}; color: ${currentStatus === "Có mặt" ? "#FFF" : "#34D399"}; border: 1px solid #059669; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer;" title="Điểm danh có mặt đúng giờ">
-                            ✅ Có mặt
-                        </button>
-                        <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Đi trễ')" style="background: ${currentStatus === "Đi trễ" ? "#D97706" : "rgba(245,158,11,0.15)"}; color: ${currentStatus === "Đi trễ" ? "#FFF" : "#FBBF24"}; border: 1px solid #D97706; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer;" title="Báo đi trễ">
-                            ⏰ Đi trễ
-                        </button>
-                        <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Vắng đột xuất')" style="background: ${isAbsent ? "#DC2626" : "rgba(239,68,68,0.15)"}; color: ${isAbsent ? "#FFF" : "#FCA5A5"}; border: 1px solid #DC2626; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer;" title="Báo vắng mặt khẩn cấp">
-                            🚨 Vắng mặt
-                        </button>
-                    </div>
-                `;
-            } else {
-                const hasAbnormality = localState.status !== null;
-                if (!hasAbnormality) {
-                    buttonsHtml = `
-                        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); align-items: center; justify-content: space-between;">
-                            <span style="font-size: 12px; color: var(--ink-dim); font-style: italic;"><i class="fa-solid fa-circle-info"></i> Nhân sự dự phòng (Không cần điểm danh ca trực chuẩn)</span>
-                            <button type="button" class="btn-action-sm" onclick="revealBackupAttendance('${esc(m.member_id)}')" style="background: rgba(139,92,246,0.15); color: #C084FC; border: 1px solid #7C3AED; padding: 4px 8px; font-size: 11px; border-radius: 4px; cursor: pointer;">
-                                <i class="fa-solid fa-triangle-exclamation"></i> Có bất thường
-                            </button>
+                    replacementHtml = `
+                        <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 4px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px; border: 1px dashed rgba(239,68,68,0.3);">
+                            <label style="font-size: 12px; font-weight: 600; color: #FCA5A5;"><i class="fa-solid fa-people-arrows"></i> Chỉ Định Nhân Sự Thay Thế (Admin):</label>
+                            <select class="custom-select" style="font-size: 13px; font-weight: 500; height: 36px; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-card-alt); color: var(--ink-hi);" onchange="setLocalReplacement('${esc(m.member_id)}', this.value)">
+                                ${optionsHtml}
+                            </select>
                         </div>
                     `;
                 } else {
-                    buttonsHtml = `
-                        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);">
-                            <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Có mặt')" style="background: ${currentStatus === "Có mặt" ? "#059669" : "rgba(16,185,129,0.15)"}; color: ${currentStatus === "Có mặt" ? "#FFF" : "#34D399"}; border: 1px solid #059669; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer;">
-                                ✅ Có mặt
-                            </button>
-                            <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Đi trễ')" style="background: ${currentStatus === "Đi trễ" ? "#D97706" : "rgba(245,158,11,0.15)"}; color: ${currentStatus === "Đi trễ" ? "#FFF" : "#FBBF24"}; border: 1px solid #D97706; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer;">
-                                ⏰ Đi trễ
-                            </button>
-                            <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Vắng đột xuất')" style="background: ${isAbsent ? "#DC2626" : "rgba(239,68,68,0.15)"}; color: ${isAbsent ? "#FFF" : "#FCA5A5"}; border: 1px solid #DC2626; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer;">
-                                🚨 Vắng mặt
-                            </button>
-                            <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', null)" style="background: rgba(255,255,255,0.06); color: var(--ink-dim); border: 1px solid var(--border-color); padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;">
-                                Hủy bất thường
-                            </button>
+                    const hasBackupRep = localState.replacementId && localState.replacementId !== "no_replacement";
+                    let repName = "";
+                    if (hasBackupRep) {
+                        const repM = shift.assigned_members?.find(sm => sm.member_id === localState.replacementId) ||
+                                     currentShiftCandidates?.find(c => c.member_id === localState.replacementId);
+                        if (repM) repName = repM.name;
+                    }
+
+                    replacementHtml = `
+                        <div style="margin-top: 8px; background: rgba(239,68,68,0.08); border: 1px dashed rgba(239,68,68,0.3); border-radius: 6px; padding: 8px 12px; font-size: 11.5px; color: #FCA5A5;">
+                            ${hasBackupRep 
+                                ? `<i class="fa-solid fa-user-shield" style="color: #34D399;"></i> Đã bố trí nhân sự dự phòng <strong>${esc(repName || localState.replacementId)}</strong> tiếp ứng.`
+                                : `<i class="fa-solid fa-circle-info"></i> Đã ghi nhận vắng mặt. Bạn có thể bấm nút <strong>"Gọi dự phòng"</strong> ở danh sách nhân sự dự phòng bên dưới để kích hoạt thay thế cho thành viên này.`
+                            }
                         </div>
                     `;
                 }
             }
+
+            const isViolationSelected =
+                currentStatus === "Đi trễ" ||
+                currentStatus === "Mất tập trung" ||
+                currentStatus === "Bỏ quầy";
+
+            // Action controls: Có mặt, Vắng mặt, Đi trễ, List sổ ra sai phạm khác, Đặt lại
+            let buttonsHtml = "";
+            if (!isDp || isBackupActivated) {
+                buttonsHtml = `
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); align-items: center;">
+                        <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Có mặt')" style="background: ${currentStatus === "Có mặt" ? "#059669" : "rgba(16,185,129,0.15)"}; color: ${currentStatus === "Có mặt" ? "#FFF" : "#34D399"}; border: 1px solid #059669; padding: 6px 14px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Điểm danh có mặt đúng giờ (Không trừ điểm uy tín)">
+                            <i class="fa-solid fa-circle-check"></i> Có mặt
+                        </button>
+                        <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Vắng không phép')" style="background: ${isAbsent ? "#DC2626" : "rgba(239,68,68,0.15)"}; color: ${isAbsent ? "#FFF" : "#FCA5A5"}; border: 1px solid #DC2626; padding: 6px 14px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Ghi nhận vắng không phép (-10 điểm uy tín)">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Vắng mặt
+                        </button>
+                        <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Đi trễ')" style="background: ${currentStatus === "Đi trễ" ? "#D97706" : "rgba(245,158,11,0.15)"}; color: ${currentStatus === "Đi trễ" ? "#FFF" : "#FBBF24"}; border: 1px solid #D97706; padding: 6px 14px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Ghi nhận đi trễ (-3 điểm uy tín)">
+                            <i class="fa-solid fa-clock-rotate-left"></i> Đi trễ
+                        </button>
+                        <div style="position: relative; display: inline-flex; align-items: center;">
+                            <select class="custom-select" onchange="setLocalAttendanceStatus('${esc(m.member_id)}', this.value)" style="height: 32px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; border: 1px solid ${isViolationSelected && currentStatus !== "Đi trễ" ? "#F59E0B" : "rgba(255,255,255,0.15)"}; background: ${isViolationSelected && currentStatus !== "Đi trễ" ? "rgba(245,158,11,0.18)" : "var(--bg-card-alt)"}; color: ${isViolationSelected && currentStatus !== "Đi trễ" ? "#FBBF24" : "var(--ink-light)"}; cursor: pointer;">
+                                <option value="" ${!isViolationSelected || currentStatus === "Đi trễ" ? "selected" : ""}>⚠️ Sai phạm khác ▾</option>
+                                <option value="Mất tập trung" ${currentStatus === "Mất tập trung" ? "selected" : ""}>📱 Mất tập trung (-5đ)</option>
+                                <option value="Bỏ quầy" ${currentStatus === "Bỏ quầy" ? "selected" : ""}>🚶 Bỏ quầy (-5đ)</option>
+                                <option value="Xin nghỉ trước" ${currentStatus === "Xin nghỉ trước" ? "selected" : ""}>📝 Xin nghỉ trước (>24h)</option>
+                            </select>
+                        </div>
+                        ${
+                            currentStatus
+                                ? `
+                            <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', null)" style="background: rgba(255,255,255,0.06); color: var(--ink-dim); border: 1px solid var(--border-color); padding: 5px 10px; font-size: 11px; border-radius: 6px; cursor: pointer;" title="Đặt lại trạng thái chưa điểm danh">
+                                <i class="fa-solid fa-rotate-left"></i> Đặt lại
+                            </button>
+                        `
+                                : ""
+                        }
+                        ${
+                            isBackupActivated
+                                ? `
+                            <button type="button" class="btn-action-sm" onclick="cancelBackupActivation('${esc(m.member_id)}')" style="background: rgba(239,68,68,0.12); color: #FCA5A5; border: 1px solid rgba(239,68,68,0.3); padding: 5px 10px; font-size: 11px; border-radius: 6px; cursor: pointer; margin-left: auto;" title="Hủy kích hoạt tiếp ứng của nhân sự này">
+                                <i class="fa-solid fa-xmark"></i> Hủy tiếp ứng
+                            </button>
+                        `
+                                : ""
+                        }
+                    </div>
+                `;
+            } else {
+                // Standby backup member
+                buttonsHtml = `
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); align-items: center; justify-content: space-between;">
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                            <button type="button" class="btn-action-sm" onclick="openCallBackupModal('${esc(m.member_id)}', '${esc(m.name)}', '${esc(m.phone)}', '${esc(m.department)}')" style="background: rgba(16, 185, 129, 0.18); color: #34D399; border: 1px solid #059669; padding: 6px 14px; font-weight: 700; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;" title="Gọi và kích hoạt nhân sự dự phòng này để thay cho người vắng trong ca">
+                                <i class="fa-solid fa-phone-volume"></i> Gọi dự phòng
+                            </button>
+                            <button type="button" class="btn-action-sm" onclick="toggleLocalUnreachableBackup('${esc(m.member_id)}')" style="background: ${isUnreachable ? '#DC2626' : 'rgba(239, 68, 68, 0.12)'}; color: ${isUnreachable ? '#FFFFFF' : '#FCA5A5'}; border: 1px solid ${isUnreachable ? '#B91C1C' : '#DC2626'}; padding: 6px 14px; font-weight: ${isUnreachable ? '700' : '600'}; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; ${isUnreachable ? 'box-shadow: 0 0 10px rgba(220, 38, 38, 0.4);' : ''}" title="${isUnreachable ? 'Bấm lại để hủy đánh dấu không gọi được' : 'Bấm để đánh dấu không gọi được nhân sự này, nhấn nút Lưu điểm danh để cập nhật hệ thống'}">
+                                <i class="fa-solid fa-phone-slash"></i> ${isUnreachable ? 'Không gọi được (Đã chọn)' : 'Không gọi được?'}
+                            </button>
+                        </div>
+                        ${
+                            isAdmin
+                                ? `
+                            <button type="button" class="btn-action-sm admin-only-elem" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', '${currentStatus === "Có mặt" ? "" : "Có mặt"}')" style="background: ${currentStatus === "Có mặt" ? "#059669" : "rgba(255,255,255,0.06)"}; color: ${currentStatus === "Có mặt" ? "#FFF" : "var(--ink-dim)"}; border: 1px solid var(--border-color); padding: 5px 10px; font-size: 11px; border-radius: 6px; cursor: pointer;">
+                                <i class="fa-solid fa-check"></i> ${currentStatus === "Có mặt" ? "Đã có mặt" : "Điểm danh trực"}
+                            </button>
+                        `
+                                : ""
+                        }
+                    </div>
+                `;
+            }
+
+            const repColor =
+                memberRep >= 90
+                    ? "#34D399"
+                    : memberRep >= 75
+                      ? "#FBBF24"
+                      : "#FCA5A5";
+            const repBg =
+                memberRep >= 90
+                    ? "rgba(16,185,129,0.15)"
+                    : memberRep >= 75
+                      ? "rgba(245,158,11,0.15)"
+                      : "rgba(239,68,68,0.15)";
+            const repBorder =
+                memberRep >= 90
+                    ? "rgba(16,185,129,0.3)"
+                    : memberRep >= 75
+                      ? "rgba(245,158,11,0.3)"
+                      : "rgba(239,68,68,0.3)";
+
+            const tagBg = isLeader 
+                ? "rgba(217,119,6,0.3)" 
+                : isBackupActivated 
+                    ? "rgba(16,185,129,0.3)" 
+                    : isDp 
+                        ? "rgba(109,40,217,0.3)" 
+                        : "rgba(255,255,255,0.1)";
+            const tagColor = isLeader 
+                ? "#FBBF24" 
+                : isBackupActivated 
+                    ? "#34D399" 
+                    : isDp 
+                        ? "#C084FC" 
+                        : "var(--ink-light)";
+            const tagBorder = isLeader 
+                ? "#D97706" 
+                : isBackupActivated 
+                    ? "#059669" 
+                    : isDp 
+                        ? "#7C3AED" 
+                        : "var(--border-color)";
+            const tagLabel = isLeader 
+                ? "Trưởng ca" 
+                : isBackupActivated 
+                    ? `⚡ Tiếp ứng: ${esc(localState.replacedAbsentMemberName || 'Người vắng')}` 
+                    : isDp 
+                        ? "Dự phòng" 
+                        : esc(m.department);
 
             memHtml += `
                 <div style="background: ${cardBg}; border: ${cardBorder}; border-left: ${cardLeftBorder}; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; transition: all 0.2s ease;">
@@ -3727,8 +4395,11 @@ function renderLiveShiftDetails(shiftId) {
                         <div>
                             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                 <strong style="font-size: 15px; color: var(--ink-hi); font-weight: 700;">${isLeader ? "⭐ " : ""}${esc(m.name)}</strong>
-                                <span class="tag" style="background: ${isLeader ? "rgba(217,119,6,0.3)" : isDp ? "rgba(109,40,217,0.3)" : "rgba(255,255,255,0.1)"}; color: ${isLeader ? "#FBBF24" : isDp ? "#C084FC" : "var(--ink-light)"}; border: 1px solid ${isLeader ? "#D97706" : isDp ? "#7C3AED" : "var(--border-color)"};">
-                                    ${isLeader ? "Trưởng ca" : isDp ? "Dự phòng" : esc(m.department)}
+                                <span class="tag" style="background: ${tagBg}; color: ${tagColor}; border: 1px solid ${tagBorder};">
+                                    ${tagLabel}
+                                </span>
+                                <span class="tag" style="background: ${repBg}; color: ${repColor}; border: 1px solid ${repBorder}; font-weight: 700; font-size: 11.5px; padding: 2px 7px;" title="Điểm uy tín tích lũy của thành viên (Ban đầu: 100đ)">
+                                    <i class="fa-solid fa-shield-heart"></i> Uy tín: ${memberRep}/100đ
                                 </span>
                             </div>
                             <div style="font-size: 12px; color: var(--ink-dim); margin-top: 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -3751,12 +4422,98 @@ function renderLiveShiftDetails(shiftId) {
             '<div class="table-empty">Không có nhân sự trong ca này.</div>';
     }
 
+    // Hiển thị thông báo cảnh báo khẩn nếu ca có nhân sự dự phòng không liên lạc được
+    const alertNoticeEl = document.getElementById("liveShiftAlertNotice");
+    const shiftIncidents = (globalIncidentLogs || []).filter((inc) => inc.shift_id === shiftId);
+    const hasUnreachableInLogs = shiftIncidents.some(
+        (inc) =>
+            inc.status_type &&
+            inc.status_type.includes("Không gọi được") &&
+            (!inc.replacement_member ||
+                inc.replacement_member === "Không thay thế" ||
+                inc.replacement_member === "none" ||
+                inc.replacement_member === "no_replacement"),
+    );
+    const hasUnreachableInLocal = (shift.assigned_members || []).some((m) => {
+        if (!m || !m.member_id) return false;
+        const ls = localAttendanceState[m.member_id];
+        return ls && (ls.unreachable || ls.status === "Không gọi được dự phòng");
+    });
+
+    if (alertNoticeEl) {
+        if (hasUnreachableInLogs || hasUnreachableInLocal) {
+            alertNoticeEl.style.display = "block";
+            alertNoticeEl.innerHTML = `
+                <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid #EF4444; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fa-solid fa-triangle-exclamation" style="color: #EF4444; font-size: 16px;"></i>
+                        <div style="font-size: 12.5px; color: var(--ink-hi);">
+                            <strong style="color: #F87171;">Cảnh báo ca trực:</strong> Có sự cố không liên lạc được nhân sự dự phòng. Đã gửi cảnh báo khẩn cấp đến Quản Trị Viên để điều phối thay thế!
+                        </div>
+                    </div>
+                    <button type="button" class="btn-action-sm" onclick="viewShiftHistoryFromAlert()" style="background: rgba(239, 68, 68, 0.25); color: #FCA5A5; border: 1px solid #EF4444; padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid fa-clock-rotate-left"></i> Xem lịch sử ca
+                    </button>
+                </div>
+            `;
+        } else {
+            alertNoticeEl.style.display = "none";
+            alertNoticeEl.innerHTML = "";
+        }
+    }
+
+    // Hiển thị danh sách Lịch Sử Sự Cố & Thay Thế của ca trực đang chọn
+    const histSection = document.getElementById("liveShiftHistorySection");
+    const histList = document.getElementById("liveShiftHistoryList");
+    const histCountBadge = document.getElementById("liveShiftHistoryCountBadge");
+
+    if (histSection && histList) {
+        if (shiftIncidents.length > 0) {
+            histSection.style.display = "block";
+            if (histCountBadge) {
+                histCountBadge.textContent = `${shiftIncidents.length} ghi nhận`;
+            }
+            let histHtml = "";
+            shiftIncidents.forEach((inc) => {
+                const isUnreach = inc.status_type && inc.status_type.includes("Không gọi được");
+                const borderCol = isUnreach ? "#EF4444" : "rgba(255,255,255,0.12)";
+                const bgCol = isUnreach ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.02)";
+                const iconTag = isUnreach
+                    ? '<i class="fa-solid fa-phone-slash" style="color:#EF4444; margin-right:4px;"></i>'
+                    : '<i class="fa-solid fa-circle-exclamation" style="color:var(--goldleaf); margin-right:4px;"></i>';
+                const hasRep = inc.replacement_member && inc.replacement_member !== "Không thay thế" && inc.replacement_member !== "none" && inc.replacement_member !== "no_replacement" && inc.replacement_member !== "";
+                const repBadge = hasRep
+                    ? ` • Người thay thế: <strong style="color:var(--patina-lt);"><i class="fa-solid fa-user-shield"></i> ${esc(inc.replacement_member)}</strong>`
+                    : (isUnreach ? ` • <span style="color:#F87171; font-weight:600;"><i class="fa-solid fa-clock"></i> Chờ Admin gán người</span>` : "");
+
+                histHtml += `
+                    <div style="background: ${bgCol}; border: 1px solid ${borderCol}; border-left: 3px solid ${borderCol}; border-radius: 6px; padding: 8px 12px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <div>
+                            ${iconTag}
+                            <span class="mk-num" style="color:var(--ink-dim); font-size:11.5px; margin-right:6px;">${esc(inc.timestamp || "")}</span>
+                            <strong style="color:var(--ink-hi);">${esc(inc.absent_member || "Nhân sự")}</strong>:
+                            <span style="color:var(--cinnabar-lt); font-weight:600;"> ${esc(inc.status_type || "")}</span>
+                            ${repBadge}
+                            <span style="color:var(--ink-dim); font-size:11px; margin-left:6px;">(${esc(inc.note || "-")})</span>
+                        </div>
+                    </div>
+                `;
+            });
+            histList.innerHTML = histHtml;
+        } else {
+            histSection.style.display = "none";
+            histList.innerHTML = "";
+        }
+    }
+
     const sellerSel = document.getElementById("livePOSSelectSeller");
     if (sellerSel) {
         let sellerOpts = "";
-        (shift.assigned_members || []).forEach((m) => {
-            const isLeader = shift.shift_leader === m.name;
-            sellerOpts += `<option value="${esc(m.name)}" ${isLeader ? "selected" : ""}>${isLeader ? "⭐ " : ""}${esc(m.name)} (${esc(m.department)})</option>`;
+        allMembersInShift.forEach((m) => {
+            if (!m) return;
+            const mName = m.name || m.member_id;
+            const isLeader = shift.shift_leader === mName;
+            sellerOpts += `<option value="${esc(mName)}" ${isLeader ? "selected" : ""}>${isLeader ? "⭐ " : ""}${esc(mName)} (${esc(m.department || "")})</option>`;
         });
         sellerSel.innerHTML =
             sellerOpts || '<option value="Ban Quản Trị">Ban Quản Trị</option>';
@@ -3768,26 +4525,28 @@ function renderLiveShiftDetails(shiftId) {
 }
 
 window.setLocalAttendanceStatus = function (memberId, status) {
-    if (currentUserRole !== "admin") {
-        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để thực hiện điểm danh ca trực!");
-        return;
-    }
     if (!localAttendanceState[memberId]) {
         localAttendanceState[memberId] = {
             status: null,
             replacementId: "",
+            unreachable: false,
+            isBackupActivated: false,
+            replacedAbsentMemberId: "",
+            replacedAbsentMemberName: "",
             isModified: false,
         };
     }
-    localAttendanceState[memberId].status = status;
+    localAttendanceState[memberId].status = status || null;
     localAttendanceState[memberId].isModified = true;
 
     // Clear replacement if status is not absent
-    if (
-        status !== "Vắng đột xuất" &&
-        status !== "Xin nghỉ trước" &&
-        status !== "Vắng mặt"
-    ) {
+    const isAbsent =
+        status === "Vắng không phép" ||
+        status === "Vắng đột xuất" ||
+        status === "Xin nghỉ trước" ||
+        status === "Vắng mặt";
+
+    if (!isAbsent) {
         localAttendanceState[memberId].replacementId = "";
     } else {
         if (!localAttendanceState[memberId].replacementId) {
@@ -3797,45 +4556,131 @@ window.setLocalAttendanceStatus = function (memberId, status) {
     renderLiveShiftDetails(currentSelectedLiveShiftId);
 };
 
-window.setLocalReplacement = function (memberId, replacementId) {
-    if (currentUserRole !== "admin") {
-        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để chỉ định nhân sự thay thế ca trực!");
-        return;
-    }
+window.toggleLocalUnreachableBackup = function (memberId) {
+    const shift = (globalScheduleData?.assigned_shifts || []).find(
+        (s) => s.shift_id === currentSelectedLiveShiftId,
+    );
+    const m = shift?.assigned_members?.find((mem) => mem.member_id === memberId);
+    const mName = m ? m.name : memberId;
+
     if (!localAttendanceState[memberId]) {
         localAttendanceState[memberId] = {
             status: null,
             replacementId: "",
+            unreachable: false,
+            isBackupActivated: false,
+            replacedAbsentMemberId: "",
+            replacedAbsentMemberName: "",
+            isModified: false,
+        };
+    }
+
+    const isCurrentlyUnreach = localAttendanceState[memberId].unreachable || localAttendanceState[memberId].status === "Không gọi được dự phòng";
+
+    if (isCurrentlyUnreach) {
+        localAttendanceState[memberId].unreachable = false;
+        localAttendanceState[memberId].status = null;
+        localAttendanceState[memberId].isModified = true;
+        renderLiveShiftDetails(currentSelectedLiveShiftId);
+        showToast(`Đã hủy trạng thái không gọi được của ${mName}`, "info");
+    } else {
+        // Open modal to select absent member needing replacement & confirm report to admin
+        openUnreachableBackupModal(memberId, mName);
+    }
+};
+
+window.cancelBackupActivation = function (memberId) {
+    if (localAttendanceState[memberId]) {
+        const repAbsentId = localAttendanceState[memberId].replacedAbsentMemberId;
+        if (repAbsentId && localAttendanceState[repAbsentId]) {
+            if (localAttendanceState[repAbsentId].replacementId === memberId) {
+                localAttendanceState[repAbsentId].replacementId = "no_replacement";
+            }
+        }
+        localAttendanceState[memberId].isBackupActivated = false;
+        localAttendanceState[memberId].replacedAbsentMemberId = "";
+        localAttendanceState[memberId].replacedAbsentMemberName = "";
+        localAttendanceState[memberId].status = null;
+        localAttendanceState[memberId].isModified = true;
+    }
+    renderLiveShiftDetails(currentSelectedLiveShiftId);
+};
+
+window.setLocalReplacement = async function (memberId, replacementId) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để chỉ định nhân sự thay thế ca trực!");
+        return;
+    }
+
+    const shift = (globalScheduleData?.assigned_shifts || []).find(
+        (s) => s.shift_id === currentSelectedLiveShiftId,
+    );
+    const m = shift?.assigned_members?.find((mem) => mem.member_id === memberId);
+    const mName = m ? m.name : memberId;
+
+    if (!localAttendanceState[memberId]) {
+        localAttendanceState[memberId] = {
+            status: null,
+            replacementId: "",
+            unreachable: false,
+            isBackupActivated: false,
+            replacedAbsentMemberId: "",
+            replacedAbsentMemberName: "",
             isModified: false,
         };
     }
     localAttendanceState[memberId].replacementId = replacementId;
     localAttendanceState[memberId].isModified = true;
     renderLiveShiftDetails(currentSelectedLiveShiftId);
+
+    // Persist immediately to server so staff accounts get real-time sync
+    try {
+        const payload = {
+            shift_id: currentSelectedLiveShiftId,
+            absent_member_id: memberId,
+            absent_member: mName,
+            replacement_member_id: replacementId === "no_replacement" ? "" : replacementId,
+            note: `Admin điều phối người thay thế trực tiếp từ ca trực`,
+        };
+
+        const res = await authFetch("/api/contingency/update-replacement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast("✓ Đã cập nhật người thay thế lên hệ thống! Tài khoản nhân viên sẽ tự động đồng bộ.", "success");
+            await loadIncidentLogs();
+            await loadCurrentSchedule();
+            renderLiveShiftDetails(currentSelectedLiveShiftId);
+            if (typeof checkServerUpdates === "function") {
+                checkServerUpdates();
+            }
+        }
+    } catch (err) {
+        console.error("Lỗi cập nhật người thay thế:", err);
+    }
 };
 
 window.revealBackupAttendance = function (memberId) {
-    if (currentUserRole !== "admin") {
-        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để chỉ định điểm danh bất thường ca trực!");
-        return;
-    }
     if (!localAttendanceState[memberId]) {
         localAttendanceState[memberId] = {
             status: null,
             replacementId: "",
+            unreachable: false,
+            isBackupActivated: false,
+            replacedAbsentMemberId: "",
+            replacedAbsentMemberName: "",
             isModified: false,
         };
     }
-    localAttendanceState[memberId].status = "Có mặt"; // Initial abnormality
+    localAttendanceState[memberId].status = "Có mặt";
     localAttendanceState[memberId].isModified = true;
     renderLiveShiftDetails(currentSelectedLiveShiftId);
 };
 
 window.submitLiveAttendanceBatch = async function () {
-    if (currentUserRole !== "admin") {
-        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để lưu dữ liệu điểm danh ca trực!");
-        return;
-    }
     if (!currentSelectedLiveShiftId) return;
 
     const keys = Object.keys(localAttendanceState);
@@ -3846,29 +4691,41 @@ window.submitLiveAttendanceBatch = async function () {
         return;
     }
 
+    const shift = globalScheduleData?.assigned_shifts?.find(
+        (s) => s.shift_id === currentSelectedLiveShiftId,
+    );
+
     let summaryText = "Xác nhận cập nhật điểm danh ca trực:\n";
     modifiedKeys.forEach((k) => {
         const mState = localAttendanceState[k];
-        const shift = globalScheduleData.assigned_shifts.find(
-            (s) => s.shift_id === currentSelectedLiveShiftId,
-        );
+        if (!mState) return;
         const member = shift?.assigned_members?.find(
-            (sm) => sm.member_id === k,
-        ) || { name: k };
+            (sm) => sm && sm.member_id === k,
+        );
+        const mName = member?.name || k;
 
-        let repName = "Không thay thế";
-        if (mState.replacementId && mState.replacementId !== "no_replacement") {
-            const repObj =
-                currentShiftCandidates.find(
-                    (c) => c.member_id === mState.replacementId,
-                ) ||
-                globalScheduleData.member_stats?.find(
-                    (ms) => ms.member_id === mState.replacementId,
-                );
-            if (repObj) repName = repObj.name;
+        if (mState.unreachable || mState.status === "Không gọi được dự phòng") {
+            summaryText += `- Dự phòng ${mName}: 🔴 Không gọi được dự phòng (Chờ Admin điều phối)\n`;
+        } else if (mState.isBackupActivated) {
+            summaryText += `- Dự phòng ${mName} (Tiếp ứng cho ${mState.replacedAbsentMemberName || 'người vắng'}): ${mState.status || "Có mặt"}\n`;
+        } else {
+            let repName = "Không thay thế";
+            if (mState.replacementId && mState.replacementId !== "no_replacement") {
+                const repObj =
+                    (currentShiftCandidates || []).find(
+                        (c) => c && c.member_id === mState.replacementId,
+                    ) ||
+                    shift?.assigned_members?.find(
+                        (sm) => sm && sm.member_id === mState.replacementId,
+                    ) ||
+                    (globalScheduleData?.member_stats || []).find(
+                        (ms) => ms && ms.member_id === mState.replacementId,
+                    );
+                if (repObj && repObj.name) repName = repObj.name;
+            }
+
+            summaryText += `- ${mName}: ${mState.status || "Chưa điểm danh"} (Thay thế: ${repName})\n`;
         }
-
-        summaryText += `- ${member.name}: ${mState.status || "Chưa điểm danh"} (Thay thế: ${repName})\n`;
     });
 
     openConfirmModal({
@@ -3886,18 +4743,41 @@ window.submitLiveAttendanceBatch = async function () {
                 // Submit sequentially to prevent any race conditions in server-side persist
                 for (const k of modifiedKeys) {
                     const mState = localAttendanceState[k];
-                    const payload = {
-                        shift_id: currentSelectedLiveShiftId,
-                        absent_member_id: k,
-                        status_type: mState.status || "Có mặt",
-                        note: `Điểm danh ca-live: ${mState.status || "Có mặt"}`,
-                    };
+                    if (!mState) continue;
+                    const member = shift?.assigned_members?.find((sm) => sm && sm.member_id === k);
+                    const mName = member?.name || k;
 
-                    if (
-                        mState.replacementId &&
-                        mState.replacementId !== "no_replacement"
-                    ) {
-                        payload.replacement_member_id = mState.replacementId;
+                    let payload;
+                    if (mState.unreachable || mState.status === "Không gọi được dự phòng") {
+                        payload = {
+                            shift_id: currentSelectedLiveShiftId,
+                            absent_member_id: k,
+                            replacement_member_id: "",
+                            status_type: "Vắng mặt (Không gọi được dự phòng)",
+                            note: `Không liên lạc được nhân sự dự phòng ${mName}, chờ Admin điều phối`,
+                        };
+                    } else if (mState.isBackupActivated) {
+                        payload = {
+                            shift_id: currentSelectedLiveShiftId,
+                            absent_member_id: mState.replacedAbsentMemberId || k,
+                            replacement_member_id: k,
+                            status_type: mState.status || "Có mặt",
+                            note: `Dự phòng tiếp ứng ca trực (Thay cho ${mState.replacedAbsentMemberName || 'thành viên vắng'}): ${mState.status || "Có mặt"}`,
+                        };
+                    } else {
+                        payload = {
+                            shift_id: currentSelectedLiveShiftId,
+                            absent_member_id: k,
+                            status_type: mState.status || "Có mặt",
+                            note: `Điểm danh ca-live: ${mState.status || "Có mặt"}`,
+                        };
+
+                        if (
+                            mState.replacementId &&
+                            mState.replacementId !== "no_replacement"
+                        ) {
+                            payload.replacement_member_id = mState.replacementId;
+                        }
                     }
 
                     const res = await authFetch("/api/contingency/log-incident", {
@@ -3918,9 +4798,11 @@ window.submitLiveAttendanceBatch = async function () {
                 await loadIncidentLogs();
                 await loadCurrentSchedule(); // Reloads and invokes populateUI -> triggers populateLiveShiftDropdown -> loadLiveShiftDetailsAndCandidates
 
-                alert(
-                    "✓ Đã cập nhật điểm danh & kích hoạt phương án backup thành công!",
-                );
+                // Sau khi đã nhấn "lưu điểm danh" thì đặt lại trạng thái form
+                localAttendanceState = {};
+                renderLiveShiftDetails(currentSelectedLiveShiftId);
+
+                showToast("✓ Đã lưu điểm danh thành công! Đã đặt lại trạng thái form.", "success");
             } catch (e) {
                 console.error("Lỗi kết nối điểm danh:", e);
                 alert(
@@ -3931,12 +4813,1058 @@ window.submitLiveAttendanceBatch = async function () {
                 const btn = document.getElementById("btnConfirmLiveAttendance");
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> Lưu Điểm Danh &amp; Gọi Backup`;
+                    btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-up"></i> Lưu Điểm Danh`;
                 }
             }
         },
     });
 };
+
+window.resetLiveAttendanceState = function () {
+    localAttendanceState = {};
+    if (currentSelectedLiveShiftId) {
+        renderLiveShiftDetails(currentSelectedLiveShiftId);
+    }
+    showToast("✓ Đã đặt lại các thay đổi điểm danh chưa lưu!", "info");
+};
+
+/* ==========================================================================
+   BACKUP STAFF ACTIONS & ADMIN REPLACEMENT DISPATCH MODALS
+   ========================================================================== */
+
+let currentBackupTarget = null;
+let currentUnreachableTarget = null;
+let currentAdminAssignTarget = null;
+let adminAssignAllCandidates = [];
+
+// 1. Modal: Gọi Nhân Sự Dự Phòng Trong Ca
+window.openCallBackupModal = function (backupMemberId, backupName, backupPhone, backupDept) {
+    currentBackupTarget = {
+        member_id: backupMemberId,
+        name: backupName,
+        phone: backupPhone,
+        department: backupDept,
+    };
+
+    const modal = document.getElementById("callBackupModal");
+    const nameEl = document.getElementById("callBackupName");
+    const infoEl = document.getElementById("callBackupInfo");
+    const selectEl = document.getElementById("callBackupAbsentSelect");
+    const noteEl = document.getElementById("callBackupNoteInput");
+
+    if (nameEl) nameEl.textContent = backupName;
+    if (infoEl) infoEl.textContent = `SĐT: ${backupPhone || "Chưa có"} • Phòng ban: ${backupDept || "Chưa phân ban"}`;
+    if (noteEl) noteEl.value = `Đã liên hệ ${backupName} nhận ca tiếp ứng`;
+
+    // Populate absent members from current shift
+    if (selectEl) {
+        const shift = globalScheduleData?.assigned_shifts?.find(
+            (s) => s.shift_id === currentSelectedLiveShiftId,
+        );
+        let opts = `<option value="">-- Chọn thành viên vắng mặt trong ca --</option>`;
+
+        if (shift && shift.assigned_members) {
+            shift.assigned_members.forEach((m) => {
+                if (!m || m.member_id === backupMemberId) return; // Do not replace self
+                const mName = m.name || m.member_id;
+                const mState = localAttendanceState[m.member_id];
+                const isMarkedAbsent = mState && (
+                    mState.status === "Vắng không phép" ||
+                    mState.status === "Vắng đột xuất" ||
+                    mState.status === "Xin nghỉ trước" ||
+                    mState.status === "Vắng mặt"
+                );
+                const roleTag = m.role === "Chính" ? " (Chính)" : " (Dự phòng)";
+                const absentTag = isMarkedAbsent ? " 🔴 [ĐÃ BÁO VẮNG]" : "";
+                opts += `<option value="${esc(m.member_id)}" ${isMarkedAbsent ? "selected" : ""}>${esc(mName)}${roleTag}${absentTag}</option>`;
+            });
+        }
+        selectEl.innerHTML = opts;
+    }
+
+    if (modal) modal.style.display = "flex";
+};
+
+window.closeCallBackupModal = function () {
+    const modal = document.getElementById("callBackupModal");
+    if (modal) modal.style.display = "none";
+    currentBackupTarget = null;
+};
+
+// Confirm Gọi Dự Phòng -> chuyển qua xét lỗi vi phạm và cập nhật localAttendanceState
+document.addEventListener("DOMContentLoaded", () => {
+    const btnCall = document.getElementById("btnConfirmCallBackup");
+    if (btnCall) {
+        btnCall.addEventListener("click", () => {
+            if (!currentBackupTarget || !currentSelectedLiveShiftId) return;
+
+            const selectEl = document.getElementById("callBackupAbsentSelect");
+            const noteEl = document.getElementById("callBackupNoteInput");
+            const absentMemberId = selectEl ? selectEl.value : "";
+            const note = noteEl ? noteEl.value.trim() : "";
+
+            if (!absentMemberId) {
+                alert("Vui lòng chọn thành viên vắng mặt trong ca cần thay thế!");
+                return;
+            }
+
+            const backupTarget = { ...currentBackupTarget };
+            const backupName = backupTarget.name || backupTarget.member_id;
+
+            const shift = globalScheduleData?.assigned_shifts?.find(
+                (s) => s.shift_id === currentSelectedLiveShiftId,
+            );
+            const absentMember = shift?.assigned_members?.find(
+                (m) => m && m.member_id === absentMemberId,
+            );
+            const absentName = absentMember ? (absentMember.name || absentMemberId) : absentMemberId;
+
+            // 1. Mark backup target as activated & present in local state
+            if (!localAttendanceState[backupTarget.member_id]) {
+                localAttendanceState[backupTarget.member_id] = {
+                    status: null,
+                    replacementId: "",
+                    unreachable: false,
+                    isBackupActivated: false,
+                    replacedAbsentMemberId: "",
+                    replacedAbsentMemberName: "",
+                    isModified: false,
+                };
+            }
+            localAttendanceState[backupTarget.member_id].isBackupActivated = true;
+            localAttendanceState[backupTarget.member_id].unreachable = false;
+            localAttendanceState[backupTarget.member_id].status = "Có mặt";
+            localAttendanceState[backupTarget.member_id].replacedAbsentMemberId = absentMemberId;
+            localAttendanceState[backupTarget.member_id].replacedAbsentMemberName = absentName;
+            localAttendanceState[backupTarget.member_id].isModified = true;
+
+            // 2. Mark absent member as absent with replacement = backupTarget.member_id
+            if (!localAttendanceState[absentMemberId]) {
+                localAttendanceState[absentMemberId] = {
+                    status: null,
+                    replacementId: "",
+                    unreachable: false,
+                    isBackupActivated: false,
+                    replacedAbsentMemberId: "",
+                    replacedAbsentMemberName: "",
+                    isModified: false,
+                };
+            }
+            localAttendanceState[absentMemberId].status = localAttendanceState[absentMemberId].status || "Vắng không phép";
+            localAttendanceState[absentMemberId].replacementId = backupTarget.member_id;
+            localAttendanceState[absentMemberId].isModified = true;
+
+            closeCallBackupModal();
+            showToast(`✓ Đã kích hoạt dự phòng cho ${backupName} (thay thế ${absentName})! Bây giờ bạn có thể điểm danh hoặc xét lỗi vi phạm cho nhân sự này.`, "success");
+            renderLiveShiftDetails(currentSelectedLiveShiftId);
+        });
+    }
+
+    const btnConfirmUnreachable = document.getElementById("btnConfirmUnreachableBackup");
+    if (btnConfirmUnreachable) {
+        btnConfirmUnreachable.addEventListener("click", async () => {
+            if (!currentUnreachableTarget || !currentSelectedLiveShiftId) return;
+
+            const selectEl = document.getElementById("unreachableBackupAbsentSelect");
+            const absentMemberId = selectEl ? selectEl.value : "";
+
+            if (!absentMemberId) {
+                alert("Vui lòng chọn thành viên đang vắng mặt cần người thay thế!");
+                return;
+            }
+
+            const absentMember = (globalMembers || []).find((m) => m && m.member_id === absentMemberId) ||
+                globalScheduleData?.assigned_shifts?.find((s) => s && s.shift_id === currentSelectedLiveShiftId)?.assigned_members?.find((m) => m && m.member_id === absentMemberId);
+            const absentName = absentMember ? (absentMember.name || absentMemberId) : absentMemberId;
+            const targetBackup = { ...currentUnreachableTarget };
+            const backupName = targetBackup.name || targetBackup.member_id;
+
+            // Set unreachable state in localAttendanceState
+            if (!localAttendanceState[targetBackup.member_id]) {
+                localAttendanceState[targetBackup.member_id] = {
+                    status: null,
+                    replacementId: "",
+                    unreachable: false,
+                    isBackupActivated: false,
+                    replacedAbsentMemberId: "",
+                    replacedAbsentMemberName: "",
+                    isModified: false,
+                };
+            }
+            localAttendanceState[targetBackup.member_id].unreachable = true;
+            localAttendanceState[targetBackup.member_id].status = "Không gọi được dự phòng";
+            localAttendanceState[targetBackup.member_id].isBackupActivated = false;
+            localAttendanceState[targetBackup.member_id].isModified = true;
+
+            // Ensure absent member is marked absent
+            if (!localAttendanceState[absentMemberId]) {
+                localAttendanceState[absentMemberId] = {
+                    status: null,
+                    replacementId: "",
+                    unreachable: false,
+                    isBackupActivated: false,
+                    replacedAbsentMemberId: "",
+                    replacedAbsentMemberName: "",
+                    isModified: false,
+                };
+            }
+            localAttendanceState[absentMemberId].status = localAttendanceState[absentMemberId].status || "Vắng không phép";
+            localAttendanceState[absentMemberId].replacementId = "no_replacement";
+            localAttendanceState[absentMemberId].isModified = true;
+
+            const noteVal = document.getElementById("unreachableBackupNoteInput")?.value || "";
+
+            const originalBtnHtml = btnConfirmUnreachable.innerHTML;
+            btnConfirmUnreachable.disabled = true;
+            btnConfirmUnreachable.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang ghi nhận & báo Admin...';
+
+            try {
+                const res = await fetch("/api/contingency/report-unreachable", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        shift_id: currentSelectedLiveShiftId,
+                        backup_member_id: targetBackup.member_id,
+                        absent_member_id: absentMemberId,
+                        note: noteVal || `Trưởng ca báo cáo không liên lạc được dự phòng ${backupName}, chờ Admin điều phối thay thế`,
+                    }),
+                }).then((r) => r.json());
+
+                closeUnreachableBackupModal();
+
+                if (res.success) {
+                    await loadIncidentLogs();
+                    await loadCurrentSchedule();
+                    renderLiveShiftDetails(currentSelectedLiveShiftId);
+
+                    // HIỆN THÔNG BÁO TRÊN MÀN HÌNH
+                    openUnreachableReportAlertModal(
+                        currentSelectedLiveShiftId,
+                        backupName,
+                        absentName,
+                    );
+
+                    showToast("🔴 Đã ghi nhận không gọi được dự phòng vào lịch sử ca và gửi cảnh báo đến Quản Trị Viên!", "warning");
+                } else {
+                    renderLiveShiftDetails(currentSelectedLiveShiftId);
+                    showToast("🔴 Đã đánh dấu không gọi được cục bộ. Vui lòng bấm 'Lưu Điểm Danh' để đồng bộ.", "info");
+                }
+            } catch (err) {
+                console.error("Lỗi gửi báo cáo không gọi được:", err);
+                closeUnreachableBackupModal();
+                renderLiveShiftDetails(currentSelectedLiveShiftId);
+                showToast("🔴 Đã đánh dấu không gọi được cục bộ.", "info");
+            } finally {
+                btnConfirmUnreachable.disabled = false;
+                btnConfirmUnreachable.innerHTML = originalBtnHtml;
+            }
+        });
+    }
+});
+
+// 2. Modal: Không Gọi Được Dự Phòng
+window.openUnreachableBackupModal = function (backupMemberId, backupName) {
+    currentUnreachableTarget = {
+        member_id: backupMemberId,
+        name: backupName,
+    };
+
+    const modal = document.getElementById("unreachableBackupModal");
+    const nameEl = document.getElementById("unreachableBackupName");
+    const selectEl = document.getElementById("unreachableBackupAbsentSelect");
+    const noteEl = document.getElementById("unreachableBackupNoteInput");
+
+    if (nameEl) nameEl.textContent = backupName;
+    if (noteEl) noteEl.value = `Không liên lạc được nhân sự dự phòng ${backupName} trong ca, chờ Admin điều phối`;
+
+    if (selectEl) {
+        const shift = globalScheduleData?.assigned_shifts?.find(
+            (s) => s.shift_id === currentSelectedLiveShiftId,
+        );
+        let opts = `<option value="">-- Chọn thành viên đang vắng mặt --</option>`;
+
+        if (shift && shift.assigned_members) {
+            let firstEligibleId = "";
+            let hasSelected = false;
+
+            shift.assigned_members.forEach((m) => {
+                if (!m || m.member_id === backupMemberId) return;
+                const mName = m.name || m.member_id;
+                const mState = localAttendanceState[m.member_id];
+                const isMarkedAbsent = mState && (
+                    mState.status === "Vắng không phép" ||
+                    mState.status === "Vắng đột xuất" ||
+                    mState.status === "Xin nghỉ trước" ||
+                    mState.status === "Vắng mặt"
+                );
+                if (!firstEligibleId && m.role === "Chính") firstEligibleId = m.member_id;
+                const isSelected = isMarkedAbsent;
+                if (isSelected) hasSelected = true;
+                const roleTag = m.role === "Chính" ? " (Chính)" : " (Dự phòng)";
+                const absentTag = isMarkedAbsent ? " 🔴 [ĐÃ BÁO VẮNG]" : "";
+                opts += `<option value="${esc(m.member_id)}" ${isSelected ? "selected" : ""}>${esc(mName)}${roleTag}${absentTag}</option>`;
+            });
+
+            // If no one was explicitly marked absent yet, auto-select first eligible member
+            if (!hasSelected && firstEligibleId) {
+                opts = opts.replace(`value="${esc(firstEligibleId)}"`, `value="${esc(firstEligibleId)}" selected`);
+            }
+        }
+        selectEl.innerHTML = opts;
+    }
+
+    if (modal) modal.style.display = "flex";
+};
+
+window.closeUnreachableBackupModal = function () {
+    const modal = document.getElementById("unreachableBackupModal");
+    if (modal) modal.style.display = "none";
+    currentUnreachableTarget = null;
+};
+
+// Modal thông báo trên màn hình xác nhận đã ghi nhận sự cố và báo Admin
+window.openUnreachableReportAlertModal = function (shiftId, backupName, absentName) {
+    const modal = document.getElementById("unreachableReportAlertModal");
+    if (!modal) return;
+    const shiftBadge = document.getElementById("unreachableAlertShiftBadge");
+    const backupNameEl = document.getElementById("unreachableAlertBackupName");
+    const absentNameEl = document.getElementById("unreachableAlertAbsentName");
+
+    const shift = globalScheduleData?.assigned_shifts?.find((s) => s.shift_id === shiftId);
+    const shiftInfo = shift ? ` (${shift.day} • ${formatShiftTimeValue(shift)})` : "";
+
+    if (shiftBadge) shiftBadge.textContent = `Ca: ${shiftId}${shiftInfo}`;
+    if (backupNameEl) backupNameEl.textContent = backupName || "Nhân sự dự phòng";
+    if (absentNameEl) absentNameEl.textContent = absentName || "Thành viên vắng";
+
+    modal.style.display = "flex";
+};
+
+window.closeUnreachableReportAlertModal = function () {
+    const modal = document.getElementById("unreachableReportAlertModal");
+    if (modal) modal.style.display = "none";
+};
+
+window.viewShiftHistoryFromAlert = function () {
+    closeUnreachableReportAlertModal();
+    const tableEl = document.getElementById("lateAbsenceTable");
+    if (tableEl) {
+        tableEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        const firstRow = document.querySelector("#lateAbsenceTableBody tr:first-child");
+        if (firstRow) {
+            firstRow.style.transition = "all 0.4s ease";
+            firstRow.style.backgroundColor = "rgba(239, 68, 68, 0.25)";
+            setTimeout(() => {
+                firstRow.style.backgroundColor = "";
+            }, 3000);
+        }
+    }
+};
+
+// 3. Modal: Quản Trị Viên Gán / Đổi Nhân Sự Thay Thế (Admin Only)
+window.openAdminAssignReplacementModal = async function (incidentId, timestamp, shiftId, absentMember, currentRep, statusType, note) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để điều phối nhân sự thay thế!");
+        return;
+    }
+
+    currentAdminAssignTarget = {
+        incident_id: incidentId,
+        timestamp: timestamp,
+        shift_id: shiftId,
+        absent_member: absentMember,
+        replacement_member: currentRep,
+        status_type: statusType,
+        note: note,
+    };
+
+    const modal = document.getElementById("adminAssignReplacementModal");
+    const infoBadge = document.getElementById("adminAssignShiftInfoBadge");
+    const searchInput = document.getElementById("adminAssignSearchInput");
+    const noteInput = document.getElementById("adminAssignNoteInput");
+    const countEl = document.getElementById("adminAssignCandidateCount");
+    const listEl = document.getElementById("adminAssignCandidateList");
+
+    if (searchInput) searchInput.value = "";
+    if (noteInput) noteInput.value = note || "";
+
+    if (infoBadge) {
+        const hasRep = currentRep && currentRep !== "Không thay thế" && currentRep !== "none" && currentRep !== "no_replacement";
+        infoBadge.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <span class="shift-id-tag" style="font-size: 13px;">${esc(shiftId)}</span>
+                    <strong style="margin-left: 8px; font-size: 14px; color: var(--ink-hi);">Người vắng: <span style="color: #EF4444;">${esc(absentMember)}</span></strong>
+                    <span style="font-size: 12px; color: var(--ink-dim); margin-left: 6px;">(${esc(statusType || "Vắng mặt")})</span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: var(--ink-dim);">Người thay hiện tại:</span>
+                    <strong style="font-size: 13px; color: ${hasRep ? '#34D399' : '#FCA5A5'}; margin-left: 4px;">
+                        ${hasRep ? `<i class="fa-solid fa-user-shield"></i> ${esc(currentRep)}` : 'Chưa có người thay'}
+                    </strong>
+                </div>
+            </div>
+        `;
+    }
+
+    if (listEl) {
+        listEl.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--ink-dim);"><i class="fa-solid fa-spinner fa-spin"></i> Đang tải danh sách đề xuất ưu tiên...</div>`;
+    }
+
+    if (modal) modal.style.display = "flex";
+
+    // Fetch candidate suggestions from API
+    try {
+        const res = await authFetch(`/api/contingency/suggest?shift_id=${encodeURIComponent(shiftId)}`);
+        const data = await res.json();
+        adminAssignAllCandidates = data.candidates || [];
+        renderAdminAssignCandidates(adminAssignAllCandidates, currentRep);
+    } catch (e) {
+        console.error("Lỗi tải danh sách ứng viên thay thế:", e);
+        if (listEl) listEl.innerHTML = `<div style="color: #EF4444; padding: 12px; text-align: center;">Không thể tải danh sách ứng viên: ${e.message}</div>`;
+    }
+};
+
+window.closeAdminAssignReplacementModal = function () {
+    const modal = document.getElementById("adminAssignReplacementModal");
+    if (modal) modal.style.display = "none";
+    currentAdminAssignTarget = null;
+    adminAssignAllCandidates = [];
+};
+
+window.handleAdminAssignSearch = function (kw) {
+    const currentRep = currentAdminAssignTarget?.replacement_member;
+    renderAdminAssignCandidates(adminAssignAllCandidates, currentRep, kw);
+};
+
+window.renderAdminAssignCandidates = function (candidates, currentRep, filterKw = "") {
+    const listEl = document.getElementById("adminAssignCandidateList");
+    const countEl = document.getElementById("adminAssignCandidateCount");
+    if (!listEl) return;
+
+    let filtered = (candidates || []).slice();
+    const query = (filterKw || "").trim().toLowerCase();
+
+    if (query) {
+        filtered = filtered.filter((c) => {
+            const name = (c.name || "").toLowerCase();
+            const phone = (c.phone || "").toLowerCase();
+            const dept = (c.department || "").toLowerCase();
+            const job = (c.job_title || "").toLowerCase();
+            const prio = (c.priority_label || "").toLowerCase();
+            return name.includes(query) || phone.includes(query) || dept.includes(query) || job.includes(query) || prio.includes(query);
+        });
+    }
+
+    if (countEl) {
+        countEl.textContent = `Hiển thị ${filtered.length} / ${candidates.length} nhân sự`;
+    }
+
+    if (filtered.length === 0) {
+        listEl.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--ink-dim); font-size: 13px;">Không tìm thấy nhân sự phù hợp với từ khóa "${esc(filterKw)}".</div>`;
+        return;
+    }
+
+    // Categorize according to requested 4 priority tiers:
+    // 1. Ứng biến có thời gian rảnh trùng giờ (standby_free)
+    // 2. Nhân sự có thời gian rảnh trùng giờ (member_free)
+    // 3. Ứng biến còn lại (standby_other)
+    // 4. Nhân sự còn lại (other_members)
+
+    const group1 = filtered.filter((c) => c.category === "standby_free" || c.priority === 1);
+    const group2 = filtered.filter((c) => c.category === "member_free" || c.priority === 2);
+    const group3 = filtered.filter((c) => c.category === "standby_other" || c.priority === 3);
+    const group4 = filtered.filter((c) => c.category === "other_members" || c.priority === 4 || (!c.category && c.priority > 3));
+
+    const renderCard = (c) => {
+        const isCurrentRep = (c.name === currentRep || c.member_id === currentRep);
+        let badgeColor = "#9CA3AF";
+        let badgeBg = "rgba(255,255,255,0.06)";
+        let badgeBorder = "rgba(255,255,255,0.15)";
+        let icon = "fa-user";
+
+        if (c.category === "standby_free" || c.priority === 1) {
+            badgeColor = "#34D399";
+            badgeBg = "rgba(16,185,129,0.15)";
+            badgeBorder = "#059669";
+            icon = "fa-star";
+        } else if (c.category === "member_free" || c.priority === 2) {
+            badgeColor = "#60A5FA";
+            badgeBg = "rgba(59,130,246,0.15)";
+            badgeBorder = "#2563EB";
+            icon = "fa-clock";
+        } else if (c.category === "standby_other" || c.priority === 3) {
+            badgeColor = "#C084FC";
+            badgeBg = "rgba(139,92,246,0.15)";
+            badgeBorder = "#7C3AED";
+            icon = "fa-shield-halved";
+        }
+
+        return `
+            <label style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 8px; border: 1px solid ${isCurrentRep ? '#10B981' : 'var(--rule)'}; background: ${isCurrentRep ? 'rgba(16,185,129,0.08)' : 'var(--lacquer-3)'}; cursor: pointer; transition: all 0.15s ease;" class="admin-rep-candidate-item">
+                <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                    <input type="radio" name="adminRepCandidateRadio" value="${esc(c.member_id)}" ${isCurrentRep ? 'checked' : ''} style="accent-color: #10B981; transform: scale(1.15);" />
+                    <div style="min-width: 0;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <strong style="font-size: 13.5px; color: var(--ink-hi);">${esc(c.name)}</strong>
+                            ${c.is_standby_pool ? `<span class="tag" style="background: rgba(245,158,11,0.2); color: #FBBF24; border: 1px solid #D97706; font-size: 10.5px; padding: 1px 6px;"><i class="fa-solid fa-bolt"></i> Ứng biến</span>` : ''}
+                            <span class="tag" style="background: rgba(255,255,255,0.08); color: var(--ink-light); font-size: 10.5px; padding: 1px 6px;">${esc(c.department || "Chưa phân ban")}</span>
+                        </div>
+                        <div style="font-size: 11.5px; color: var(--ink-dim); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <span><i class="fa-solid fa-phone" style="color: var(--goldleaf);"></i> ${esc(c.phone || "Không có SĐT")}</span>
+                            ${c.job_title ? `<span>&bull; ${esc(c.job_title)}</span>` : ''}
+                            ${c.shift_count !== undefined ? `<span>&bull; Đã trực: <strong>${c.shift_count} ca</strong></span>` : ''}
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: right; flex-shrink: 0; margin-left: 10px;">
+                    <span class="tag" style="background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-weight: 700; font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid ${icon}"></i> ${esc(c.priority_label || "Đề xuất")}
+                    </span>
+                </div>
+            </label>
+        `;
+    };
+
+    let html = "";
+
+    if (group1.length > 0) {
+        html += `
+            <div style="margin-bottom: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: #34D399; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-star" style="color: #F59E0B;"></i> 1. Đội Ứng Biến - Có Lịch Rảnh Trùng Giờ (${group1.length})
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    ${group1.map(renderCard).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    if (group2.length > 0) {
+        html += `
+            <div style="margin-bottom: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: #60A5FA; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-clock" style="color: #60A5FA;"></i> 2. Nhân Sự Thường - Có Lịch Rảnh Trùng Giờ (${group2.length})
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    ${group2.map(renderCard).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    if (group3.length > 0) {
+        html += `
+            <div style="margin-bottom: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: #C084FC; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-shield-halved" style="color: #C084FC;"></i> 3. Đội Ứng Biến Còn Lại (${group3.length})
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    ${group3.map(renderCard).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    if (group4.length > 0) {
+        html += `
+            <div style="margin-bottom: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: var(--ink-dim); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-users" style="color: var(--ink-dim);"></i> 4. Toàn Bộ Nhân Sự Còn Lại (${group4.length})
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    ${group4.map(renderCard).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    listEl.innerHTML = html;
+};
+
+// Admin Submit Assignment
+window.submitAdminAssignReplacement = async function () {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để gán nhân sự thay thế!");
+        return;
+    }
+    if (!currentAdminAssignTarget) return;
+
+    const checkedRadio = document.querySelector('input[name="adminRepCandidateRadio"]:checked');
+    if (!checkedRadio) {
+        alert("Vui lòng chọn một nhân sự thay thế từ danh sách hoặc bấm 'Hủy Người Thay' nếu không cần người tiếp ứng!");
+        return;
+    }
+
+    const repMemberId = checkedRadio.value;
+    const noteInput = document.getElementById("adminAssignNoteInput");
+    const note = noteInput ? noteInput.value.trim() : "";
+    const btn = document.getElementById("btnConfirmAdminAssign");
+
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang gán...`;
+        }
+
+        const payload = {
+            incident_id: currentAdminAssignTarget.incident_id || undefined,
+            timestamp: currentAdminAssignTarget.timestamp || undefined,
+            shift_id: currentAdminAssignTarget.shift_id || undefined,
+            absent_member: currentAdminAssignTarget.absent_member || undefined,
+            replacement_member_id: repMemberId,
+            note: note || `Admin điều phối người thay thế: ${repMemberId}`,
+        };
+
+        const res = await authFetch("/api/contingency/update-replacement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast("✓ Đã cập nhật nhân sự thay thế thành công!", "success");
+            closeAdminAssignReplacementModal();
+            await loadIncidentLogs();
+            await loadCurrentSchedule();
+        } else {
+            alert("Lỗi cập nhật: " + (res.message || "Không thể gán nhân sự thay thế"));
+        }
+    } catch (e) {
+        console.error("Lỗi cập nhật nhân sự thay thế:", e);
+        alert("Lỗi kết nối: " + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fa-solid fa-circle-check"></i> Xác Nhận Gán Người Thay Thế`;
+        }
+    }
+};
+
+window.setAdminAssignReplacementNone = async function () {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để hủy nhân sự thay thế!");
+        return;
+    }
+    if (!currentAdminAssignTarget) return;
+
+    openConfirmModal({
+        title: "Xác Nhận Hủy Người Thay Thế",
+        message: `Bạn có chắc muốn hủy người thay thế cho "${currentAdminAssignTarget.absent_member}" tại Ca ${currentAdminAssignTarget.shift_id}?`,
+        confirmBtnText: "Hủy Người Thay",
+        onConfirm: async () => {
+            try {
+                const payload = {
+                    incident_id: currentAdminAssignTarget.incident_id || undefined,
+                    timestamp: currentAdminAssignTarget.timestamp || undefined,
+                    shift_id: currentAdminAssignTarget.shift_id || undefined,
+                    absent_member: currentAdminAssignTarget.absent_member || undefined,
+                    replacement_member_id: "",
+                    note: "Admin hủy người thay thế",
+                };
+
+                const res = await authFetch("/api/contingency/update-replacement", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                }).then((r) => r.json());
+
+                if (res.success) {
+                    showToast("✓ Đã hủy người thay thế cho ca trực này!", "success");
+                    closeAdminAssignReplacementModal();
+                    await loadIncidentLogs();
+                    await loadCurrentSchedule();
+                } else {
+                    alert("Lỗi: " + (res.message || "Không thể hủy người thay thế"));
+                }
+            } catch (e) {
+                console.error("Lỗi hủy người thay:", e);
+                alert("Lỗi kết nối: " + e.message);
+            }
+        },
+    });
+};
+
+/* ==========================================================================
+   ADMIN SHIFT MEMBER MANAGEMENT (THÊM NGƯỜI VÀO CA)
+   ========================================================================== */
+
+window.openAddMemberToShiftModal = function () {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để thêm người vào ca!");
+        return;
+    }
+
+    if (!currentSelectedLiveShiftId || !globalScheduleData) {
+        showToast("Vui lòng chọn ca trực trước khi thêm người vào ca!", "warning");
+        return;
+    }
+
+    const shift = (globalScheduleData.assigned_shifts || []).find(
+        (s) => s.shift_id === currentSelectedLiveShiftId,
+    );
+    if (!shift) {
+        showToast("Không tìm thấy dữ liệu ca trực đang chọn!", "error");
+        return;
+    }
+
+    const modal = document.getElementById("addMemberToShiftModal");
+    const infoBadge = document.getElementById("addMemberShiftInfoBadge");
+    const searchInp = document.getElementById("addMemberSearchInput");
+    const posInp = document.getElementById("addMemberPositionInput");
+    const leaderChk = document.getElementById("addMemberAsLeaderCheckbox");
+
+    if (searchInp) searchInp.value = "";
+    if (posInp) posInp.value = "Bán hàng F&B";
+    if (leaderChk) leaderChk.checked = false;
+
+    // Default role: Chính
+    const defaultRadio = document.querySelector('input[name="addMemberRoleRadio"][value="Chính"]');
+    if (defaultRadio) defaultRadio.checked = true;
+
+    if (infoBadge) {
+        const timeLabel = formatShiftTimeValue(shift);
+        const loc = shift.location || (shift.type === "Ngoai" ? "Điểm Bán Ngoài" : "Phòng Thanh Niên");
+        const leader = shift.shift_leader || "Chưa chỉ định";
+        infoBadge.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <span class="shift-id-tag" style="font-size: 13px; font-weight: 700;">${esc(shift.shift_id)}</span>
+                    <strong style="margin-left: 8px; color: var(--ink-hi);">${esc(shift.day)} • ${esc(timeLabel)}</strong>
+                    <span style="color: var(--ink-dim); margin-left: 6px;">[${esc(loc)}]</span>
+                </div>
+                <div style="font-size: 12px; color: var(--ink-light);">
+                    Hiện có: <strong style="color: #60A5FA;">${shift.assigned_count || 0}/${shift.required_count || 0}</strong> nhân sự
+                    • Trưởng ca: <strong style="color: #FBBF24;">${esc(leader)}</strong>
+                </div>
+            </div>
+        `;
+    }
+
+    populateAddMemberDropdown("");
+
+    if (modal) modal.style.display = "flex";
+};
+
+window.closeAddMemberToShiftModal = function () {
+    const modal = document.getElementById("addMemberToShiftModal");
+    if (modal) modal.style.display = "none";
+};
+
+window.filterAddMemberDropdown = function (query) {
+    populateAddMemberDropdown(query);
+};
+
+function populateAddMemberDropdown(query) {
+    const selectEl = document.getElementById("addMemberSelect");
+    if (!selectEl) return;
+
+    const q = (query || "").toLowerCase().trim();
+    const shift = (globalScheduleData?.assigned_shifts || []).find(
+        (s) => s.shift_id === currentSelectedLiveShiftId,
+    );
+    const assignedIds = new Set((shift?.assigned_members || []).map((m) => m.member_id));
+
+    let html = `<option value="">-- Chọn nhân sự từ danh sách --</option>`;
+
+    const members = (globalMembers || []).filter((m) => {
+        if (!q) return true;
+        return (
+            (m.name || "").toLowerCase().includes(q) ||
+            (m.phone || "").toLowerCase().includes(q) ||
+            (m.department || "").toLowerCase().includes(q) ||
+            (m.member_id || "").toLowerCase().includes(q)
+        );
+    });
+
+    if (members.length === 0) {
+        html += `<option value="" disabled>Không tìm thấy nhân sự nào khớp bộ lọc</option>`;
+    } else {
+        // Sort so unassigned in this shift appear first
+        const sorted = [...members].sort((a, b) => {
+            const aIn = assignedIds.has(a.member_id) ? 1 : 0;
+            const bIn = assignedIds.has(b.member_id) ? 1 : 0;
+            if (aIn !== bIn) return aIn - bIn;
+            return (a.name || "").localeCompare(b.name || "");
+        });
+
+        sorted.forEach((m) => {
+            const isAssigned = assignedIds.has(m.member_id);
+            const statusLabel = isAssigned ? " [ĐÃ CÓ TRONG CA]" : "";
+            const dept = m.department ? ` - ${m.department}` : "";
+            const phone = m.phone ? ` (${m.phone})` : "";
+            html += `<option value="${esc(m.member_id)}" ${isAssigned ? 'style="color: var(--ink-dim);"' : ""}>${esc(m.name)}${phone}${dept}${statusLabel}</option>`;
+        });
+    }
+
+    selectEl.innerHTML = html;
+}
+
+window.submitAddMemberToShift = async function () {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập quyền Quản trị viên để thêm người vào ca!");
+        return;
+    }
+
+    const selectEl = document.getElementById("addMemberSelect");
+    const memberId = selectEl ? selectEl.value : "";
+    if (!memberId) {
+        alert("Vui lòng chọn một nhân sự từ danh sách để thêm vào ca!");
+        return;
+    }
+
+    const roleRadio = document.querySelector('input[name="addMemberRoleRadio"]:checked');
+    const role = roleRadio ? roleRadio.value : "Chính";
+    const posInput = document.getElementById("addMemberPositionInput");
+    const position = posInput ? posInput.value.trim() : "";
+    const leaderChk = document.getElementById("addMemberAsLeaderCheckbox");
+    const setAsLeader = leaderChk ? leaderChk.checked : false;
+
+    const btn = document.getElementById("btnConfirmAddMemberToShift");
+
+    try {
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang thêm...`;
+        }
+
+        const payload = {
+            shift_id: currentSelectedLiveShiftId,
+            member_id: memberId,
+            role: role,
+            position_role: position || (role === "Chính" ? "Bán hàng F&B" : "⚡ Dự bị tiếp ứng"),
+            set_as_leader: setAsLeader,
+        };
+
+        const res = await authFetch("/api/shift/add-member", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast("✓ " + (res.message || "Đã thêm nhân sự vào ca thành công!"), "success");
+            closeAddMemberToShiftModal();
+            await loadCurrentSchedule();
+            renderLiveShiftDetails(currentSelectedLiveShiftId);
+            renderDutyBoard();
+            renderMemberTable();
+        } else {
+            alert("Lỗi thêm nhân sự: " + (res.message || "Thao tác không thành công"));
+        }
+    } catch (e) {
+        console.error("Lỗi thêm nhân sự vào ca:", e);
+        alert("Lỗi kết nối: " + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fa-solid fa-user-plus"></i> Xác Nhận Thêm Vào Ca`;
+        }
+    }
+};
+
+/* ==========================================================================
+   REAL-TIME NOTIFICATION & CONTINGENCY DISPATCH SYSTEM
+   ========================================================================== */
+
+let lastKnownScheduleVersion = 1;
+let realtimeSyncInterval = null;
+const activeUrgentToastIds = new Set();
+
+function startRealtimeSync() {
+    if (realtimeSyncInterval) clearInterval(realtimeSyncInterval);
+    // Poll every 2.5 seconds for instant response
+    realtimeSyncInterval = setInterval(checkServerUpdates, 2500);
+}
+
+async function checkServerUpdates() {
+    try {
+        const res = await fetch(`/api/notifications?role=${currentUserRole}&since_version=${lastKnownScheduleVersion}`).then((r) => r.json());
+        if (!res || !res.success) return;
+
+        // Auto sync schedule updates to staff & admin views
+        if (res.has_new_version) {
+            const oldVersion = lastKnownScheduleVersion;
+            lastKnownScheduleVersion = res.schedule_version;
+
+            // Notify staff members when admin makes contingency updates
+            if (oldVersion > 1 && currentUserRole !== "admin") {
+                showToast("ℹ️ Quản trị viên vừa cập nhật ca trực / nhân sự thay thế!", "info");
+            }
+
+            await loadIncidentLogs();
+            await loadCurrentSchedule();
+            if (currentSelectedLiveShiftId) {
+                renderLiveShiftDetails(currentSelectedLiveShiftId);
+            }
+        }
+
+        // Manage urgent notifications for Admin
+        if (currentUserRole === "admin" && res.notifications) {
+            const urgentUnresolved = res.notifications.filter(
+                (n) => n.type === "UNREACHABLE_BACKUP" && !n.resolved
+            );
+
+            // Trigger urgent toast alerts for new unreachable backup events
+            urgentUnresolved.forEach((notif) => {
+                showUrgentAdminToast(notif);
+            });
+
+            // Clean up any resolved toasts
+            const currentIds = new Set(urgentUnresolved.map((n) => n.id));
+            activeUrgentToastIds.forEach((id) => {
+                if (!currentIds.has(id)) {
+                    dismissUrgentToast(id);
+                }
+            });
+
+            // Update top urgent dispatch banner in Contingency tab
+            updateUrgentDispatchAlertBanner(urgentUnresolved);
+        } else {
+            const banner = document.getElementById("urgentDispatchAlertBanner");
+            if (banner) banner.style.display = "none";
+        }
+    } catch (err) {
+        // Silently tolerate transient connection loss
+    }
+}
+
+function showUrgentAdminToast(notif) {
+    if (!notif || !notif.id) return;
+    if (activeUrgentToastIds.has(notif.id)) return;
+    activeUrgentToastIds.add(notif.id);
+
+    let container = document.getElementById("urgentToastContainer");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "urgentToastContainer";
+        container.style.cssText = "position: fixed; top: 72px; right: 20px; z-index: 99999; display: flex; flex-direction: column; gap: 12px; pointer-events: none;";
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.id = `urgent_toast_${notif.id}`;
+    toast.style.cssText = `
+        background: linear-gradient(135deg, #1e131d 0%, #3b111a 100%);
+        border: 2px solid #EF4444;
+        box-shadow: 0 10px 25px rgba(239, 68, 68, 0.45), 0 0 15px rgba(220, 38, 38, 0.3);
+        border-radius: 10px;
+        padding: 14px 18px;
+        color: #FFFFFF;
+        max-width: 420px;
+        pointer-events: auto;
+        animation: fadeIn 0.3s ease-out;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    `;
+
+    const absentStr = notif.absent_member_name || "thành viên vắng";
+    const backupStr = notif.backup_member_name || "dự phòng";
+
+    toast.innerHTML = `
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 18px;">🚨</span>
+                <strong style="color: #F87171; font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.5px;">CẦN ĐIỀU PHỐI GẤP (TRƯỞNG CA BÁO CÁO)</strong>
+            </div>
+            <button type="button" onclick="dismissUrgentToast('${esc(notif.id)}')" style="background: none; border: none; color: #9CA3AF; cursor: pointer; font-size: 16px; padding: 2px 6px;" title="Đóng thông báo">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div style="font-size: 13px; line-height: 1.45; color: #F3F4F6;">
+            <strong>Ca ${esc(notif.shift_id)}:</strong> Trưởng ca báo cáo <strong style="color: #FCA5A5;">không gọi được</strong> dự phòng <span style="text-decoration: underline; color: #FCA5A5;">${esc(backupStr)}</span> để thay thế cho <strong>${esc(absentStr)}</strong>.
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
+            <button type="button" class="btn-primary" onclick="openUrgentDispatchForShift('${esc(notif.shift_id)}', '${esc(absentStr)}', '${esc(notif.absent_member_id || '')}', '${esc(notif.id)}')" style="background: #DC2626; border-color: #B91C1C; font-size: 12.5px; font-weight: 700; padding: 6px 14px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-people-arrows"></i> Chỉ Định Thay Thế Ngay
+            </button>
+        </div>
+    `;
+
+    container.appendChild(toast);
+}
+
+window.dismissUrgentToast = function (notifId) {
+    activeUrgentToastIds.delete(notifId);
+    const el = document.getElementById(`urgent_toast_${notifId}`);
+    if (el) {
+        el.style.opacity = "0";
+        el.style.transform = "translateY(-10px)";
+        el.style.transition = "all 0.25s ease";
+        setTimeout(() => el.remove(), 250);
+    }
+};
+
+window.openUrgentDispatchForShift = function (shiftId, absentMemberName, absentMemberId, notifId) {
+    if (notifId) dismissUrgentToast(notifId);
+
+    // Switch to contingency tab
+    const tabBtn = document.querySelector('.nav-item[data-tab="tab-contingency"]');
+    if (tabBtn) tabBtn.click();
+
+    // Select the shift in liveShiftSelect
+    const select = document.getElementById("liveShiftSelect");
+    if (select && shiftId) {
+        select.value = shiftId;
+        select.dispatchEvent(new Event("change"));
+    }
+
+    // Open Admin Replacement Modal directly
+    setTimeout(() => {
+        openAdminAssignReplacementModal(
+            null,
+            null,
+            shiftId,
+            absentMemberName || "Thành viên vắng",
+            null,
+            "Không gọi được dự phòng",
+            "Admin điều phối khẩn cấp sau báo cáo của trưởng ca"
+        );
+    }, 200);
+};
+
+function updateUrgentDispatchAlertBanner(urgentList) {
+    const banner = document.getElementById("urgentDispatchAlertBanner");
+    if (!banner) return;
+
+    if (!urgentList || urgentList.length === 0) {
+        banner.style.display = "none";
+        banner.innerHTML = "";
+        return;
+    }
+
+    const itemsHtml = urgentList
+        .map(
+            (n) => `
+        <div style="background: rgba(220, 38, 38, 0.2); border: 1px solid #DC2626; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <i class="fa-solid fa-triangle-exclamation" style="color: #EF4444; font-size: 18px;"></i>
+                <div>
+                    <strong style="color: #FEE2E2; font-size: 13.5px;">Ca ${esc(n.shift_id)}:</strong>
+                    <span style="color: #FCA5A5; font-size: 13px; margin-left: 4px;">Trưởng ca báo cáo không gọi được dự phòng <strong>${esc(n.backup_member_name || "dự phòng")}</strong> cho <strong>${esc(n.absent_member_name || "thành viên vắng")}</strong>.</span>
+                </div>
+            </div>
+            <button class="btn-primary" onclick="openUrgentDispatchForShift('${esc(n.shift_id)}', '${esc(n.absent_member_name || '')}', '${esc(n.absent_member_id || '')}', '${esc(n.id)}')" style="background: #DC2626; border-color: #B91C1C; height: 34px; padding: 0 14px; font-size: 12px; font-weight: 700; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                <i class="fa-solid fa-people-arrows"></i> Chỉ Định Thay Thế Ngay
+            </button>
+        </div>
+    `
+        )
+        .join("");
+
+    banner.innerHTML = `
+        <div class="glass-card" style="border: 1.5px solid #EF4444; background: rgba(30, 10, 15, 0.9); box-shadow: 0 4px 20px rgba(220, 38, 38, 0.3); padding: 14px 18px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                <span style="font-size: 18px;">🚨</span>
+                <strong style="color: #F87171; font-size: 14px; text-transform: uppercase;">Yêu Cầu Điều Phối Nhân Sự Thay Thế Khẩn Cấp (${urgentList.length})</strong>
+            </div>
+            ${itemsHtml}
+        </div>
+    `;
+    banner.style.display = "block";
+}
 
 function renderLivePOSProductGrid() {
     const grid = document.getElementById("livePOSProductGrid");
@@ -4303,6 +6231,477 @@ async function handleSaveShiftAudit() {
             msg.className = "swap-msg error";
             msg.textContent = "Lỗi kết nối: " + err.message;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QUẢN LÝ ĐƠN HÀNG ONLINE ĐẶT TRƯỚC (EXCEL IMPORT & LIVE SHIFT POS)
+// ---------------------------------------------------------------------------
+
+let globalOnlineOrders = [];
+
+async function loadOnlineOrders() {
+    try {
+        const res = await fetch("/api/online-orders").then((r) => r.json());
+        if (res.success) {
+            globalOnlineOrders = res.online_orders || [];
+            renderOnlineOrdersTable(globalOnlineOrders);
+            updateOnlineOrdersKPIs(globalOnlineOrders);
+        }
+    } catch (e) {
+        console.error("Lỗi tải danh sách đơn hàng online:", e);
+    }
+}
+
+function updateOnlineOrdersKPIs(orders) {
+    const totalEl = document.getElementById("kpiTotalOnlineOrders");
+    const unpaidEl = document.getElementById("kpiUnpaidOnlineOrders");
+    const paidEl = document.getElementById("kpiPaidOnlineOrders");
+    const revEl = document.getElementById("kpiTotalOnlineRevenue");
+
+    const totalCount = orders.length;
+    const unpaidCount = orders.filter((o) => o.payment_status === "Chưa thanh toán").length;
+    const paidCount = orders.filter((o) => o.payment_status === "Đã thanh toán").length;
+    const totalRevenue = orders
+        .filter((o) => o.payment_status === "Đã thanh toán")
+        .reduce((sum, o) => sum + (o.total_amount || 0), 0);
+
+    if (totalEl) totalEl.textContent = `${totalCount} đơn`;
+    if (unpaidEl) unpaidEl.textContent = `${unpaidCount} đơn`;
+    if (paidEl) paidEl.textContent = `${paidCount} đơn`;
+    if (revEl) revEl.textContent = formatVND(totalRevenue);
+}
+
+function renderOnlineOrdersTable(orders) {
+    const tbody = document.getElementById("onlineOrdersTableBody");
+    if (!tbody) return;
+
+    if (!orders || orders.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" style="text-align: center; color: var(--ink-dim); padding: 2rem;">
+                    <i class="fa-solid fa-box-open" style="font-size: 24px; margin-bottom: 8px; display: block; color: var(--ink-dim);"></i>
+                    Chưa có đơn hàng online nào. Nhấn <strong>"Nhập Đơn Online Excel"</strong> để nạp danh sách từ file Excel.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    let html = "";
+    orders.forEach((ord, idx) => {
+        const itemsDetail = (ord.items || [])
+            .map(
+                (it) =>
+                    `<span style="display: inline-block; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); padding: 2px 6px; border-radius: 4px; font-size: 11.5px; margin: 1px 2px;">
+                        ${escapeHtml(it.product_name)} <strong>x${it.quantity}</strong> (${formatVND(it.total_price)})
+                    </span>`,
+            )
+            .join(" ");
+
+        const isPaid = ord.payment_status === "Đã thanh toán";
+
+        html += `
+            <tr id="row_ord_${ord.id}">
+                <td style="text-align: center; font-weight: 600; color: var(--ink-dim);">${idx + 1}</td>
+                <td>
+                    <strong style="color: var(--ink-hi); font-size: 13px;">${escapeHtml(ord.customer_name)}</strong>
+                    <div style="font-size: 11.5px; color: #38bdf8; font-weight: 600;">Lớp: ${escapeHtml(ord.class_name)}</div>
+                </td>
+                <td>
+                    <div style="font-size: 12.5px; font-weight: 600;">🗓️ ${escapeHtml(ord.pickup_date)}</div>
+                    <div style="font-size: 11.5px; color: var(--ink-dim);">⏰ ${escapeHtml(ord.pickup_time_slot)}</div>
+                </td>
+                <td>
+                    <span class="tag" style="background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.3); font-size: 11.5px;">
+                        📌 Ca ${escapeHtml(ord.shift_id)}: ${escapeHtml(ord.shift_label || "Chưa phân ca")}
+                    </span>
+                </td>
+                <td style="max-width: 250px;">
+                    ${itemsDetail || '<em style="color:var(--ink-dim);">Chưa có sản phẩm</em>'}
+                </td>
+                <td style="text-align: right; font-weight: 700; color: var(--goldleaf); font-size: 13.5px;">
+                    ${formatVND(ord.total_amount)}
+                </td>
+                <td style="text-align: center;">
+                    <select class="custom-select-sm" 
+                        style="font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 6px; background: ${isPaid ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color: ${isPaid ? '#34d399' : '#fca5a5'}; border: 1px solid ${isPaid ? '#10b981' : '#ef4444'};"
+                        onchange="handleOnlineOrderStatusChange('${ord.id}', this.value)"
+                    >
+                        <option value="Chưa thanh toán" ${!isPaid ? 'selected' : ''}>🔴 Chưa thanh toán</option>
+                        <option value="Đã thanh toán" ${isPaid ? 'selected' : ''}>🟢 Đã thanh toán</option>
+                    </select>
+                </td>
+                <td style="text-align: center;">
+                    <button class="btn-action-sm btn-action-delete admin-only-elem" 
+                        title="Xóa đơn này" 
+                        onclick="handleDeleteOnlineOrder('${ord.id}')"
+                    >
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+}
+
+async function handleOnlineOrderStatusChange(orderId, newStatus) {
+    try {
+        const res = await fetch("/api/online-orders/update-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId, payment_status: newStatus }),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast(res.message, "success");
+            loadInventoryData();
+            loadOnlineOrders();
+            if (currentSelectedLiveShiftId) {
+                loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
+            }
+        } else {
+            alert("Lỗi cập nhật trạng thái đơn: " + res.message);
+            loadOnlineOrders();
+        }
+    } catch (e) {
+        console.error("Lỗi cập nhật trạng thái đơn hàng:", e);
+        alert("Lỗi kết nối server: " + e.message);
+    }
+}
+
+async function handleDeleteOnlineOrder(orderId) {
+    if (!confirm("Bạn có chắc chắn muốn xóa đơn hàng online này?")) return;
+    try {
+        const res = await fetch("/api/online-orders/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId }),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast(res.message, "success");
+            loadOnlineOrders();
+            if (currentSelectedLiveShiftId) {
+                loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
+            }
+        } else {
+            alert("Lỗi xóa đơn hàng: " + res.message);
+        }
+    } catch (e) {
+        console.error("Lỗi xóa đơn hàng online:", e);
+        alert("Lỗi kết nối server: " + e.message);
+    }
+}
+
+async function loadLiveShiftOnlineOrders(shiftId) {
+    const tbody = document.getElementById("liveShiftOnlineOrdersTableBody");
+    const badge = document.getElementById("liveShiftOnlineOrderCountBadge");
+    if (!tbody) return;
+
+    if (!shiftId) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" style="text-align: center; color: var(--ink-dim); padding: 1.5rem;">
+                    Vui lòng chọn ca trực để xem danh sách đơn hàng online tương ứng
+                </td>
+            </tr>
+        `;
+        if (badge) badge.textContent = "0 đơn hàng";
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/online-orders?shift_id=${shiftId}`).then((r) => r.json());
+        if (res.success) {
+            const orders = res.online_orders || [];
+            if (badge) badge.textContent = `${orders.length} đơn hàng`;
+
+            if (orders.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: var(--ink-dim); padding: 1.5rem;">
+                            <i class="fa-solid fa-box-open" style="margin-right: 6px;"></i> Không có đơn hàng online nào đăng ký lấy trong ca trực này (${escapeHtml(shiftId)})
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = "";
+            orders.forEach((ord, idx) => {
+                const itemsDetail = (ord.items || [])
+                    .map(
+                        (it) =>
+                            `<span style="display: inline-block; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); padding: 2px 6px; border-radius: 4px; font-size: 11.5px; margin: 1px 2px;">
+                                ${escapeHtml(it.product_name)} <strong>x${it.quantity}</strong> (${formatVND(it.total_price)})
+                            </span>`,
+                    )
+                    .join(" ");
+
+                const isPaid = ord.payment_status === "Đã thanh toán";
+
+                html += `
+                    <tr>
+                        <td style="text-align: center; font-weight: 600; color: var(--ink-dim);">${idx + 1}</td>
+                        <td>
+                            <strong style="color: var(--ink-hi); font-size: 13px;">${escapeHtml(ord.customer_name)}</strong>
+                            <div style="font-size: 11.5px; color: #38bdf8; font-weight: 600;">Lớp: ${escapeHtml(ord.class_name)}</div>
+                        </td>
+                        <td>
+                            <div style="font-size: 12px; font-weight: 600;">🗓️ ${escapeHtml(ord.pickup_date)}</div>
+                            <div style="font-size: 11.5px; color: var(--ink-dim);">⏰ ${escapeHtml(ord.pickup_time_slot)}</div>
+                        </td>
+                        <td>
+                            ${itemsDetail || '<em style="color:var(--ink-dim);">Chưa có chi tiết</em>'}
+                        </td>
+                        <td style="text-align: right; font-weight: 700; color: var(--goldleaf); font-size: 13.5px;">
+                            ${formatVND(ord.total_amount)}
+                        </td>
+                        <td style="text-align: center;">
+                            <select class="custom-select-sm" 
+                                style="font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 6px; background: ${isPaid ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color: ${isPaid ? '#34d399' : '#fca5a5'}; border: 1px solid ${isPaid ? '#10b981' : '#ef4444'};"
+                                onchange="handleOnlineOrderStatusChange('${ord.id}', this.value)"
+                            >
+                                <option value="Chưa thanh toán" ${!isPaid ? 'selected' : ''}>🔴 Chưa thanh toán</option>
+                                <option value="Đã thanh toán" ${isPaid ? 'selected' : ''}>🟢 Đã thanh toán</option>
+                            </select>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+    } catch (e) {
+        console.error("Lỗi tải đơn hàng online ca live:", e);
+    }
+}
+
+function initOnlineOrdersExcelHandlers() {
+    const btnOpenManual = document.getElementById("btnOpenAddOnlineOrderModal");
+    const btnCloseManual = document.getElementById("btnCloseAddOnlineOrderModal");
+    const btnCancelManual = document.getElementById("btnCancelAddOnlineOrderModal");
+    const btnAddManualRow = document.getElementById("btnAddManualItemRow");
+    const formManual = document.getElementById("addOnlineOrderForm");
+
+    if (btnOpenManual) btnOpenManual.addEventListener("click", openAddOnlineOrderModal);
+    if (btnCloseManual) btnCloseManual.addEventListener("click", closeAddOnlineOrderModal);
+    if (btnCancelManual) btnCancelManual.addEventListener("click", closeAddOnlineOrderModal);
+    if (btnAddManualRow) btnAddManualRow.addEventListener("click", createManualItemRow);
+    if (formManual) formManual.addEventListener("submit", handleSaveManualOnlineOrder);
+
+    const btnUpload = document.getElementById("btnUploadOnlineOrdersExcel");
+    const fileInput = document.getElementById("inputOnlineOrdersExcelFile");
+    const btnRefresh = document.getElementById("btnRefreshOnlineOrders");
+    const btnClearAll = document.getElementById("btnClearAllOnlineOrders");
+
+    if (btnUpload && fileInput) {
+        btnUpload.addEventListener("click", () => {
+            fileInput.value = "";
+            fileInput.click();
+        });
+
+        fileInput.addEventListener("change", async (e) => {
+            if (!e.target.files || e.target.files.length === 0) return;
+            const file = e.target.files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                showToast("Đang xử lý tải lên file Excel đơn hàng online...", "info");
+                const res = await fetch("/api/online-orders/upload-excel", {
+                    method: "POST",
+                    body: formData,
+                }).then((r) => r.json());
+
+                if (res.success) {
+                    showToast(`✓ ${res.message}`, "success");
+                    loadOnlineOrders();
+                    loadInventoryData();
+                    if (currentSelectedLiveShiftId) {
+                        loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
+                    }
+                } else {
+                    alert("Lỗi nhập đơn hàng từ Excel: " + res.message);
+                }
+            } catch (err) {
+                console.error("Lỗi nạp file đơn online:", err);
+                alert("Lỗi tải file: " + err.message);
+            }
+        });
+    }
+
+    if (btnRefresh) {
+        btnRefresh.addEventListener("click", () => {
+            loadOnlineOrders();
+            showToast("Đã làm mới danh sách đơn online!", "info");
+        });
+    }
+
+    if (btnClearAll) {
+        btnClearAll.addEventListener("click", async () => {
+            if (currentUserRole !== "admin") {
+                openAdminLoginModal("Bạn cần quyền Quản trị viên (Admin) để xóa toàn bộ đơn online!");
+                return;
+            }
+            if (!confirm("⚠️ CẢNH BÁO: Bạn có chắc chắn muốn xóa TOÀN BỘ danh sách đơn hàng online đặt trước? Hành động này không thể hoàn tác!")) return;
+            try {
+                const res = await fetch("/api/online-orders/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ clear_all: true }),
+                }).then((r) => r.json());
+
+                if (res.success) {
+                    showToast("✓ " + res.message, "success");
+                    loadOnlineOrders();
+                    if (currentSelectedLiveShiftId) {
+                        loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
+                    }
+                } else {
+                    alert("Lỗi xóa đơn hàng: " + res.message);
+                }
+            } catch (err) {
+                console.error("Lỗi xóa tất cả đơn online:", err);
+                alert("Lỗi kết nối server: " + err.message);
+            }
+        });
+    }
+}
+
+function createManualItemRow() {
+    const container = document.getElementById("manualItemsContainer");
+    if (!container) return;
+
+    const rowId = `item_row_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const products = (globalInventoryData && globalInventoryData.products) ? globalInventoryData.products : [];
+
+    let optionsHtml = '<option value="">-- Chọn sản phẩm --</option>';
+    products.forEach((p) => {
+        optionsHtml += `<option value="${escapeHtml(p.id)}" data-price="${p.price}" data-name="${escapeHtml(p.name)}">${escapeHtml(p.name)} - ${formatVND(p.price)}</option>`;
+    });
+
+    const div = document.createElement("div");
+    div.id = rowId;
+    div.className = "manual-item-row";
+    div.style.cssText = "display: flex; gap: 8px; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 6px; border-radius: 6px;";
+    div.innerHTML = `
+        <select class="custom-select select-manual-product" style="flex: 2; font-size: 12.5px;" required>
+            ${optionsHtml}
+        </select>
+        <input type="number" class="custom-input input-manual-qty" value="1" min="1" style="width: 70px; font-size: 12.5px;" placeholder="SL" required />
+        <button type="button" class="btn-action-sm btn-action-delete" title="Xóa dòng này" onclick="document.getElementById('${rowId}').remove()">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+    `;
+
+    container.appendChild(div);
+}
+
+function openAddOnlineOrderModal() {
+    const modal = document.getElementById("addOnlineOrderModal");
+    if (!modal) return;
+
+    const form = document.getElementById("addOnlineOrderForm");
+    if (form) form.reset();
+
+    const dateInp = document.getElementById("inputManualPickupDate");
+    if (dateInp) {
+        const today = new Date().toISOString().slice(0, 10);
+        dateInp.value = today;
+    }
+
+    const container = document.getElementById("manualItemsContainer");
+    if (container) {
+        container.innerHTML = "";
+        createManualItemRow();
+    }
+
+    const msg = document.getElementById("addOnlineOrderModalMsg");
+    if (msg) msg.textContent = "";
+
+    modal.classList.add("active");
+    modal.style.display = "flex";
+}
+
+function closeAddOnlineOrderModal() {
+    const modal = document.getElementById("addOnlineOrderModal");
+    if (!modal) return;
+    modal.classList.remove("active");
+    modal.style.display = "none";
+}
+
+async function handleSaveManualOnlineOrder(e) {
+    e.preventDefault();
+    const customerName = document.getElementById("inputManualCustomerName")?.value.trim();
+    const className = document.getElementById("inputManualClassName")?.value.trim() || "K.XĐ";
+    const pickupDate = document.getElementById("inputManualPickupDate")?.value;
+    const pickupSlot = document.getElementById("inputManualPickupSlot")?.value;
+    const paymentStatus = document.getElementById("inputManualPaymentStatus")?.value || "Chưa thanh toán";
+    const msgEl = document.getElementById("addOnlineOrderModalMsg");
+
+    const rows = document.querySelectorAll(".manual-item-row");
+    const items = [];
+
+    rows.forEach((r) => {
+        const prodSelect = r.querySelector(".select-manual-product");
+        const qtyInp = r.querySelector(".input-manual-qty");
+        if (prodSelect && prodSelect.value) {
+            const selectedOpt = prodSelect.options[prodSelect.selectedIndex];
+            const prodName = selectedOpt.getAttribute("data-name") || selectedOpt.textContent;
+            const price = Number(selectedOpt.getAttribute("data-price")) || 0;
+            const qty = Number(qtyInp ? qtyInp.value : 1) || 1;
+
+            items.push({
+                product_id: prodSelect.value,
+                product_name: prodName,
+                quantity: qty,
+                unit_price: price,
+            });
+        }
+    });
+
+    if (!customerName || !pickupDate || !pickupSlot) {
+        if (msgEl) msgEl.textContent = "Vui lòng điền đầy đủ tên khách hàng, ngày lấy và khung giờ!";
+        return;
+    }
+
+    if (items.length === 0) {
+        if (msgEl) msgEl.textContent = "Vui lòng chọn ít nhất 1 sản phẩm cho đơn hàng!";
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/online-orders/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                customer_name: customerName,
+                class_name: className,
+                pickup_date: pickupDate,
+                pickup_time_slot: pickupSlot,
+                items: items,
+                payment_status: paymentStatus,
+            }),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast("✓ " + res.message, "success");
+            closeAddOnlineOrderModal();
+            loadOnlineOrders();
+            loadInventoryData();
+            if (currentSelectedLiveShiftId) {
+                loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
+            }
+        } else {
+            if (msgEl) msgEl.textContent = "Lỗi: " + res.message;
+        }
+    } catch (err) {
+        console.error("Lỗi thêm đơn online thủ công:", err);
+        if (msgEl) msgEl.textContent = "Lỗi kết nối: " + err.message;
     }
 }
 
@@ -4818,13 +7217,19 @@ async function loadKpiData() {
     const leaderboardBody = document.getElementById("kpiLeaderboardTableBody");
 
     try {
-        const res = await fetch("/api/kpi/attendance").then((r) => r.json());
-        if (res.success) {
-            globalKpiAttendance = res.attendance || [];
+        const [kpiRes, incRes] = await Promise.all([
+            fetch("/api/kpi/attendance").then((r) => r.json()),
+            fetch("/api/contingency/incidents").then((r) => r.json()).catch(() => ({ success: false }))
+        ]);
+        if (kpiRes.success) {
+            globalKpiAttendance = kpiRes.attendance || [];
+            if (incRes && incRes.success) {
+                globalIncidentLogs = incRes.incidents || [];
+            }
             renderKpiAll();
         } else {
             if (tableBody)
-                tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--cinnabar);">Lỗi: ${res.message}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--cinnabar);">Lỗi: ${kpiRes.message}</td></tr>`;
         }
     } catch (err) {
         console.error("Lỗi tải dữ liệu KPI:", err);
@@ -4854,15 +7259,50 @@ function renderKpiStats() {
     const onTimeRate =
         totalCount > 0 ? Math.round((onTimeCount / totalCount) * 100) : 100;
 
+    // Calculate Average Response Time for calling backup staff
+    const backupLogs = (globalIncidentLogs || []).filter(
+        (inc) =>
+            (inc.replacement_member &&
+             inc.replacement_member !== "Không thay thế" &&
+             inc.replacement_member !== "none" &&
+             inc.replacement_member !== "no_replacement") ||
+            inc.replacement_member_id ||
+            (inc.note && inc.note.includes("Dự phòng")) ||
+            (inc.response_time !== undefined && inc.response_time !== null)
+    );
+
+    let avgResponseTimeText = "0 phút";
+    if (backupLogs.length > 0) {
+        let totalMins = 0;
+        let validCount = 0;
+        backupLogs.forEach((inc) => {
+            let mins =
+                inc.response_time !== undefined && inc.response_time !== null
+                    ? Number(inc.response_time)
+                    : inc.late_minutes && Number(inc.late_minutes) > 0
+                    ? Number(inc.late_minutes)
+                    : 10;
+            if (isNaN(mins) || mins <= 0) mins = 10;
+            totalMins += mins;
+            validCount++;
+        });
+        if (validCount > 0) {
+            const avg = Math.round((totalMins / validCount) * 10) / 10;
+            avgResponseTimeText = `${avg} phút`;
+        }
+    }
+
     const totalEl = document.getElementById("kpiStatTotal");
     const rateEl = document.getElementById("kpiStatOnTimeRate");
     const lateEl = document.getElementById("kpiStatLate");
     const absentEl = document.getElementById("kpiStatAbsent");
+    const avgResponseEl = document.getElementById("kpiStatAvgResponseTime");
 
     if (totalEl) totalEl.textContent = String(totalCount);
     if (rateEl) rateEl.textContent = onTimeRate + "%";
     if (lateEl) lateEl.textContent = String(lateCount);
     if (absentEl) absentEl.textContent = String(absentCount);
+    if (avgResponseEl) avgResponseEl.textContent = avgResponseTimeText;
 }
 
 function renderKpiAttendance() {
