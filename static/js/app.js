@@ -1728,6 +1728,10 @@ function esc(str) {
     );
 }
 
+function escapeHtml(str) {
+    return esc(str);
+}
+
 // Phân loại hàng cho ca trực trên bảng tuần (Ca 1 -> Ca 5 cho phòng, hoặc Ca ngoài ở dưới cùng)
 function boardRowOf(shift) {
     if (!shift) return NGOAI_ROW;
