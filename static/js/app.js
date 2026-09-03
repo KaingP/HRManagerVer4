@@ -1,6 +1,6 @@
 // Client-side Application Controller for Hùng Vương Concert Scheduler
 
-let currentAdminToken = localStorage.getItem("hv_admin_token") || null;
+let currentAdminToken = localStorage.getItem("hv_admin_token") || sessionStorage.getItem("hv_admin_token") || null;
 let currentUserRole = "staff";
 
 // Toast Notification System
@@ -3523,17 +3523,28 @@ function renderSalesLogsTable(logs) {
     const d7 = new Date(now);
     d7.setDate(d7.getDate() - 7);
 
+    const parseLogDate = (timestamp) => {
+        const timePart = String(timestamp || "").split(" ")[0] || "";
+        const vietnameseDate = timePart.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (vietnameseDate) {
+            return new Date(Number(vietnameseDate[3]), Number(vietnameseDate[2]) - 1, Number(vietnameseDate[1]));
+        }
+        const parsed = new Date(timePart);
+        return isNaN(parsed.getTime()) ? null : parsed;
+    };
+
     // Filter order groups
     const filteredOrders = allOrderGroups.filter((grp) => {
         if (selectedShift !== "ALL" && grp.channel !== selectedShift) return false;
 
         if (selectedTime !== "ALL" && grp.timestamp) {
-            const timePart = grp.timestamp.split(" ")[0] || "";
-            if (selectedTime === "TODAY" && !timePart.startsWith(todayStr)) return false;
-            if (selectedTime === "YESTERDAY" && !timePart.startsWith(yestStr)) return false;
+            const logDate = parseLogDate(grp.timestamp);
+            if (!logDate) return false;
+            const logDateStr = `${logDate.getFullYear()}-${String(logDate.getMonth() + 1).padStart(2, "0")}-${String(logDate.getDate()).padStart(2, "0")}`;
+            if (selectedTime === "TODAY" && logDateStr !== todayStr) return false;
+            if (selectedTime === "YESTERDAY" && logDateStr !== yestStr) return false;
             if (selectedTime === "LAST7DAYS") {
-                const logDate = new Date(timePart);
-                if (isNaN(logDate.getTime()) || logDate < d7) return false;
+                if (logDate < d7) return false;
             }
         }
 
@@ -6184,7 +6195,10 @@ function renderLiveCart() {
 
 function renderLiveShiftSalesTable(shiftId) {
     const tbody = document.getElementById("liveShiftSalesTableBody");
-    const summaryEl = document.getElementById("liveShiftRevSummary");
+    const summaryEls = [
+        document.getElementById("liveShiftRevSummary"),
+        document.getElementById("liveShiftRevSummaryHeader"),
+    ].filter(Boolean);
     if (!tbody) return;
 
     const allSales = globalInventoryData?.sales_logs || [];
@@ -6223,9 +6237,9 @@ function renderLiveShiftSalesTable(shiftId) {
     const validOrders = orderGroups.filter((g) => !g.refunded);
     const totalRev = validOrders.reduce((acc, g) => acc + g.totalAmount, 0);
 
-    if (summaryEl) {
+    summaryEls.forEach((summaryEl) => {
         summaryEl.textContent = `${formatVND(totalRev)} (Ca ${shiftId} • ${validOrders.length} đơn)`;
-    }
+    });
 
     if (orderGroups.length === 0) {
         tbody.innerHTML = `<tr><td colspan="9" class="table-empty">Chưa có giao dịch bán hàng nào trong ca ${shiftId}.</td></tr>`;
@@ -8155,150 +8169,1219 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
-// --- COMPETITION LOGIC ---
-document.querySelectorAll('#comp-tabs .p-tab-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        document.querySelectorAll('#comp-tabs .p-tab-btn').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        
-        document.querySelectorAll('.comp-pane').forEach(p => {
-            p.style.display = 'none';
-        });
-        const target = e.target.getAttribute('data-target');
-        const pane = document.getElementById(target);
-        if (pane) {
-            pane.style.display = 'block';
-        }
+// ============================================================================
+// THI ĐUA PROJECT F&B — 5 giải tuần + 3 giải tổng kết
+// Mọi con số dưới đây do server tính (src/competition.ts); phần này chỉ trình
+// bày lại kèm công thức ĐÃ THAY SỐ để người xem tự đối chiếu được.
+// ============================================================================
+
+const COMP_TOTAL = "TỔNG KẾT";
+const COMP_MEDALS = ["🥇", "🥈", "🥉"];
+const COMP_PLACES = ["Nhất", "Nhì", "Ba"];
+
+let compData = null; // payload /api/competition/stats gần nhất
+let compConfig = null; // bản nháp quy chế đang sửa (chưa lưu)
+let compViewWeek = COMP_TOTAL;
+
+const compN = (v, d = 1) => (Number(v) || 0).toFixed(d);
+const compI = (v) => Math.round(Number(v) || 0).toLocaleString("vi-VN");
+const compMoney = (v) => (Number(v) || 0).toLocaleString("vi-VN") + "₫";
+
+/** Chuyển pane con của tab thi đua (dùng cả cho nút trên thanh công cụ). */
+function openCompetitionPane(target) {
+    document.querySelectorAll("#comp-tabs .p-tab-btn").forEach((b) => {
+        b.classList.toggle("active", b.getAttribute("data-target") === target);
     });
+    document.querySelectorAll(".comp-pane").forEach((p) => {
+        p.style.display = p.id === target ? "block" : "none";
+    });
+    if (target === "comp-quyche") loadCompetitionConfig();
+    if (target === "comp-sheet") loadCompetitionSheetPane();
+}
+
+document.querySelectorAll("#comp-tabs .p-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () =>
+        openCompetitionPane(btn.getAttribute("data-target")),
+    );
 });
 
-async function loadCompetitionStats(week = "TỔNG KẾT") {
+async function loadCompetitionStats(week) {
+    const target =
+        week || document.getElementById("compWeekSelect")?.value || compViewWeek;
+    compViewWeek = target;
     try {
-        const res = await fetch(`/api/competition/stats?week=${encodeURIComponent(week)}`);
+        const res = await fetch(
+            `/api/competition/stats?week=${encodeURIComponent(target)}`,
+        );
         const data = await res.json();
-        if (data.success) {
-            renderCompetitionStats(data);
-        }
+        if (!data.success) throw new Error(data.message || "Số liệu không hợp lệ.");
+        compData = data;
+        renderCompetitionStats(data);
     } catch (e) {
         console.error("Lỗi tải thi đua:", e);
+        showToast("Không tải được số liệu thi đua: " + e.message, "error");
     }
 }
 
 function renderCompetitionStats(data) {
-    // 1. Best Seller
-    const bsList = document.getElementById('compListBestSeller');
-    if (bsList) {
-        bsList.innerHTML = '';
-        if (data.best_seller.length === 0) {
-            bsList.innerHTML = '<div style="padding: 10px; text-align: center; opacity: 0.7;">Chưa có dữ liệu. Hãy tạo giao dịch bán hàng ở ca bất kỳ.</div>';
-        } else {
-            data.best_seller.forEach((m, idx) => {
-                if(m.individual_sales > 0) {
-                    bsList.innerHTML += `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 10px; border-radius: var(--radius-sm); background: var(--lacquer-3); border: 1px solid var(--rule);">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="font-weight: bold; width: 24px; text-align: center; color: ${idx===0 ? '#ff9800' : 'var(--text-color)'};">#${idx+1}</span>
-                                <span style="font-weight: 500;">${m.name}</span>
-                            </div>
-                            <div style="font-weight: bold; color: var(--ink-hi);">${m.individual_sales} <span style="font-size: 0.8rem; font-weight: normal; color: var(--ink-dim);">sp</span></div>
-                        </div>
-                    `;
-                }
-            });
-        }
+    renderCompWeekPicker(data);
+    renderCompCycleStrip(data);
+    renderCompKpiRow(data);
+    renderCompIndividualPane(data);
+    renderCompGroupPane(data);
+    renderCompDeptPane(data);
+    renderCompFormulaTable(data.formulas);
+}
+/** Ô chọn kỳ + nhãn tuần đang ghi nhận + nhãn nút chốt tuần. */
+function renderCompWeekPicker(data) {
+    const cfg = data.config || {};
+    const weeks = cfg.weeks || [];
+    const locked = cfg.locked_weeks || [];
+    const totalLabel = cfg.total_label || COMP_TOTAL;
+
+    const sel = document.getElementById("compWeekSelect");
+    if (sel) {
+        sel.innerHTML = [
+            `<option value="${esc(totalLabel)}">${esc(totalLabel)} · cả 3 tuần</option>`,
+        ]
+            .concat(
+                weeks.map(
+                    (w) =>
+                        `<option value="${esc(w)}">${esc(w)}${locked.includes(w) ? " · đã chốt" : ""}</option>`,
+                ),
+            )
+            .join("");
+        sel.value = data.week;
     }
 
-    // 2. All Rounder
-    const arList = document.getElementById('compListAllRounder');
-    if (arList) {
-        arList.innerHTML = '';
-        if (data.all_rounder.length === 0) {
-            arList.innerHTML = '<div style="padding: 10px; text-align: center; opacity: 0.7;">Chưa có dữ liệu.</div>';
-        } else {
-            data.all_rounder.forEach((m, idx) => {
-                if(m.total_score > 0) {
-                    arList.innerHTML += `
-                        <div style="display: flex; flex-direction: column; padding: 12px; margin-bottom: 10px; border-radius: var(--radius-sm); background: var(--lacquer-3); border: 1px solid var(--rule);">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span style="font-weight: bold; width: 24px; text-align: center; color: ${idx===0 ? '#4caf50' : 'var(--text-color)'};">#${idx+1}</span>
-                                    <span style="font-weight: 500;">${m.name}</span>
-                                </div>
-                                <div style="font-weight: bold; font-size: 1.1rem; color: var(--ink-hi);">${m.total_score.toFixed(1)} <span style="font-size: 0.8rem; font-weight: normal; color: var(--ink-dim);">điểm</span></div>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--ink-dim);">
-                                <span>SL: ${m.sales_score.toFixed(1)}</span>
-                                <span>HS: ${m.prod_score.toFixed(1)}</span>
-                                <span>UT: ${m.rep_score.toFixed(1)}</span>
-                            </div>
-                        </div>
-                    `;
-                }
-            });
-        }
+    const badge = document.getElementById("compActiveWeekText");
+    if (badge) badge.textContent = `Đang ghi nhận: ${cfg.active_week || "—"}`;
+
+    const btn = document.getElementById("compCloseWeekBtn");
+    if (btn) {
+        const allLocked = weeks.length > 0 && weeks.every((w) => locked.includes(w));
+        btn.innerHTML = allLocked
+            ? '<i class="fa-solid fa-lock"></i> Đã chốt cả 3 tuần'
+            : `<i class="fa-solid fa-lock"></i> Chốt ${esc(cfg.active_week || "tuần")}`;
+        btn.disabled = allLocked;
+    }
+}
+/** Dải 3 tuần + thẻ TỔNG KẾT: bấm để xem kỳ tương ứng. */
+function renderCompCycleStrip(data) {
+    const box = document.getElementById("compCycleStrip");
+    if (!box) return;
+    const cfg = data.config || {};
+    const locked = cfg.locked_weeks || [];
+    const totalLabel = cfg.total_label || COMP_TOTAL;
+
+    const cards = (data.week_summaries || []).map((w) => {
+        const t = w.totals || {};
+        const state = locked.includes(w.week)
+            ? '<span class="comp-cycle-state st-locked">Đã chốt</span>'
+            : w.week === cfg.active_week
+              ? '<span class="comp-cycle-state st-active">Đang chạy</span>'
+              : '<span class="comp-cycle-state">Chờ</span>';
+        const cls = [
+            "comp-cycle-card",
+            locked.includes(w.week) ? "is-locked" : "",
+            !locked.includes(w.week) && w.week === cfg.active_week ? "is-active" : "",
+            w.week === data.week ? "is-viewing" : "",
+        ]
+            .filter(Boolean)
+            .join(" ");
+        const body =
+            t.sales_qty > 0 || t.active_shifts > 0
+                ? `<div class="comp-cycle-line"><span>Sản lượng</span><b>${compI(t.sales_qty)} sp</b></div>
+                   <div class="comp-cycle-line"><span>Ca hoạt động</span><b>${compI(t.active_shifts)}</b></div>
+                   <div class="comp-cycle-line"><span>Best Seller</span><b>${w.best_seller ? esc(w.best_seller.name) : "—"}</b></div>
+                   <div class="comp-cycle-line"><span>All-Rounder</span><b>${w.all_rounder ? esc(w.all_rounder.name) + " · " + compN(w.all_rounder.value) : "—"}</b></div>
+                   <div class="comp-cycle-line"><span>Ca Nhất</span><b>${w.podium && w.podium[0] ? esc(w.podium[0].label) : "—"}</b></div>`
+                : '<div class="comp-cycle-empty">Chưa có dữ liệu tuần này.</div>';
+        return `<button type="button" class="${cls}" data-week="${esc(w.week)}" onclick="loadCompetitionStats(this.dataset.week)">
+            <div class="comp-cycle-top"><span class="comp-cycle-name">${esc(w.week)}</span>${state}</div>
+            ${body}</button>`;
+    });
+
+    const pt = (data.project && data.project.totals) || {};
+    cards.push(`<button type="button" class="comp-cycle-card${data.is_total ? " is-viewing" : ""}" data-week="${esc(totalLabel)}" onclick="loadCompetitionStats(this.dataset.week)">
+        <div class="comp-cycle-top"><span class="comp-cycle-name">${esc(totalLabel)}</span><span class="comp-cycle-state">3 giải</span></div>
+        <div class="comp-cycle-line"><span>Sản lượng cả kỳ</span><b>${compI(pt.sales_qty)} sp</b></div>
+        <div class="comp-cycle-line"><span>Doanh thu</span><b>${compMoney(pt.revenue)}</b></div>
+        <div class="comp-cycle-line"><span>Người tham gia</span><b>${compI(pt.participants)}</b></div>
+        <div class="comp-cycle-line"><span>Tuần đã chốt</span><b>${locked.length}/${(cfg.weeks || []).length}</b></div>
+    </button>`);
+    box.innerHTML = cards.join("");
+}
+function renderCompKpiRow(data) {
+    const box = document.getElementById("compKpiRow");
+    if (!box) return;
+    const t = data.totals || {};
+    const scope = data.is_total ? "cả 3 tuần" : esc(data.week);
+    const kpis = [
+        ["Sản lượng", compI(t.sales_qty) + " sp", scope, false],
+        ["Doanh thu", compMoney(t.revenue), scope, false],
+        ["Ca hoạt động", compI(t.active_shifts), "ca có giao dịch", false],
+        ["Người tham gia", compI(t.participants), "có ca hoặc có bán hàng", false],
+        [
+            "Lượt vi phạm",
+            compI(t.violations),
+            Number(t.violations) > 0 ? "đang trừ điểm uy tín" : "chưa ghi nhận",
+            Number(t.violations) > 0,
+        ],
+    ];
+    box.innerHTML = kpis
+        .map(
+            ([label, value, sub, warn]) =>
+                `<div class="comp-kpi">
+                    <div class="comp-kpi-label">${label}</div>
+                    <div class="comp-kpi-value${warn ? " is-warn" : ""}">${value}</div>
+                    <div class="comp-kpi-sub">${sub}</div>
+                </div>`,
+        )
+        .join("");
+}
+
+/** Mở/đóng dòng công thức đã thay số nằm ngay dưới một dòng bảng. */
+function compToggleDetail(tr) {
+    const next = tr.nextElementSibling;
+    if (!next || !next.classList.contains("comp-detail-row")) return;
+    next.style.display = next.style.display === "none" ? "table-row" : "none";
+}
+
+function renderCompHero(id, row, valueHtml, metaHtml, medal) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    if (!row) {
+        box.className = "comp-hero is-empty";
+        box.innerHTML = "Chưa đủ dữ liệu để xét giải ở kỳ này.";
+        return;
+    }
+    box.className = "comp-hero";
+    box.innerHTML = `<div class="comp-hero-medal">${medal || "🥇"}</div>
+        <div class="comp-hero-body">
+            <div class="comp-hero-name">${esc(row.name)}</div>
+            <div class="comp-hero-meta">${metaHtml(row)}</div>
+        </div>
+        <div class="comp-hero-value">${valueHtml(row)}</div>`;
+}
+/**
+ * Chuẩn hoá dòng thành viên cho cả 2 chế độ xem:
+ *  - Theo tuần: số liệu thuần của tuần đó.
+ *  - TỔNG KẾT: Best Seller cộng dồn sản lượng, All Round lấy TRUNG BÌNH điểm
+ *    đã chuẩn hoá của các tuần có tham gia (không dồn dữ liệu thô).
+ */
+function compIndRows(data) {
+    if (data.is_total) {
+        return ((data.project && data.project.all_round) || []).map((p) => ({
+            member_id: p.member_id,
+            name: p.name,
+            department: p.department,
+            individual_sales: p.total_individual_sales,
+            individual_revenue: p.total_individual_revenue,
+            equivalent_sales: p.total_equivalent_sales,
+            shifts_participated: p.total_shifts,
+            productivity:
+                p.total_shifts > 0 ? p.total_equivalent_sales / p.total_shifts : 0,
+            violation_count: p.total_violations,
+            violations: [],
+            reputation: p.avg_reputation,
+            sales_score: p.avg_sales_score,
+            prod_score: p.avg_prod_score,
+            rep_score: p.avg_rep_score,
+            total_score: p.avg_total_score,
+            weeks_counted: p.weeks_counted,
+            week_scores: p.week_scores || {},
+        }));
+    }
+    return (data.all_rounder || []).map((m) => ({
+        ...m,
+        violation_count: (m.violations || []).length,
+    }));
+}
+
+function compBestRows(data) {
+    if (data.is_total) {
+        return ((data.project && data.project.best_seller) || []).map((p) => ({
+            member_id: p.member_id,
+            name: p.name,
+            department: p.department,
+            individual_sales: p.total_individual_sales,
+            individual_revenue: p.total_individual_revenue,
+            shifts_participated: p.total_shifts,
+            weeks_counted: p.weeks_counted,
+        }));
+    }
+    return (data.best_seller || []).filter((m) => Number(m.individual_sales) > 0);
+}
+function renderCompIndividualPane(data) {
+    const cfg = data.config || {};
+    const W = cfg.weights || {};
+    const best = compBestRows(data);
+    const rows = compIndRows(data);
+
+    const rBS = document.getElementById("compRuleBestSeller");
+    if (rBS)
+        rBS.textContent = data.is_total
+            ? "Cộng dồn sản lượng cá nhân cả 3 tuần — 1 giải toàn Project"
+            : "Sản lượng bán hàng cá nhân tuyệt đối cao nhất trong tuần";
+    const rAR = document.getElementById("compRuleAllRounder");
+    if (rAR)
+        rAR.textContent = data.is_total
+            ? `Trung bình điểm toàn diện đã chuẩn hoá của các tuần có tham gia (SL ${W.ind_sales} + NS ${W.ind_prod} + UT ${W.ind_rep})`
+            : `Sản lượng ${W.ind_sales}% + Năng suất ${W.ind_prod}% + Uy tín ${W.ind_rep}%`;
+
+    renderCompHero(
+        "compHeroBestSeller",
+        best[0],
+        (m) => `${compI(m.individual_sales)}<span class="comp-hero-unit">sản phẩm</span>`,
+        (m) =>
+            `${esc(m.department || "—")} · ${compMoney(m.individual_revenue)}` +
+            (data.is_total ? ` · ${compI(m.shifts_participated)} ca` : ""),
+        "🔥",
+    );
+    renderCompHero(
+        "compHeroAllRounder",
+        rows[0],
+        (m) => `${compN(m.total_score)}<span class="comp-hero-unit">điểm / 100</span>`,
+        (m) =>
+            `${esc(m.department || "—")} · SL ${compN(m.sales_score)} · NS ${compN(m.prod_score)} · UT ${compN(m.rep_score)}` +
+            (data.is_total ? ` · ${m.weeks_counted} tuần` : ""),
+        "⭐",
+    );
+
+    renderCompRankList("compListBestSeller", best.slice(1, 8), 2, (m) => ({
+        value: `${compI(m.individual_sales)} sp`,
+        parts: "",
+    }));
+    renderCompRankList("compListAllRounder", rows.slice(1, 8), 2, (m) => ({
+        value: compN(m.total_score),
+        parts: `<span>SL ${compN(m.sales_score)}</span><span>NS ${compN(m.prod_score)}</span><span>UT ${compN(m.rep_score)}</span>`,
+    }));
+
+    renderCompIndDenoms(data);
+    renderCompIndTable(data, rows);
+}
+function renderCompRankList(id, rows, startIndex, fmt) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    if (!rows.length) {
+        box.innerHTML =
+            '<div class="comp-empty">Chưa có thành viên nào khác trong bảng xếp hạng.</div>';
+        return;
+    }
+    box.innerHTML = rows
+        .map((m, i) => {
+            const f = fmt(m);
+            return `<div class="comp-rank">
+                <span class="comp-rank-idx">${startIndex + i}</span>
+                <span class="comp-rank-name">${esc(m.name)}<br><span class="comp-rank-dept">${esc(m.department || "—")}</span></span>
+                ${f.parts ? `<span class="comp-rank-parts">${f.parts}</span>` : ""}
+                <span class="comp-rank-value">${f.value}</span>
+            </div>`;
+        })
+        .join("");
+}
+
+/** Các mốc chuẩn hoá của kỳ — không có mốc này thì không kiểm tra được điểm. */
+function renderCompIndDenoms(data) {
+    const box = document.getElementById("compIndDenoms");
+    if (!box) return;
+    const t = data.totals || {};
+    const cfg = data.config || {};
+    const chips = [];
+    if (data.is_total) {
+        chips.push(
+            `<span class="comp-denom">Cách tính <b>trung bình điểm tuần đã chuẩn hoá</b></span>`,
+            `<span class="comp-denom">Số tuần trong chu kỳ <b>${(cfg.weeks || []).length}</b></span>`,
+            `<span class="comp-denom">Tuần đã chốt <b>${(cfg.locked_weeks || []).length}</b></span>`,
+        );
+    } else {
+        chips.push(
+            `<span class="comp-denom">SL quy đổi cao nhất tuần <b>${compN(t.max_equivalent, 2)}</b></span>`,
+            `<span class="comp-denom">Năng suất cao nhất tuần <b>${compN(t.max_productivity, 2)}</b></span>`,
+        );
+    }
+    chips.push(
+        `<span class="comp-denom">Uy tín khởi điểm <b>${compI(cfg.base_reputation)}</b></span>`,
+        `<span class="comp-denom">Bỏ ca của người vắng <b>${cfg.exclude_absent_from_shift_count ? "Có" : "Không"}</b></span>`,
+    );
+    box.innerHTML =
+        '<i class="fa-solid fa-divide"></i> Mẫu số chuẩn hoá đang dùng: ' +
+        chips.join("");
+}
+function renderCompIndTable(data, rows) {
+    const body = document.getElementById("compTableIndividual");
+    if (!body) return;
+    if (!rows.length) {
+        body.innerHTML =
+            '<tr><td colspan="13" class="comp-empty">Chưa có dữ liệu. Hãy ghi nhận giao dịch bán hàng cho một ca bất kỳ.</td></tr>';
+        return;
+    }
+    const bestId = (compBestRows(data)[0] || {}).member_id;
+    body.innerHTML = rows
+        .map((m, i) => {
+            const medal = i < 3 ? COMP_MEDALS[i] + " " : "";
+            const awardA =
+                m.member_id === bestId
+                    ? '<span class="comp-badge-award">Best Seller</span>'
+                    : "";
+            const awardB =
+                i === 0 ? '<span class="comp-badge-award">All-Rounder</span>' : "";
+            return `<tr class="comp-row-clickable" onclick="compToggleDetail(this)">
+                <td class="c comp-rank-medal">${medal}${i + 1}</td>
+                <td>${esc(m.name)}${awardA}${awardB}</td>
+                <td class="comp-cell-dept" title="${esc(m.department || "—")}">${esc(m.department || "—")}</td>
+                <td class="c comp-num">${compI(m.individual_sales)}</td>
+                <td class="c comp-num">${compN(m.equivalent_sales, 2)}</td>
+                <td class="c comp-num">${compI(m.shifts_participated)}</td>
+                <td class="c comp-num">${compN(m.productivity, 2)}</td>
+                <td class="c comp-num${m.violation_count > 0 ? " comp-viol-count" : ""}">${compI(m.violation_count)}</td>
+                <td class="c comp-num">${compN(m.reputation, 0)}</td>
+                <td class="c comp-num">${compN(m.sales_score, 2)}</td>
+                <td class="c comp-num">${compN(m.prod_score, 2)}</td>
+                <td class="c comp-num">${compN(m.rep_score, 2)}</td>
+                <td class="c comp-num comp-score-total">${compN(m.total_score, 2)}</td>
+            </tr>
+            <tr class="comp-detail-row" style="display: none;">
+                <td colspan="13">${compIndDetailHtml(data, m)}</td>
+            </tr>`;
+        })
+        .join("");
+}
+/** Công thức đã thay số của đúng thành viên đang bấm — để HR giải thích được. */
+function compIndDetailHtml(data, m) {
+    const cfg = data.config || {};
+    const W = cfg.weights || {};
+    const base = Number(cfg.base_reputation) || 100;
+    const t = data.totals || {};
+
+    if (data.is_total) {
+        const weeks = cfg.weeks || [];
+        const parts = weeks.map((w) => {
+            const v = m.week_scores ? m.week_scores[w] : null;
+            return v === null || v === undefined
+                ? `${esc(w)}: không tham gia`
+                : `${esc(w)}: ${compN(v, 2)}`;
+        });
+        const counted = weeks
+            .map((w) => (m.week_scores ? m.week_scores[w] : null))
+            .filter((v) => v !== null && v !== undefined);
+        return `<div class="comp-detail">
+            <h6>Cách tính TỔNG KẾT của ${esc(m.name)}</h6>
+            <div class="comp-formula"><span class="comp-formula-label">Điểm All Round</span> = trung bình điểm toàn diện ĐÃ chuẩn hoá của các tuần có tham gia
+                <code>(${counted.map((v) => compN(v, 2)).join(" + ") || 0}) ÷ ${m.weeks_counted || 0} tuần = ${compN(m.total_score, 2)}</code></div>
+            <div class="comp-formula"><span class="comp-formula-label">Điểm từng tuần</span><code>${parts.join("   ·   ")}</code></div>
+            <div class="comp-formula"><span class="comp-formula-label">Thành phần trung bình</span>
+                <code>SL ${compN(m.sales_score, 2)} + NS ${compN(m.prod_score, 2)} + UT ${compN(m.rep_score, 2)} = ${compN(m.total_score, 2)}</code></div>
+            <div class="comp-formula"><span class="comp-formula-label">Sản lượng cộng dồn (xét giải Best Seller)</span>
+                <code>${compI(m.individual_sales)} sản phẩm · ${compMoney(m.individual_revenue)} · ${compI(m.shifts_participated)} ca</code></div>
+        </div>`;
     }
 
-    // 3. Shift Groups
-    const sTable = document.getElementById('compTableShift');
-    if (sTable) {
-        sTable.innerHTML = '';
-        if (data.shift_groups.length === 0) {
-            sTable.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; opacity: 0.7;">Chưa có dữ liệu nhóm ca trực. Hãy xếp ca và ghi nhận bán hàng.</td></tr>';
-        } else {
-            data.shift_groups.forEach((sg, idx) => {
-                sTable.innerHTML += `
-                    <tr>
-                        <td style="font-weight: bold; text-align: center; color: ${idx===0?'#2196f3':''};">#${idx+1}</td>
-                        <td>
-                            <div style="font-weight: bold;">${sg.shift_id}</div>
-                            <div style="font-size: 0.85rem; color: var(--ink-dim);">${sg.members.join(", ")}</div>
-                        </td>
-                        <td style="text-align: center;">${sg.sales_score.toFixed(1)}</td>
-                        <td style="text-align: center;">${sg.rep_score.toFixed(1)}</td>
-                        <td style="text-align: center; font-weight: bold; color: var(--ink-hi);">${sg.total_score.toFixed(1)}</td>
-                    </tr>
-                `;
+    const viol = m.violations || [];
+    const violHtml = viol.length
+        ? `<div class="comp-viol-list">${viol
+              .map(
+                  (v) =>
+                      `<span class="comp-viol-tag">${esc(v.type)} −${compI(v.penalty)}${v.shift_id ? " · " + esc(v.shift_id) : ""}</span>`,
+              )
+              .join("")}</div>`
+        : '<div class="comp-formula">Không có vi phạm nào trong kỳ.</div>';
+
+    return `<div class="comp-detail">
+        <h6>Công thức đã thay số của ${esc(m.name)} — ${esc(data.week)}</h6>
+        <div class="comp-formula"><span class="comp-formula-label">Sản lượng quy đổi</span> = tổng (sản lượng ca ÷ số người trong ca) của ${compI(m.shifts_participated)} ca
+            <code>= ${compN(m.equivalent_sales, 2)} sản phẩm quy đổi</code></div>
+        <div class="comp-formula"><span class="comp-formula-label">Điểm Sản Lượng</span>
+            <code>(${compN(m.equivalent_sales, 2)} ÷ ${compN(t.max_equivalent, 2)}) × ${W.ind_sales} = ${compN(m.sales_score, 2)}</code></div>
+        <div class="comp-formula"><span class="comp-formula-label">Năng suất</span>
+            <code>${compN(m.equivalent_sales, 2)} ÷ ${compI(m.shifts_participated)} ca = ${compN(m.productivity, 2)}</code></div>
+        <div class="comp-formula"><span class="comp-formula-label">Điểm Năng Suất</span>
+            <code>(${compN(m.productivity, 2)} ÷ ${compN(t.max_productivity, 2)}) × ${W.ind_prod} = ${compN(m.prod_score, 2)}</code></div>
+        <div class="comp-formula"><span class="comp-formula-label">Điểm Uy Tín</span>
+            <code>(${compI(base)} − ${compI(m.penalty_total)} điểm vi phạm) ÷ ${compI(base)} × ${W.ind_rep} = ${compN(m.rep_score, 2)}</code></div>
+        <div class="comp-formula"><span class="comp-formula-label">Điểm Toàn Diện</span>
+            <code>${compN(m.sales_score, 2)} + ${compN(m.prod_score, 2)} + ${compN(m.rep_score, 2)} = ${compN(m.total_score, 2)}</code></div>
+        <h6>Vi phạm đã ghi nhận</h6>
+        ${violHtml}
+    </div>`;
+}
+function renderCompGroupPane(data) {
+    const cfg = data.config || {};
+    const W = cfg.weights || {};
+    const t = data.totals || {};
+    const groups = data.shift_groups || [];
+
+    // Giải nhóm không cộng dồn: xem tuần thì lấy podium tuần, xem TỔNG KẾT thì
+    // liệt kê ca Nhất của từng tuần.
+    const podiumBox = document.getElementById("compGroupPodium");
+    if (podiumBox) {
+        let cards = [];
+        if (data.is_total) {
+            cards = (data.week_summaries || []).map((w, i) => {
+                const g = (w.podium || [])[0];
+                return `<div class="comp-podium-card p${Math.min(i + 1, 3)}">
+                    <div class="comp-podium-place">Ca Nhất · ${esc(w.week)}</div>
+                    <div class="comp-podium-title">${g ? esc(g.label) : "—"}</div>
+                    <div class="comp-podium-sub">${g ? "Mã ca " + esc(g.shift_id) : "Chưa có ca nào có dữ liệu"}</div>
+                    <div class="comp-podium-score">${g ? compN(g.total_score, 2) : "—"}</div>
+                </div>`;
             });
+        } else {
+            const podium = (data.awards && data.awards.podium) || [];
+            cards = podium.map(
+                (g, i) => `<div class="comp-podium-card p${i + 1}">
+                    <div class="comp-podium-place">${COMP_MEDALS[i]} Giải ${COMP_PLACES[i]}</div>
+                    <div class="comp-podium-title">${esc(g.label)}</div>
+                    <div class="comp-podium-sub">${esc(g.type_label)} · ${g.member_count} người · ${compI(g.group_sales)} sp</div>
+                    <div class="comp-podium-score">${compN(g.total_score, 2)}</div>
+                    <div class="comp-podium-break">SL ${compN(g.sales_score, 2)} + UT ${compN(g.rep_score, 2)}</div>
+                </div>`,
+            );
         }
+        podiumBox.innerHTML = cards.length
+            ? cards.join("")
+            : '<div class="comp-empty">Chưa có ca trực nào phát sinh dữ liệu trong kỳ này.</div>';
     }
 
-    // 4. Departments
-    const dTable = document.getElementById('compTableDept');
-    if (dTable) {
-        dTable.innerHTML = '';
-        if (data.departments.length === 0) {
-            dTable.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px; opacity: 0.7;">Chưa có dữ liệu ban.</td></tr>';
-        } else {
-            data.departments.forEach((d, idx) => {
-                dTable.innerHTML += `
-                    <tr>
-                        <td style="font-weight: bold; text-align: center; color: ${idx===0?'#9c27b0':''};">#${idx+1}</td>
-                        <td style="font-weight: bold;">${d.department}</td>
-                        <td style="text-align: center;">${d.sales_score.toFixed(1)}</td>
-                        <td style="text-align: center;">${d.prod_score.toFixed(1)}</td>
-                        <td style="text-align: center;">${d.rep_score.toFixed(1)}</td>
-                        <td style="text-align: center; font-weight: bold; color: var(--ink-hi);">${d.total_score.toFixed(1)}</td>
-                    </tr>
-                `;
-            });
+    const denoms = document.getElementById("compGroupDenoms");
+    if (denoms) {
+        denoms.innerHTML = data.is_total
+            ? '<i class="fa-solid fa-circle-info"></i> Giải nhóm trực ca KHÔNG cộng dồn giữa các tuần — bảng dưới liệt kê podium của từng tuần.'
+            : '<i class="fa-solid fa-divide"></i> Mẫu số chuẩn hoá đang dùng: ' +
+              `<span class="comp-denom">Sản lượng nhóm cao nhất <b>${compI(t.max_group_sales)}</b></span>` +
+              `<span class="comp-denom">Uy tín BQ nhóm cao nhất <b>${compN(t.max_group_reputation, 2)}</b></span>` +
+              `<span class="comp-denom">Trọng số <b>SL ${W.grp_sales} · UT ${W.grp_rep}</b></span>`;
+    }
+
+    renderCompGroupTable(data, groups);
+}
+function renderCompGroupTable(data, groups) {
+    const body = document.getElementById("compTableShift");
+    if (!body) return;
+    if (!groups.length) {
+        body.innerHTML =
+            '<tr><td colspan="10" class="comp-empty">Chưa có dữ liệu nhóm ca trực. Hãy xếp ca và ghi nhận bán hàng.</td></tr>';
+        return;
+    }
+    const seen = {};
+    body.innerHTML = groups
+        .map((g) => {
+            // Hạng được đánh trong phạm vi từng tuần vì mỗi tuần xét riêng.
+            const key = g.week || data.week;
+            seen[key] = (seen[key] || 0) + 1;
+            const rank = seen[key];
+            const medal = rank <= 3 ? COMP_MEDALS[rank - 1] + " " : "";
+            const weekTag = g.week ? `<br><span class="comp-rank-dept">${esc(g.week)}</span>` : "";
+            return `<tr class="comp-row-clickable" onclick="compToggleDetail(this)">
+                <td class="c comp-rank-medal">${medal}${rank}</td>
+                <td>${esc(g.label)}${weekTag}<br><span class="comp-rank-dept">${esc(g.shift_id)}</span></td>
+                <td>${esc(g.type_label)}</td>
+                <td class="comp-cell-members" title="${esc((g.members || []).join(", "))}">${esc((g.members || []).join(", ")) || "—"}</td>
+                <td class="c comp-num">${compI(g.group_sales)}</td>
+                <td class="c comp-num">${compN(g.equivalent_per_member, 2)}</td>
+                <td class="c comp-num">${compN(g.avg_reputation, 2)}</td>
+                <td class="c comp-num">${compN(g.sales_score, 2)}</td>
+                <td class="c comp-num">${compN(g.rep_score, 2)}</td>
+                <td class="c comp-num comp-score-total">${compN(g.total_score, 2)}</td>
+            </tr>
+            <tr class="comp-detail-row" style="display: none;">
+                <td colspan="10">${compGroupDetailHtml(data, g)}</td>
+            </tr>`;
+        })
+        .join("");
+}
+/** Mẫu số chuẩn hoá của đúng tuần chứa nhóm ca (TỔNG KẾT gộp nhiều tuần). */
+function compWeekTotals(data, week) {
+    if (!week || week === data.week) return data.totals || {};
+    const w = (data.week_summaries || []).find((x) => x.week === week);
+    return (w && w.totals) || data.totals || {};
+}
+
+function compGroupDetailHtml(data, g) {
+    const w = data.config?.weights || {};
+    const wSales = Number(w.grp_sales ?? 70);
+    const wRep = Number(w.grp_rep ?? 30);
+    const t = compWeekTotals(data, g.week);
+    const maxSales = Number(t.max_group_sales) || 0;
+    const maxRep = Number(t.max_group_reputation) || 0;
+    const members = (g.members || []).length || g.member_count || 1;
+    return `<div class="comp-detail">
+        <h6>Cách tính điểm nhóm ca — ${esc(g.label)}${g.week ? " · " + esc(g.week) : ""}</h6>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Sản lượng quy đổi / người</div>
+            <code>${compI(g.group_sales)} ÷ ${members} người = ${compN(g.equivalent_per_member, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Điểm doanh số nhóm (${compN(wSales, 0)}%)</div>
+            <code>(${compI(g.group_sales)} ÷ ${compI(maxSales)}) × ${compN(wSales, 0)} = ${compN(g.sales_score, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Uy tín trung bình nhóm</div>
+            <code>Σ uy tín thành viên ÷ ${members} = ${compN(g.avg_reputation, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Điểm uy tín nhóm (${compN(wRep, 0)}%)</div>
+            <code>(${compN(g.avg_reputation, 2)} ÷ ${compN(maxRep, 2)}) × ${compN(wRep, 0)} = ${compN(g.rep_score, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Tổng điểm nhóm</div>
+            <code>${compN(g.sales_score, 2)} + ${compN(g.rep_score, 2)} = ${compN(g.total_score, 2)} / 100</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Thông tin ca</div>
+            <code>${esc(g.day || "")} ${esc(g.date || "")} · ${esc(g.slot || "")} · ${esc(g.type_label || "")} · doanh thu ${compMoney(g.group_revenue)}</code>
+        </div>
+    </div>`;
+}
+function renderCompDeptPane(data) {
+    const rows = data.departments || [];
+    // Mẫu số chuẩn hoá của giải Ban là giá trị lớn nhất trong chính danh sách Ban.
+    const maxes = {
+        contrib: Math.max(0, ...rows.map((d) => Number(d.avg_contribution) || 0)),
+        prod: Math.max(0, ...rows.map((d) => Number(d.avg_productivity) || 0)),
+        rep: Math.max(0, ...rows.map((d) => Number(d.avg_reputation) || 0)),
+    };
+    const w = data.config?.weights || {};
+
+    const podium = document.getElementById("compDeptPodium");
+    if (podium) {
+        podium.innerHTML = rows.length
+            ? rows
+                  .slice(0, 3)
+                  .map(
+                      (d, i) => `<div class="comp-podium-card p${i + 1}">
+                        <div class="comp-podium-place">${COMP_MEDALS[i]} Giải ${COMP_PLACES[i]}</div>
+                        <div class="comp-podium-title">${esc(d.department)}</div>
+                        <div class="comp-podium-sub">${compI(d.member_participated)} người tham gia · ${compI(d.total_shifts)} ca</div>
+                        <div class="comp-podium-score p${i + 1}">${compN(d.total_score, 2)}<span class="comp-hero-unit">/100</span></div>
+                    </div>`,
+                  )
+                  .join("")
+            : '<div class="comp-empty">Chưa có Ban nào đủ dữ liệu để xếp giải tập thể.</div>';
+    }
+
+    const denoms = document.getElementById("compDeptDenoms");
+    if (denoms) {
+        denoms.innerHTML = `
+            <div class="comp-denom">Kỳ xét <b>${esc(data.week)}</b></div>
+            <div class="comp-denom">Đóng góp BQ cao nhất <b>${compN(maxes.contrib, 2)}</b></div>
+            <div class="comp-denom">Hiệu suất BQ cao nhất <b>${compN(maxes.prod, 2)}</b></div>
+            <div class="comp-denom">Uy tín BQ cao nhất <b>${compN(maxes.rep, 2)}</b></div>
+            <div class="comp-denom">Trọng số <b>${compN(w.dept_sales ?? 40, 0)} / ${compN(w.dept_prod ?? 40, 0)} / ${compN(w.dept_rep ?? 20, 0)}</b></div>`;
+    }
+    renderCompDeptTable(data, rows, maxes);
+}
+function renderCompDeptTable(data, rows, maxes) {
+    const body = document.getElementById("compTableDept");
+    if (!body) return;
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="12" class="comp-empty">Chưa có dữ liệu Ban.</td></tr>';
+        return;
+    }
+    body.innerHTML = rows
+        .map((d, i) => {
+            const medal = i < 3 ? COMP_MEDALS[i] + " " : "";
+            return `<tr class="comp-row-clickable" onclick="compToggleDetail(this)">
+                <td class="c comp-rank-medal">${medal}${i + 1}</td>
+                <td>${esc(d.department)}<br><span class="comp-rank-dept">${compI(d.member_total)} thành viên trong Ban</span></td>
+                <td class="c comp-num">${compI(d.member_participated)}</td>
+                <td class="c comp-num">${compN(d.total_equivalent_sales, 2)}</td>
+                <td class="c comp-num">${compI(d.total_shifts)}</td>
+                <td class="c comp-num">${compN(d.avg_contribution, 2)}</td>
+                <td class="c comp-num">${compN(d.avg_productivity, 2)}</td>
+                <td class="c comp-num">${compN(d.avg_reputation, 2)}</td>
+                <td class="c comp-num">${compN(d.sales_score, 2)}</td>
+                <td class="c comp-num">${compN(d.prod_score, 2)}</td>
+                <td class="c comp-num">${compN(d.rep_score, 2)}</td>
+                <td class="c comp-num comp-score-total">${compN(d.total_score, 2)}</td>
+            </tr>
+            <tr class="comp-detail-row" style="display: none;">
+                <td colspan="12">${compDeptDetailHtml(data, d, maxes)}</td>
+            </tr>`;
+        })
+        .join("");
+}
+function compDeptDetailHtml(data, d, maxes) {
+    const w = data.config?.weights || {};
+    const wS = Number(w.dept_sales ?? 40);
+    const wP = Number(w.dept_prod ?? 40);
+    const wR = Number(w.dept_rep ?? 20);
+    return `<div class="comp-detail">
+        <h6>Cách tính điểm Ban — ${esc(d.department)} (${esc(data.week)})</h6>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Đóng góp bình quân (chia theo người THỰC SỰ có ca)</div>
+            <code>${compN(d.total_equivalent_sales, 2)} ÷ ${compI(d.member_participated)} người = ${compN(d.avg_contribution, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Điểm đóng góp (${compN(wS, 0)}%)</div>
+            <code>(${compN(d.avg_contribution, 2)} ÷ ${compN(maxes.contrib, 2)}) × ${compN(wS, 0)} = ${compN(d.sales_score, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Hiệu suất bình quân (chia theo tổng số ca)</div>
+            <code>${compN(d.total_equivalent_sales, 2)} ÷ ${compI(d.total_shifts)} ca = ${compN(d.avg_productivity, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Điểm hiệu suất (${compN(wP, 0)}%)</div>
+            <code>(${compN(d.avg_productivity, 2)} ÷ ${compN(maxes.prod, 2)}) × ${compN(wP, 0)} = ${compN(d.prod_score, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Điểm uy tín (${compN(wR, 0)}%) — uy tín BQ thành viên của Ban</div>
+            <code>(${compN(d.avg_reputation, 2)} ÷ ${compN(maxes.rep, 2)}) × ${compN(wR, 0)} = ${compN(d.rep_score, 2)}</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Tổng điểm Ban</div>
+            <code>${compN(d.sales_score, 2)} + ${compN(d.prod_score, 2)} + ${compN(d.rep_score, 2)} = ${compN(d.total_score, 2)} / 100</code>
+        </div>
+        <div class="comp-formula">
+            <div class="comp-formula-label">Đối chiếu</div>
+            <code>Sản lượng cá nhân cộng dồn của Ban: ${compI(d.total_individual_sales)} sản phẩm</code>
+        </div>
+    </div>`;
+}
+function renderCompFormulaTable(formulas) {
+    const body = document.getElementById("compTableFormula");
+    if (!body) return;
+    const rows = (formulas && formulas.rows) || [];
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="3" class="comp-empty">Không đọc được bảng quy chế.</td></tr>';
+        return;
+    }
+    body.innerHTML = rows
+        .map(
+            (r) => `<tr>
+                <td><b>${esc(String(r[0] ?? ""))}</b></td>
+                <td class="comp-num">${esc(String(r[1] ?? ""))}</td>
+                <td>${esc(String(r[2] ?? ""))}</td>
+            </tr>`,
+        )
+        .join("");
+}
+
+/* ---------------------------------------------------------------------------
+   QUY CHẾ — sửa trọng số, điểm trừ, chốt/mở tuần (chỉ Admin lưu được)
+   --------------------------------------------------------------------------- */
+async function loadCompetitionConfig(force) {
+    if (compConfig && !force) {
+        renderCompetitionConfig();
+        return;
+    }
+    try {
+        const res = await authFetch("/api/competition/config");
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Không đọc được quy chế.");
+        compConfig = data.config;
+        renderCompetitionConfig();
+    } catch (e) {
+        console.error("Lỗi tải quy chế:", e);
+        showToast("Không tải được quy chế: " + e.message, "error");
+    }
+}
+const COMP_WEIGHT_LABELS = {
+    ind_sales: "Cá nhân · Doanh số",
+    ind_prod: "Cá nhân · Năng suất",
+    ind_rep: "Cá nhân · Uy tín",
+    grp_sales: "Nhóm ca · Doanh số",
+    grp_rep: "Nhóm ca · Uy tín",
+    dept_sales: "Ban · Đóng góp BQ",
+    dept_prod: "Ban · Hiệu suất BQ",
+    dept_rep: "Ban · Uy tín BQ",
+};
+const COMP_WEIGHT_GROUPS = [
+    { name: "Toàn diện cá nhân", keys: ["ind_sales", "ind_prod", "ind_rep"] },
+    { name: "Nhóm trực ca", keys: ["grp_sales", "grp_rep"] },
+    { name: "Tập thể Ban", keys: ["dept_sales", "dept_prod", "dept_rep"] },
+];
+
+function renderCompetitionConfig() {
+    if (!compConfig) return;
+    const c = compConfig;
+    const baseRep = document.getElementById("compCfgBaseRep");
+    if (baseRep) baseRep.value = c.base_reputation;
+    const excl = document.getElementById("compCfgExcludeAbsent");
+    if (excl) excl.checked = !!c.exclude_absent_from_shift_count;
+
+    const body = document.getElementById("compPenaltyBody");
+    if (body) {
+        const types = Object.keys(c.penalties || {});
+        body.innerHTML = types.length
+            ? types
+                  .map((t) => {
+                      const isAbsence = (c.absence_types || []).includes(t);
+                      return `<tr>
+                        <td>${esc(t)}</td>
+                        <td class="c"><input type="number" min="0" step="1" data-penalty="${esc(t)}" class="input-field" value="${Number(c.penalties[t]) || 0}"></td>
+                        <td class="c"><input type="checkbox" data-absence="${esc(t)}"${isAbsence ? " checked" : ""}></td>
+                        <td class="c"><button class="btn comp-btn-danger" data-type="${esc(t)}" onclick="removeCompetitionPenalty(this.dataset.type)"><i class="fa-solid fa-trash"></i></button></td>
+                    </tr>`;
+                  })
+                  .join("")
+            : '<tr><td colspan="4" class="comp-empty">Chưa khai báo loại vi phạm nào.</td></tr>';
+    }
+    renderCompWeightGrid(c);
+    renderCompLockList(c);
+}
+function renderCompWeightGrid(c) {
+    const grid = document.getElementById("compWeightGrid");
+    if (grid) {
+        grid.innerHTML = Object.keys(COMP_WEIGHT_LABELS)
+            .map(
+                (k) => `<label class="comp-weight-item">
+                    <span>${esc(COMP_WEIGHT_LABELS[k])}</span>
+                    <input type="number" min="0" step="1" data-weight="${k}" class="input-field" value="${Number(c.weights?.[k]) || 0}" oninput="refreshCompWeightNote()">
+                </label>`,
+            )
+            .join("");
+    }
+    refreshCompWeightNote();
+
+    const sel = document.getElementById("compCfgActiveWeek");
+    if (sel) {
+        sel.innerHTML = (c.weeks || [])
+            .map((w) => `<option value="${esc(w)}"${w === c.active_week ? " selected" : ""}>${esc(w)}</option>`)
+            .join("");
+    }
+}
+
+/** Tổng trọng số mỗi nhóm phải bằng 100 để điểm tối đa vẫn là 100. */
+function refreshCompWeightNote() {
+    const note = document.getElementById("compWeightNote");
+    if (!note) return;
+    const read = (k) => Number(document.querySelector(`[data-weight="${k}"]`)?.value) || 0;
+    note.innerHTML = COMP_WEIGHT_GROUPS.map((g) => {
+        const sum = g.keys.reduce((a, k) => a + read(k), 0);
+        const ok = Math.abs(sum - 100) < 0.001;
+        return `<div class="${ok ? "is-ok" : "is-bad"}">${esc(g.name)}: tổng ${compN(sum, 0)}${ok ? " ✓" : " — phải bằng 100"}</div>`;
+    }).join("");
+}
+function renderCompLockList(c) {
+    const box = document.getElementById("compLockList");
+    if (!box) return;
+    const locked = c.locked_weeks || [];
+    box.innerHTML = (c.weeks || [])
+        .map((w) => {
+            const isLocked = locked.includes(w);
+            const state = isLocked
+                ? '<span class="comp-cycle-state st-locked">Đã chốt</span>'
+                : w === c.active_week
+                  ? '<span class="comp-cycle-state st-active">Đang chạy</span>'
+                  : '<span class="comp-cycle-state">Chờ</span>';
+            const btn = isLocked
+                ? `<button class="btn" data-week="${esc(w)}" onclick="reopenCompetitionWeek(this.dataset.week)"><i class="fa-solid fa-lock-open"></i> Mở lại</button>`
+                : `<button class="btn comp-btn-lock" data-week="${esc(w)}" onclick="closeCompetitionWeek(this.dataset.week)"><i class="fa-solid fa-lock"></i> Chốt tuần</button>`;
+            return `<div class="comp-lock-item"><b>${esc(w)}</b>${state}${btn}</div>`;
+        })
+        .join("");
+}
+
+function addCompetitionPenalty() {
+    if (!compConfig) return;
+    const typeEl = document.getElementById("compNewPenaltyType");
+    const valEl = document.getElementById("compNewPenaltyValue");
+    const type = (typeEl?.value || "").trim();
+    const value = Number(valEl?.value);
+    if (!type) return showToast("Nhập tên loại vi phạm.", "error");
+    if (!Number.isFinite(value) || value < 0) return showToast("Điểm trừ phải là số ≥ 0.", "error");
+    collectCompetitionConfigEdits();
+    compConfig.penalties = { ...compConfig.penalties, [type]: value };
+    if (typeEl) typeEl.value = "";
+    if (valEl) valEl.value = "";
+    renderCompetitionConfig();
+    showToast('Đã thêm "' + type + '". Bấm Lưu quy chế để áp dụng.', "info");
+}
+
+function removeCompetitionPenalty(type) {
+    if (!compConfig) return;
+    collectCompetitionConfigEdits();
+    const next = { ...compConfig.penalties };
+    delete next[type];
+    if (!Object.keys(next).length) return showToast("Phải giữ lại ít nhất một loại vi phạm.", "error");
+    compConfig.penalties = next;
+    compConfig.absence_types = (compConfig.absence_types || []).filter((t) => t !== type);
+    renderCompetitionConfig();
+    showToast('Đã bỏ "' + type + '". Bấm Lưu quy chế để áp dụng.', "info");
+}
+/** Đọc mọi ô đang sửa trên form vào bản nháp compConfig. */
+function collectCompetitionConfigEdits() {
+    if (!compConfig) return;
+    const baseRep = Number(document.getElementById("compCfgBaseRep")?.value);
+    if (Number.isFinite(baseRep) && baseRep > 0) compConfig.base_reputation = baseRep;
+    const excl = document.getElementById("compCfgExcludeAbsent");
+    if (excl) compConfig.exclude_absent_from_shift_count = excl.checked;
+
+    const penalties = {};
+    document.querySelectorAll("[data-penalty]").forEach((el) => {
+        const v = Number(el.value);
+        penalties[el.getAttribute("data-penalty")] = Number.isFinite(v) && v >= 0 ? v : 0;
+    });
+    if (Object.keys(penalties).length) compConfig.penalties = penalties;
+
+    const absences = [];
+    document.querySelectorAll("[data-absence]").forEach((el) => {
+        if (el.checked) absences.push(el.getAttribute("data-absence"));
+    });
+    compConfig.absence_types = absences;
+
+    const weights = { ...(compConfig.weights || {}) };
+    document.querySelectorAll("[data-weight]").forEach((el) => {
+        const v = Number(el.value);
+        if (Number.isFinite(v) && v >= 0) weights[el.getAttribute("data-weight")] = v;
+    });
+    compConfig.weights = weights;
+
+    const activeWeek = document.getElementById("compCfgActiveWeek")?.value;
+    if (activeWeek) compConfig.active_week = activeWeek;
+}
+
+async function saveCompetitionConfig() {
+    if (!compConfig) return;
+    collectCompetitionConfigEdits();
+    const bad = COMP_WEIGHT_GROUPS.filter(
+        (g) => Math.abs(g.keys.reduce((a, k) => a + (Number(compConfig.weights[k]) || 0), 0) - 100) > 0.001,
+    );
+    if (bad.length && !confirm("Tổng trọng số nhóm " + bad.map((g) => g.name).join(", ") + " không bằng 100. Vẫn lưu?")) {
+        return;
+    }
+    try {
+        const res = await authFetch("/api/competition/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                active_week: compConfig.active_week,
+                base_reputation: compConfig.base_reputation,
+                penalties: compConfig.penalties,
+                absence_types: compConfig.absence_types,
+                exclude_absent_from_shift_count: compConfig.exclude_absent_from_shift_count,
+                weights: compConfig.weights,
+            }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Lưu không thành công.");
+        compConfig = data.config || compConfig;
+        renderCompetitionConfig();
+        showToast("Đã lưu quy chế và tính lại toàn bộ bảng xếp hạng.", "success");
+        loadCompetitionStats(compViewWeek);
+    } catch (e) {
+        console.error("Lỗi lưu quy chế:", e);
+        showToast("Không lưu được quy chế: " + e.message, "error");
+    }
+}
+async function closeCompetitionWeek(week) {
+    const target = week || compConfig?.active_week || compData?.config?.active_week;
+    if (!target) return showToast("Chưa xác định được tuần cần chốt.", "error");
+    const msg =
+        `Chốt ${target}?\n\n` +
+        "• Bảng xếp hạng tuần được lưu lại thành ảnh chụp và khoá.\n" +
+        "• KHÔNG xoá bất kỳ dữ liệu bán hàng / vi phạm nào — vẫn đủ 3 tuần để xét giải TỔNG KẾT.\n" +
+        "• Mọi bản ghi mới sẽ được tính sang tuần kế tiếp.";
+    if (!confirm(msg)) return;
+    try {
+        const res = await authFetch("/api/competition/close-week", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ week: target }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Không chốt được tuần.");
+        showToast(data.message, "success");
+        compConfig = null;
+        await loadCompetitionStats(target);
+        await loadCompetitionConfig(true);
+    } catch (e) {
+        console.error("Lỗi chốt tuần:", e);
+        showToast("Không chốt được tuần: " + e.message, "error");
+    }
+}
+
+async function reopenCompetitionWeek(week) {
+    if (!confirm(`Mở lại ${week} để sửa dữ liệu? Bảng xếp hạng tuần này sẽ tính lại theo dữ liệu hiện có.`)) return;
+    try {
+        const res = await authFetch("/api/competition/reopen-week", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ week }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Không mở lại được tuần.");
+        showToast(data.message, "success");
+        compConfig = null;
+        await loadCompetitionStats(week);
+        await loadCompetitionConfig(true);
+    } catch (e) {
+        console.error("Lỗi mở lại tuần:", e);
+        showToast("Không mở lại được tuần: " + e.message, "error");
+    }
+}
+/* ---------------------------------------------------------------------------
+   GOOGLE SHEET — 3 cách đồng bộ (IMPORTDATA / Apps Script / app tự kéo về)
+   Mọi endpoint dưới đây công khai trên mạng, chỉ bảo vệ bằng token bí mật.
+   --------------------------------------------------------------------------- */
+async function loadCompetitionSheetPane() {
+    // Luôn nạp lại: token và gid chỉ trả về khi request có quyền Admin, nên bản
+    // cache lấy lúc chưa đăng nhập sẽ thiếu đúng những thông tin cần ở đây.
+    await loadCompetitionConfig(true);
+    const s = compConfig?.sheet || {};
+    const set = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.value = v ?? "";
+    };
+    set("compSheetUrl", s.url);
+    set("compSheetBaseUrl", s.public_base_url);
+    set("compSheetToken", s.token || (s.has_token ? "•••••• (cần quyền Admin để xem)" : ""));
+    set("compGidSales", (s.gid_map || {}).nhap_ban_hang);
+    set("compGidViolations", (s.gid_map || {}).nhap_vi_pham);
+    const enabled = document.getElementById("compSheetEnabled");
+    if (enabled) enabled.checked = !!s.enabled;
+    const link = document.getElementById("compSheetOpenLink");
+    if (link) {
+        link.href = s.url || (s.sheet_id ? `https://docs.google.com/spreadsheets/d/${s.sheet_id}/edit` : "#");
+        link.style.opacity = s.url || s.sheet_id ? "1" : "0.45";
+    }
+    renderCompSheetStatus(s);
+    await Promise.all([loadCompSheetInstructions(), loadCompSheetTabs()]);
+}
+
+function renderCompSheetStatus(s) {
+    const box = document.getElementById("compSheetStatus");
+    if (!box) return;
+    const bits = [];
+    if (s.last_pull_at) bits.push(`Kéo về lần cuối: ${esc(s.last_pull_at)}`);
+    if (s.last_pull_summary) bits.push(esc(s.last_pull_summary));
+    if (s.last_push_at) bits.push(`Sheet đọc lần cuối: ${esc(s.last_push_at)}`);
+    box.className = "comp-sync-status" + (s.enabled ? " is-ok" : "");
+    box.innerHTML = bits.length
+        ? bits.join(" · ")
+        : s.enabled
+          ? "Đã bật đồng bộ, chưa có lần trao đổi dữ liệu nào."
+          : "Chưa bật đồng bộ Google Sheet.";
+}
+async function loadCompSheetInstructions() {
+    const box = document.getElementById("compImportFormulas");
+    try {
+        const res = await authFetch("/api/competition/sheet/instructions");
+        if (!res.ok) {
+            if (box) {
+                box.innerHTML =
+                    '<div class="comp-empty">Cần đăng nhập Admin để xem công thức có kèm token.</div>';
+            }
+            return;
         }
+        const data = await res.json();
+        const note = document.getElementById("compSheetLocalNote");
+        const text = document.getElementById("compSheetLocalText");
+        if (note && text) {
+            if (data.local_warning) {
+                text.textContent = data.local_warning;
+                note.style.display = "";
+            } else {
+                note.style.display = "none";
+            }
+        }
+        if (box) {
+            box.innerHTML = (data.importdata || [])
+                .map(
+                    (it) => `<div class="comp-formula-row">
+                        <div class="comp-formula-tab">${esc(it.tab)}</div>
+                        <input type="text" class="input-field comp-formula-code" readonly value="${esc(it.formula)}">
+                        <button class="btn" onclick="compCopyValue(this.previousElementSibling)"><i class="fa-solid fa-copy"></i></button>
+                    </div>`,
+                )
+                .join("");
+        }
+    } catch (e) {
+        console.error("Lỗi tải hướng dẫn Sheet:", e);
+        if (box) box.innerHTML = '<div class="comp-empty">Không tải được hướng dẫn: ' + esc(e.message) + "</div>";
+    }
+}
+
+/** Sao chép nội dung một input (dùng cho công thức IMPORTDATA). */
+async function compCopyValue(input) {
+    if (!input) return;
+    try {
+        await navigator.clipboard.writeText(input.value);
+        showToast("Đã sao chép.", "success");
+    } catch (e) {
+        input.select();
+        showToast("Không tự sao chép được — hãy nhấn Ctrl+C.", "info");
+    }
+}
+async function loadCompSheetTabs() {
+    const body = document.getElementById("compSheetTabsBody");
+    if (!body) return;
+    try {
+        const res = await fetch("/api/competition/sheet/tabs");
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Không đọc được danh mục tab.");
+        body.innerHTML = (data.tabs || [])
+            .map((t) => {
+                const isInput = String(t.key).indexOf("nhap_") === 0;
+                return `<tr>
+                    <td><b>${esc(t.name)}</b>${isInput ? ' <span class="comp-badge-award">Bạn nhập tay</span>' : ""}</td>
+                    <td class="c comp-num">${compI(t.columns)}</td>
+                    <td class="c comp-num">${compI(t.rows)}</td>
+                    <td>${esc(t.note) || (isInput ? "Tab nhập liệu Sheet → App." : "App ghi ra, sẽ bị ghi đè mỗi lần đồng bộ.")}</td>
+                </tr>`;
+            })
+            .join("");
+    } catch (e) {
+        console.error("Lỗi tải danh mục tab:", e);
+        body.innerHTML = '<tr><td colspan="4" class="comp-empty">Không tải được danh mục tab.</td></tr>';
+    }
+}
+
+async function saveCompetitionSheetConfig() {
+    const payload = {
+        sheet: {
+            enabled: !!document.getElementById("compSheetEnabled")?.checked,
+            url: document.getElementById("compSheetUrl")?.value.trim() || "",
+            public_base_url: document.getElementById("compSheetBaseUrl")?.value.trim() || "",
+            gid_map: {
+                nhap_ban_hang: document.getElementById("compGidSales")?.value.trim() || "",
+                nhap_vi_pham: document.getElementById("compGidViolations")?.value.trim() || "",
+            },
+        },
+    };
+    try {
+        const res = await authFetch("/api/competition/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Lưu không thành công.");
+        compConfig = data.config;
+        showToast("Đã lưu kết nối Google Sheet.", "success");
+        loadCompetitionSheetPane();
+    } catch (e) {
+        console.error("Lỗi lưu kết nối Sheet:", e);
+        showToast("Không lưu được kết nối Sheet: " + e.message, "error");
+    }
+}
+async function copyCompetitionToken() {
+    const el = document.getElementById("compSheetToken");
+    if (!el || !el.value || el.value.indexOf("••") === 0) {
+        return showToast("Cần đăng nhập Admin để lấy token.", "error");
+    }
+    await compCopyValue(el);
+}
+
+async function rotateCompetitionToken() {
+    const msg =
+        "Đổi token đồng bộ?\n\n" +
+        "Mọi công thức IMPORTDATA và mã Apps Script đã dán vào Sheet sẽ NGỪNG hoạt động " +
+        "cho tới khi bạn dán lại bản mới.";
+    if (!confirm(msg)) return;
+    try {
+        const res = await authFetch("/api/competition/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sheet: { rotate_token: true } }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Không đổi được token.");
+        compConfig = data.config;
+        showToast("Đã đổi token. Hãy dán lại công thức / mã Apps Script vào Sheet.", "success");
+        const box = document.getElementById("compAppScriptBox");
+        if (box) box.value = "";
+        loadCompetitionSheetPane();
+    } catch (e) {
+        console.error("Lỗi đổi token:", e);
+        showToast("Không đổi được token: " + e.message, "error");
+    }
+}
+let compAppScriptBlobUrl = "";
+
+/**
+ * Lấy mã Apps Script (endpoint chỉ Admin, cần header Bearer nên không dùng
+ * được thẻ <a href> trực tiếp) rồi tạo Blob URL cho nút tải về.
+ */
+async function loadCompetitionAppScript() {
+    const box = document.getElementById("compAppScriptBox");
+    try {
+        const res = await authFetch("/api/competition/sheet/appscript");
+        if (!res.ok) throw new Error(res.status === 401 ? "Cần quyền Admin." : "HTTP " + res.status);
+        const code = await res.text();
+        if (box) box.value = code;
+        const link = document.getElementById("compAppScriptDownload");
+        if (link) {
+            if (compAppScriptBlobUrl) URL.revokeObjectURL(compAppScriptBlobUrl);
+            compAppScriptBlobUrl = URL.createObjectURL(new Blob([code], { type: "text/plain;charset=utf-8" }));
+            link.href = compAppScriptBlobUrl;
+            link.setAttribute("download", "CompetitionSync.gs");
+        }
+        showToast("Đã tạo mã Apps Script — mã này chứa token, đừng chia sẻ ra ngoài.", "success");
+    } catch (e) {
+        console.error("Lỗi tạo Apps Script:", e);
+        if (box) box.value = "";
+        showToast("Không tạo được mã: " + e.message, "error");
+    }
+}
+
+async function copyCompetitionAppScript() {
+    const box = document.getElementById("compAppScriptBox");
+    if (!box || !box.value.trim()) return showToast('Bấm "Tạo mã" trước đã.', "error");
+    await compCopyValue(box);
+}
+async function pullCompetitionSheet() {
+    const status = document.getElementById("compSheetStatus");
+    const payload = {
+        sheet_id: compConfig?.sheet?.sheet_id || "",
+        gid_sales: document.getElementById("compGidSales")?.value.trim() || "",
+        gid_violations: document.getElementById("compGidViolations")?.value.trim() || "",
+    };
+    if (status) {
+        status.className = "comp-sync-status";
+        status.textContent = "Đang đọc Google Sheet…";
+    }
+    try {
+        const res = await authFetch("/api/competition/sheet/pull", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Không kéo được dữ liệu.");
+        if (status) {
+            status.className = "comp-sync-status is-ok";
+            status.textContent = data.message;
+        }
+        showToast(data.message, "success");
+        compConfig = null;
+        await loadCompetitionStats(compViewWeek);
+    } catch (e) {
+        console.error("Lỗi kéo dữ liệu Sheet:", e);
+        if (status) {
+            status.className = "comp-sync-status is-bad";
+            status.textContent = e.message;
+        }
+        showToast("Không kéo được dữ liệu: " + e.message, "error");
     }
 }
 
 async function seedMockData() {
-    if (!confirm("Tạo dữ liệu mẫu sẽ thêm doanh thu giả lập và các lỗi vi phạm để kiểm thử bảng xếp hạng. Bạn có chắc chắn muốn thực hiện?")) return;
+    if (
+        !confirm(
+            "Tạo dữ liệu mẫu sẽ thêm doanh thu giả lập và các lỗi vi phạm để kiểm thử bảng xếp hạng. Bạn có chắc chắn muốn thực hiện?",
+        )
+    )
+        return;
     try {
         const res = await fetch("/api/competition/seed", { method: "POST" });
         const data = await res.json();
         if (data.success) {
-            alert(data.message);
-            const currentWeek = document.getElementById('compWeekSelect')?.value || 'TỔNG KẾT';
-            loadCompetitionStats(currentWeek);
+            showToast(data.message, "success");
+            loadCompetitionStats();
+        } else {
+            showToast(data.message || "Không tạo được dữ liệu mẫu.", "error");
         }
     } catch (e) {
         console.error("Lỗi khi tạo dữ liệu mẫu:", e);
-        alert("Có lỗi xảy ra khi tạo dữ liệu mẫu");
+        showToast("Có lỗi xảy ra khi tạo dữ liệu mẫu.", "error");
     }
+}
+
+function exportCompetitionExcel() {
+    window.open("/api/competition/export-excel", "_blank");
 }
 async function handleCheckoutLivePOS() {
     const keys = Object.keys(liveCart);

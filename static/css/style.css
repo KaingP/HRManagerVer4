@@ -4308,3 +4308,994 @@ body:not(.admin-mode) .admin-only-cell {
     display: none !important;
 }
 
+/* ==========================================================================
+   THI ĐUA PROJECT F&B
+   Giữ đúng quy ước màu của app: goldleaf = hạng nhất / được giao,
+   cinnabar = vi phạm / thiếu hụt, patina = đã chốt / đã xác nhận.
+   ========================================================================== */
+
+.comp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.comp-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.comp-actions .btn {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+
+.comp-week-select {
+    width: auto;
+    height: 34px;
+    font-size: 12.5px;
+}
+
+.comp-active-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--goldleaf-dk);
+    background: rgba(201, 162, 39, 0.12);
+    color: var(--goldleaf);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.comp-active-badge i {
+    font-size: 8px;
+}
+
+.comp-btn-lock {
+    border-color: var(--patina);
+    color: var(--patina-lt);
+}
+
+.comp-btn-danger {
+    border-color: var(--cinnabar);
+    color: var(--cinnabar-lt);
+}
+
+/* --- Dải chu kỳ 3 tuần --------------------------------------------------- */
+
+.comp-cycle {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    padding: 14px 16px 4px 16px;
+}
+
+.comp-cycle-card {
+    position: relative;
+    text-align: left;
+    padding: 11px 13px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius);
+    background: var(--lacquer-2);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.comp-cycle-card:hover {
+    border-color: var(--rule);
+    transform: translateY(-1px);
+}
+
+.comp-cycle-card.is-viewing {
+    border-color: var(--goldleaf);
+    background: rgba(201, 162, 39, 0.08);
+}
+
+.comp-cycle-card.is-locked {
+    border-left: 3px solid var(--patina);
+}
+
+.comp-cycle-card.is-active {
+    border-left: 3px solid var(--goldleaf);
+}
+
+.comp-cycle-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+
+.comp-cycle-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink-hi);
+}
+
+.comp-cycle-state {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--rule-soft);
+    color: var(--ink-dim);
+    white-space: nowrap;
+}
+
+.comp-cycle-state.st-locked {
+    color: var(--patina-lt);
+    border-color: var(--patina);
+}
+
+.comp-cycle-state.st-active {
+    color: var(--goldleaf);
+    border-color: var(--goldleaf-dk);
+}
+
+.comp-cycle-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    line-height: 1.7;
+}
+
+.comp-cycle-line b {
+    color: var(--ink);
+    font-weight: 600;
+    text-align: right;
+}
+
+.comp-cycle-empty {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    font-style: italic;
+}
+
+/* --- Ô chỉ số ------------------------------------------------------------ */
+
+.comp-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    padding: 12px 16px 16px 16px;
+}
+
+.comp-kpi {
+    padding: 10px 13px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius);
+    background: var(--lacquer-2);
+}
+
+.comp-kpi-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-faint);
+    margin-bottom: 4px;
+}
+
+.comp-kpi-value {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--ink-hi);
+    font-variant-numeric: tabular-nums;
+}
+
+.comp-kpi-value.is-warn {
+    color: var(--cinnabar-lt);
+}
+
+.comp-kpi-sub {
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-top: 2px;
+}
+
+/* --- Khung nội dung từng pane -------------------------------------------- */
+
+.comp-pane-inner {
+    padding: 0 16px 18px 16px;
+}
+
+.comp-block {
+    margin-top: 20px;
+}
+
+.comp-block-head {
+    margin-bottom: 12px;
+}
+
+.comp-block-head h4 {
+    margin: 0 0 3px 0;
+    font-size: 13.5px;
+    letter-spacing: 0.04em;
+    color: var(--ink-hi);
+}
+
+.comp-block-head p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-dim);
+}
+
+/* --- Thẻ giải cá nhân ---------------------------------------------------- */
+
+.comp-award-grid {
+    gap: 14px;
+}
+
+.comp-award-card {
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius);
+    background: var(--lacquer-2);
+    padding: 14px;
+}
+
+.comp-award-gold {
+    border-top: 2px solid var(--goldleaf);
+}
+
+.comp-award-patina {
+    border-top: 2px solid var(--patina-lt);
+}
+
+.comp-award-head {
+    margin-bottom: 12px;
+}
+
+.comp-award-head h4 {
+    margin: 0 0 3px 0;
+    font-size: 12.5px;
+    letter-spacing: 0.07em;
+    color: var(--ink-hi);
+}
+
+.comp-award-rule {
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    line-height: 1.6;
+}
+
+.comp-hero {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    border-radius: var(--radius);
+    border: 1px dashed var(--rule);
+    background: var(--lacquer-3);
+}
+
+.comp-hero.is-empty {
+    justify-content: center;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-style: italic;
+}
+
+.comp-hero-medal {
+    font-size: 26px;
+    line-height: 1;
+}
+
+.comp-hero-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.comp-hero-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink-hi);
+}
+
+.comp-hero-meta {
+    font-size: 11.5px;
+    color: var(--ink-dim);
+}
+
+.comp-hero-value {
+    text-align: right;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--goldleaf);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.comp-award-patina .comp-hero-value {
+    color: var(--patina-lt);
+}
+
+.comp-hero-unit {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--ink-faint);
+    letter-spacing: 0.05em;
+}
+
+.comp-rank-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.comp-rank {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 11px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-sm);
+    background: var(--lacquer-3);
+}
+
+.comp-rank-idx {
+    width: 22px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.comp-rank-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.comp-rank-dept {
+    font-size: 11px;
+    color: var(--ink-faint);
+}
+
+.comp-rank-value {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink-hi);
+    font-variant-numeric: tabular-nums;
+}
+
+.comp-rank-parts {
+    display: flex;
+    gap: 8px;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.comp-empty {
+    padding: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-style: italic;
+}
+
+/* --- Dải mẫu số chuẩn hoá ------------------------------------------------ */
+
+.comp-denoms {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius);
+    background: var(--lacquer-2);
+    font-size: 11.5px;
+    color: var(--ink-dim);
+}
+
+.comp-denom {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--lacquer-3);
+    border: 1px solid var(--rule-soft);
+}
+
+.comp-denom b {
+    color: var(--ink-hi);
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Bảng tính chi tiết -------------------------------------------------- */
+
+/* Bảng thi đua có tới 13 cột nên siết đệm ngang và cho tiêu đề xuống dòng,
+   đủ để cả bảng vừa khung ở màn hình laptop mà không phải cuộn ngang. */
+.comp-table th,
+.comp-table td {
+    padding: 9px 9px;
+}
+
+.comp-table th {
+    white-space: normal;
+    line-height: 1.25;
+}
+
+.comp-table td.comp-num {
+    white-space: nowrap;
+}
+
+/* Tên Ban dài ("Ban Tài chính chiến lược") sẽ bẻ 4 dòng làm hàng cao gấp đôi:
+   cắt bớt và để nguyên tên đầy đủ trong tooltip. */
+.comp-table td.comp-cell-dept {
+    max-width: 104px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Danh sách thành viên trong ca được phép xuống dòng nhưng không được chiếm
+   hết bảng — giới hạn bề ngang và giữ tên đầy đủ trong tooltip. */
+.comp-table td.comp-cell-members {
+    max-width: 210px;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.comp-table th.c,
+.comp-table td.c {
+    text-align: center;
+}
+
+.comp-table tbody tr.comp-row-clickable {
+    cursor: pointer;
+}
+
+.comp-table tbody tr.comp-row-clickable:hover {
+    background: rgba(201, 162, 39, 0.07);
+}
+
+.comp-table td.comp-score-total {
+    font-weight: 700;
+    color: var(--ink-hi);
+}
+
+/* Cột TỔNG là con số HR cần nhất, ghim bên phải để luôn thấy dù bảng phải
+   cuộn ngang trên màn hình hẹp. Nền phải đục vì nội dung trôi bên dưới. */
+.comp-table-score thead th:last-child {
+    right: 0;
+    z-index: 3;
+    background: var(--lacquer-3);
+    border-left: 1px solid var(--rule);
+}
+
+.comp-table-score thead th:last-child,
+.comp-table-score td.comp-score-total {
+    position: sticky;
+}
+
+.comp-table-score td.comp-score-total {
+    right: 0;
+    z-index: 1;
+    background: var(--lacquer-2);
+    border-left: 1px solid var(--rule);
+}
+
+.comp-table-score tbody tr.comp-row-clickable:hover td.comp-score-total {
+    background:
+        linear-gradient(rgba(201, 162, 39, 0.07), rgba(201, 162, 39, 0.07)),
+        var(--lacquer-2);
+}
+
+.comp-table .comp-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.comp-rank-medal {
+    font-weight: 700;
+}
+
+.comp-badge-award {
+    display: inline-block;
+    margin-left: 5px;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(201, 162, 39, 0.16);
+    color: var(--goldleaf);
+    border: 1px solid var(--goldleaf-dk);
+    white-space: nowrap;
+}
+
+.comp-viol-count {
+    color: var(--cinnabar-lt);
+    font-weight: 600;
+}
+
+.comp-detail-row > td {
+    padding: 0 !important;
+    background: var(--lacquer-3);
+}
+
+.comp-detail {
+    padding: 12px 14px;
+    border-top: 1px solid var(--rule-soft);
+}
+
+.comp-detail h6 {
+    margin: 0 0 8px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-faint);
+}
+
+.comp-formula {
+    margin-bottom: 9px;
+    font-size: 12px;
+    color: var(--ink);
+    line-height: 1.6;
+}
+
+.comp-formula code {
+    display: block;
+    margin-top: 3px;
+    padding: 6px 9px;
+    border-radius: 3px;
+    background: var(--lacquer);
+    border: 1px solid var(--rule-soft);
+    color: var(--ink-hi);
+    font-size: 11.5px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.comp-formula-label {
+    font-weight: 600;
+    color: var(--ink-hi);
+}
+
+.comp-viol-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.comp-viol-tag {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: rgba(183, 51, 42, 0.14);
+    border: 1px solid var(--cinnabar);
+    color: var(--cinnabar-lt);
+}
+
+/* --- Bục vinh danh ------------------------------------------------------- */
+
+.comp-podium {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+.comp-podium-card {
+    padding: 13px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius);
+    background: var(--lacquer-2);
+}
+
+.comp-podium-card.p1 {
+    border-top: 2px solid var(--goldleaf);
+}
+
+.comp-podium-card.p2 {
+    border-top: 2px solid #9fb0b5;
+}
+
+.comp-podium-card.p3 {
+    border-top: 2px solid #a9743f;
+}
+
+.comp-podium-place {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    margin-bottom: 5px;
+}
+
+.comp-podium-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-hi);
+    margin-bottom: 3px;
+}
+
+.comp-podium-sub {
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    margin-bottom: 8px;
+    line-height: 1.5;
+}
+
+.comp-podium-score {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--goldleaf);
+    font-variant-numeric: tabular-nums;
+}
+
+.comp-podium-card.p2 .comp-podium-score {
+    color: #c3d0d4;
+}
+
+.comp-podium-card.p3 .comp-podium-score {
+    color: #c9985f;
+}
+
+.comp-podium-break {
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Cấu hình quy chế ---------------------------------------------------- */
+
+.comp-config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+}
+
+.comp-config-card {
+    padding: 14px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius);
+    background: var(--lacquer-2);
+}
+
+.comp-config-card h5 {
+    margin: 0 0 12px 0;
+    font-size: 12.5px;
+    letter-spacing: 0.05em;
+    color: var(--ink-hi);
+}
+
+.comp-field {
+    display: block;
+    margin-bottom: 11px;
+}
+
+.comp-field > span {
+    display: block;
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    margin-bottom: 4px;
+}
+
+.comp-field .input-field {
+    width: 100%;
+    height: 34px;
+    font-size: 12.5px;
+}
+
+.comp-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--ink);
+    cursor: pointer;
+    line-height: 1.5;
+}
+
+.comp-check input {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.comp-penalty-table input {
+    width: 76px;
+    height: 28px;
+    padding: 0 7px;
+    font-size: 12px;
+    text-align: center;
+}
+
+.comp-add-row {
+    display: flex;
+    gap: 7px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.comp-add-row .input-field {
+    flex: 1;
+    min-width: 110px;
+    height: 32px;
+    font-size: 12px;
+}
+
+.comp-add-row .comp-narrow {
+    flex: 0 0 96px;
+    min-width: 96px;
+}
+
+.comp-weight-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 9px;
+    margin-bottom: 10px;
+}
+
+.comp-weight-item > span {
+    display: block;
+    font-size: 11px;
+    color: var(--ink-dim);
+    margin-bottom: 3px;
+}
+
+.comp-weight-item input {
+    width: 100%;
+    height: 31px;
+    padding: 0 8px;
+    font-size: 12.5px;
+    text-align: center;
+}
+
+.comp-weight-note {
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    margin-bottom: 12px;
+    line-height: 1.6;
+}
+
+.comp-weight-note .is-bad {
+    color: var(--cinnabar-lt);
+    font-weight: 600;
+}
+
+.comp-weight-note .is-ok {
+    color: var(--patina-lt);
+    font-weight: 600;
+}
+
+.comp-lock-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.comp-lock-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-sm);
+    background: var(--lacquer-3);
+    font-size: 12px;
+    color: var(--ink);
+}
+
+.comp-lock-item .btn {
+    height: 27px;
+    padding: 0 9px;
+    font-size: 11px;
+}
+
+.comp-save-bar {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+.comp-save-bar-tight {
+    margin-top: 9px;
+}
+
+.comp-save-hint {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+}
+
+/* --- Google Sheet -------------------------------------------------------- */
+
+.comp-warn {
+    display: flex;
+    gap: 10px;
+    padding: 11px 13px;
+    margin-bottom: 14px;
+    border: 1px solid var(--cinnabar);
+    border-left-width: 3px;
+    border-radius: var(--radius);
+    background: rgba(183, 51, 42, 0.08);
+    font-size: 12px;
+    color: var(--ink);
+    line-height: 1.6;
+}
+
+.comp-warn i {
+    color: var(--cinnabar-lt);
+    margin-top: 2px;
+}
+
+.comp-warn-info {
+    border-color: var(--goldleaf-dk);
+    background: rgba(201, 162, 39, 0.08);
+}
+
+.comp-warn-info i {
+    color: var(--goldleaf);
+}
+
+.comp-token-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 7px;
+    flex-wrap: wrap;
+    margin-bottom: 11px;
+}
+
+.comp-token-row .btn {
+    height: 34px;
+    padding: 0 11px;
+    font-size: 12px;
+}
+
+.comp-grow {
+    flex: 1;
+    min-width: 180px;
+    margin-bottom: 0;
+}
+
+.comp-sync-option {
+    padding: 11px 0;
+    border-top: 1px solid var(--rule-soft);
+}
+
+.comp-sync-option:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.comp-sync-option strong {
+    display: block;
+    font-size: 12.5px;
+    color: var(--ink-hi);
+    margin-bottom: 3px;
+}
+
+.comp-sync-option p {
+    margin: 0 0 8px 0;
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    line-height: 1.6;
+}
+
+.comp-formula-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.comp-formula-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 9px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-sm);
+    background: var(--lacquer-3);
+}
+
+.comp-formula-tab {
+    flex: 0 0 150px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ink-hi);
+}
+
+.comp-formula-code {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.comp-formula-row .btn {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.comp-code {
+    width: 100%;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    resize: vertical;
+    white-space: pre;
+}
+
+.comp-gid-row {
+    display: flex;
+    gap: 9px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.comp-gid-row .comp-field {
+    flex: 1;
+    min-width: 130px;
+    margin-bottom: 0;
+}
+
+.comp-gid-row .btn {
+    height: 34px;
+    font-size: 12px;
+}
+
+.comp-sync-status {
+    margin-top: 12px;
+    padding: 9px 11px;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--radius-sm);
+    background: var(--lacquer-3);
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    line-height: 1.7;
+    min-height: 34px;
+}
+
+.comp-sync-status .is-ok {
+    color: var(--patina-lt);
+}
+
+.comp-sync-status .is-bad {
+    color: var(--cinnabar-lt);
+}
+
+@media (max-width: 900px) {
+    .comp-header {
+        flex-direction: column;
+    }
+    .comp-actions {
+        width: 100%;
+    }
+    .comp-formula-tab {
+        flex-basis: 100px;
+    }
+}
+

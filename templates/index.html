@@ -2324,7 +2324,7 @@
                                 <p style="margin: 0; color: var(--ink-dim); font-size: 12.5px;">Chi tiết các đơn hàng thanh toán riêng cho ca trực đang chọn, tự động gộp theo đơn với phân loại mặt hàng trực quan</p>
                             </div>
                             <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                                <span id="liveShiftRevSummary" style="font-size: 12.5px; font-weight: 700; color: var(--goldleaf); background: rgba(234, 179, 8, 0.12); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.25);">0 ₫</span>
+                                <span id="liveShiftRevSummaryHeader" style="font-size: 12.5px; font-weight: 700; color: var(--goldleaf); background: rgba(234, 179, 8, 0.12); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.25);">0 ₫</span>
                             </div>
                         </div>
                         <div
@@ -2678,84 +2678,116 @@
                 <!-- TAB THI ĐUA -->
                 <section id="tab-competition" class="tab-content">
                     <div class="glass-card">
-                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                        <div class="card-header comp-header">
                             <div>
-                                <h3><i class="fa-solid fa-trophy" style="color: #ff9800;"></i> Bảng Vàng Thi Đua</h3>
-                                <p>Kết quả thi đua tổng hợp cá nhân và tập thể</p>
+                                <h3><i class="fa-solid fa-trophy" style="color: var(--goldleaf);"></i> Thi Đua Project F&amp;B</h3>
+                                <p>Chu kỳ 3 tuần · 5 giải tuần · 3 giải tổng kết · mọi điểm số đều bấm xem được công thức</p>
                             </div>
-                            <div style="display: flex; gap: 8px;">
-                                <select id="compWeekSelect" class="input-field" style="width: auto; padding-right: 28px; height: 36px;" onchange="loadCompetitionStats(this.value)">
-                                    <option value="TỔNG KẾT">Tổng Kết 3 Tuần</option>
-                                    <option value="Tuần 1">Tuần 1</option>
-                                    <option value="Tuần 2">Tuần 2</option>
-                                    <option value="Tuần 3">Tuần 3</option>
-                                </select>
-                                <button class="btn" onclick="seedMockData()" style="color: var(--goldleaf); border-color: var(--goldleaf);"><i class="fa-solid fa-magic"></i> Dữ liệu mẫu</button>
-                                <button class="btn btn-primary" onclick="loadCompetitionStats(document.getElementById('compWeekSelect').value)">
-                                    <i class="fa-solid fa-arrows-rotate"></i> Làm mới
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Reputation Rules Banner -->
-                        <div style="margin: 12px 16px 16px 16px; padding: 10px 14px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px;">
-                            <div style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink-hi);">
-                                <i class="fa-solid fa-shield-heart" style="color: #3b82f6; font-size: 14px;"></i>
-                                <span>Cơ chế Uy Tín: Khởi điểm <strong style="color: #34d399;">100đ</strong>/thành viên</span>
-                            </div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 8px; font-size: 11.5px;">
-                                <span class="tag" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">⏰ Đi trễ: <strong>-3đ</strong></span>
-                                <span class="tag" style="background: rgba(234, 88, 12, 0.15); color: #fb923c; border: 1px solid rgba(234, 88, 12, 0.3);">📱 Mất tập trung: <strong>-5đ</strong></span>
-                                <span class="tag" style="background: rgba(225, 29, 72, 0.15); color: #fda4af; border: 1px solid rgba(225, 29, 72, 0.3);">🚶 Bỏ quầy: <strong>-5đ</strong></span>
-                                <span class="tag" style="background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3);">🚨 Vắng không phép: <strong>-10đ</strong></span>
+                            <div class="comp-actions">
+                                <span class="comp-active-badge" id="compActiveWeekBadge" title="Mọi giao dịch &amp; vi phạm mới sẽ được gắn vào tuần này">
+                                    <i class="fa-solid fa-circle-dot"></i> <span id="compActiveWeekText">Tuần 1</span>
+                                </span>
+                                <select id="compWeekSelect" class="input-field comp-week-select" onchange="loadCompetitionStats(this.value)"></select>
+                                <button class="btn" onclick="loadCompetitionStats()" title="Tải lại số liệu"><i class="fa-solid fa-arrows-rotate"></i> Làm mới</button>
+                                <button class="btn comp-btn-lock" id="compCloseWeekBtn" onclick="closeCompetitionWeek()"><i class="fa-solid fa-lock"></i> Chốt tuần</button>
+                                <button class="btn" onclick="exportCompetitionExcel()"><i class="fa-solid fa-file-excel"></i> Xuất Excel</button>
+                                <button class="btn" onclick="openCompetitionPane('comp-sheet')"><i class="fa-solid fa-table"></i> Google Sheet</button>
+                                <button class="btn comp-btn-seed" onclick="seedMockData()"><i class="fa-solid fa-magic"></i> Dữ liệu mẫu</button>
                             </div>
                         </div>
 
-                        <!-- Cấp bậc tab -->
-                        <div class="preview-tabs-nav" id="comp-tabs" style="margin-bottom: 20px;">
-                            <button class="p-tab-btn active" data-target="comp-canhan">Cá Nhân</button>
-                            <button class="p-tab-btn" data-target="comp-nhom">Nhóm Trực</button>
-                            <button class="p-tab-btn" data-target="comp-tapthe">Tập Thể Ban</button>
+                        <!-- Dải chu kỳ 3 tuần: bấm để xem từng tuần -->
+                        <div class="comp-cycle" id="compCycleStrip"></div>
+
+                        <!-- Chỉ số nền của kỳ đang xem -->
+                        <div class="comp-kpi-row" id="compKpiRow"></div>
+
+                        <div class="preview-tabs-nav" id="comp-tabs" style="margin-bottom: 18px;">
+                            <button class="p-tab-btn active" data-target="comp-canhan"><i class="fa-solid fa-user"></i> Cá Nhân</button>
+                            <button class="p-tab-btn" data-target="comp-nhom"><i class="fa-solid fa-users"></i> Nhóm Trực Ca</button>
+                            <button class="p-tab-btn" data-target="comp-tapthe"><i class="fa-solid fa-building"></i> Tập Thể Ban</button>
+                            <button class="p-tab-btn" data-target="comp-quyche"><i class="fa-solid fa-scale-balanced"></i> Quy Chế &amp; Công Thức</button>
+                            <button class="p-tab-btn" data-target="comp-sheet"><i class="fa-solid fa-cloud-arrow-up"></i> Google Sheet</button>
                         </div>
 
-                        <!-- Nội dung Cá nhân -->
+                        <!-- ======================= CÁ NHÂN ======================= -->
                         <div id="comp-canhan" class="comp-pane">
-                            <div class="grid-2-col" style="padding: 0 16px 16px 16px;">
-                                <!-- Best Seller -->
-                                <div class="glass-card" style="background: transparent; border: 0;">
-                                    <div class="card-header" style="margin-bottom: 15px;">
-                                        <h3 style="color: #ff9800; font-size: 1.1rem;"><i class="fa-solid fa-fire"></i> BEST SELLER</h3>
-                                        <p style="font-size: 0.85rem; color: var(--ink-dim);">Vinh danh thành viên có sản lượng bán hàng cá nhân cao nhất.</p>
+                            <div class="comp-pane-inner">
+                                <div class="grid-2-col comp-award-grid">
+                                    <div class="comp-award-card comp-award-gold">
+                                        <div class="comp-award-head">
+                                            <h4><i class="fa-solid fa-fire"></i> GIẢI A · BEST SELLER</h4>
+                                            <span class="comp-award-rule" id="compRuleBestSeller">Sản lượng bán hàng cá nhân tuyệt đối cao nhất</span>
+                                        </div>
+                                        <div id="compHeroBestSeller" class="comp-hero"></div>
+                                        <div id="compListBestSeller" class="comp-rank-list"></div>
                                     </div>
-                                    <div id="compListBestSeller" style="display: flex; flex-direction: column; gap: 10px;"></div>
+                                    <div class="comp-award-card comp-award-patina">
+                                        <div class="comp-award-head">
+                                            <h4><i class="fa-solid fa-star"></i> GIẢI B · BEST ALL-ROUNDER</h4>
+                                            <span class="comp-award-rule" id="compRuleAllRounder">Sản lượng 40% + Năng suất 40% + Uy tín 20%</span>
+                                        </div>
+                                        <div id="compHeroAllRounder" class="comp-hero"></div>
+                                        <div id="compListAllRounder" class="comp-rank-list"></div>
+                                    </div>
                                 </div>
-                                <!-- All Rounder -->
-                                <div class="glass-card" style="background: transparent; border: 0;">
-                                    <div class="card-header" style="margin-bottom: 15px;">
-                                        <h3 style="color: #4caf50; font-size: 1.1rem;"><i class="fa-solid fa-star"></i> ALL-ROUNDER AWARD</h3>
-                                        <p style="font-size: 0.85rem; color: var(--ink-dim);">Tổng hợp Sản lượng (40%) + Hiệu suất (40%) + Uy tín (20%).</p>
+
+                                <div class="comp-denoms" id="compIndDenoms"></div>
+
+                                <div class="comp-block">
+                                    <div class="comp-block-head">
+                                        <h4><i class="fa-solid fa-table-list"></i> Bảng tính chi tiết từng thành viên</h4>
+                                        <p>Bấm vào một dòng để xem công thức đã thay số của chính thành viên đó.</p>
                                     </div>
-                                    <div id="compListAllRounder" style="display: flex; flex-direction: column; gap: 10px;"></div>
+                                    <div class="table-responsive">
+                                        <table class="data-table comp-table comp-table-score">
+                                            <thead>
+                                                <tr>
+                                                    <th class="c">Hạng</th>
+                                                    <th>Thành viên</th>
+                                                    <th>Ban</th>
+                                                    <th class="c" title="Sản lượng cá nhân tuyệt đối — xét giải A">SL cá nhân</th>
+                                                    <th class="c" title="Tổng sản lượng quy đổi các ca trong kỳ">SL quy đổi</th>
+                                                    <th class="c">Số ca</th>
+                                                    <th class="c" title="SL quy đổi / số ca">Năng suất</th>
+                                                    <th class="c">Vi phạm</th>
+                                                    <th class="c">Uy tín</th>
+                                                    <th class="c">Điểm SL</th>
+                                                    <th class="c">Điểm NS</th>
+                                                    <th class="c">Điểm UT</th>
+                                                    <th class="c">Tổng</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="compTableIndividual"></tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Nội dung Nhóm -->
-                        <div id="comp-nhom" class="comp-pane" style="display: none; padding: 0 16px 16px 16px;">
-                            <div class="glass-card" style="background: transparent; border: 0;">
-                                <div class="card-header" style="margin-bottom: 15px;">
-                                    <h3 style="color: #2196f3; font-size: 1.1rem;"><i class="fa-solid fa-users"></i> GIẢI NHÓM TRỰC CA</h3>
-                                    <p style="font-size: 0.85rem; color: var(--ink-dim);">Đánh giá theo Ca trực: Bán tốt (70%) + Vận hành tốt (Uy tín 30%).</p>
+                        <!-- ======================= NHÓM TRỰC CA ======================= -->
+                        <div id="comp-nhom" class="comp-pane" style="display: none;">
+                            <div class="comp-pane-inner">
+                                <div class="comp-block-head">
+                                    <h4><i class="fa-solid fa-users"></i> GIẢI C · NHÓM TRỰC CA XUẤT SẮC (Nhất · Nhì · Ba)</h4>
+                                    <p>Mỗi ca được xét riêng, không cộng dồn giữa các ca. Điểm nhóm = Sản lượng 70% + Uy tín 30%.</p>
                                 </div>
+                                <div class="comp-podium" id="compGroupPodium"></div>
+                                <div class="comp-denoms" id="compGroupDenoms"></div>
                                 <div class="table-responsive">
-                                    <table class="data-table">
+                                    <table class="data-table comp-table comp-table-score">
                                         <thead>
                                             <tr>
-                                                <th style="text-align: center; width: 60px;">Hạng</th>
-                                                <th>Mã Ca</th>
-                                                <th style="text-align: center;">Sản Lượng Nhóm</th>
-                                                <th style="text-align: center;">Uy Tín Nhóm</th>
-                                                <th style="text-align: center;">Tổng Điểm</th>
+                                                <th class="c">Hạng</th>
+                                                <th>Ca trực</th>
+                                                <th>Kênh</th>
+                                                <th>Thành viên</th>
+                                                <th class="c">SL nhóm</th>
+                                                <th class="c" title="SL nhóm / số thành viên">SL quy đổi/người</th>
+                                                <th class="c">Uy tín TB</th>
+                                                <th class="c">Điểm SL (70)</th>
+                                                <th class="c">Điểm UT (30)</th>
+                                                <th class="c">Tổng</th>
                                             </tr>
                                         </thead>
                                         <tbody id="compTableShift"></tbody>
@@ -2764,23 +2796,31 @@
                             </div>
                         </div>
 
-                        <!-- Nội dung Tập thể -->
-                        <div id="comp-tapthe" class="comp-pane" style="display: none; padding: 0 16px 16px 16px;">
-                            <div class="glass-card" style="background: transparent; border: 0;">
-                                <div class="card-header" style="margin-bottom: 15px;">
-                                    <h3 style="color: #9c27b0; font-size: 1.1rem;"><i class="fa-solid fa-building"></i> TẬP THỂ XUẤT SẮC THEO BAN</h3>
-                                    <p style="font-size: 0.85rem; color: var(--ink-dim);">Đóng góp bình quân (40%) + Hiệu suất bình quân (40%) + Uy tín bình quân (20%).</p>
+                        <!-- ======================= TẬP THỂ BAN ======================= -->
+                        <div id="comp-tapthe" class="comp-pane" style="display: none;">
+                            <div class="comp-pane-inner">
+                                <div class="comp-block-head">
+                                    <h4><i class="fa-solid fa-building"></i> GIẢI TẬP THỂ XUẤT SẮC THEO BAN</h4>
+                                    <p>Tính trên số bình quân để Ban ít người không bị bất lợi: Đóng góp BQ 40% + Hiệu suất BQ 40% + Uy tín BQ 20%.</p>
                                 </div>
+                                <div class="comp-podium" id="compDeptPodium"></div>
+                                <div class="comp-denoms" id="compDeptDenoms"></div>
                                 <div class="table-responsive">
-                                    <table class="data-table">
+                                    <table class="data-table comp-table comp-table-score">
                                         <thead>
                                             <tr>
-                                                <th style="text-align: center; width: 60px;">Hạng</th>
+                                                <th class="c">Hạng</th>
                                                 <th>Tên Ban</th>
-                                                <th style="text-align: center;">Đóng Góp BQ</th>
-                                                <th style="text-align: center;">Hiệu Suất BQ</th>
-                                                <th style="text-align: center;">Uy Tín BQ</th>
-                                                <th style="text-align: center;">Tổng Điểm</th>
+                                                <th class="c" title="Số thành viên thực sự có ca trong kỳ">Người tham gia</th>
+                                                <th class="c">Tổng SL quy đổi</th>
+                                                <th class="c">Tổng ca</th>
+                                                <th class="c" title="Tổng SL quy đổi / số người tham gia">Đóng góp BQ</th>
+                                                <th class="c" title="Tổng SL quy đổi / tổng số ca">Hiệu suất BQ</th>
+                                                <th class="c">Uy tín BQ</th>
+                                                <th class="c">Điểm ĐG (40)</th>
+                                                <th class="c">Điểm HS (40)</th>
+                                                <th class="c">Điểm UT (20)</th>
+                                                <th class="c">Tổng</th>
                                             </tr>
                                         </thead>
                                         <tbody id="compTableDept"></tbody>
@@ -2788,6 +2828,168 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- ======================= QUY CHẾ & CÔNG THỨC ======================= -->
+                        <div id="comp-quyche" class="comp-pane" style="display: none;">
+                            <div class="comp-pane-inner">
+                                <div class="comp-block-head">
+                                    <h4><i class="fa-solid fa-scale-balanced"></i> Quy chế đang áp dụng</h4>
+                                    <p>Bảng dưới đây sinh trực tiếp từ cấu hình đang chạy — sửa ở đây là đổi luôn cách tính điểm, Excel và Google Sheet.</p>
+                                </div>
+
+                                <div class="comp-config-grid">
+                                    <div class="comp-config-card">
+                                        <h5><i class="fa-solid fa-shield-heart"></i> Điểm uy tín &amp; điểm trừ</h5>
+                                        <label class="comp-field">
+                                            <span>Điểm uy tín khởi điểm</span>
+                                            <input type="number" id="compCfgBaseRep" class="input-field" min="1" step="1">
+                                        </label>
+                                        <label class="comp-check">
+                                            <input type="checkbox" id="compCfgExcludeAbsent">
+                                            <span>Không tính ca cho thành viên vắng ca đó (mẫu số chia sản lượng chính xác hơn)</span>
+                                        </label>
+                                        <div class="table-responsive">
+                                            <table class="data-table comp-table comp-penalty-table">
+                                                <thead>
+                                                    <tr><th>Loại vi phạm</th><th class="c">Điểm trừ</th><th class="c">Tính vắng ca</th><th class="c"></th></tr>
+                                                </thead>
+                                                <tbody id="compPenaltyBody"></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="comp-add-row">
+                                            <input type="text" id="compNewPenaltyType" class="input-field" placeholder="Tên loại vi phạm mới">
+                                            <input type="number" id="compNewPenaltyValue" class="input-field comp-narrow" placeholder="Điểm trừ" min="0" step="1">
+                                            <button class="btn" onclick="addCompetitionPenalty()"><i class="fa-solid fa-plus"></i> Thêm</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="comp-config-card">
+                                        <h5><i class="fa-solid fa-percent"></i> Trọng số các hạng mục</h5>
+                                        <div class="comp-weight-grid" id="compWeightGrid"></div>
+                                        <div class="comp-weight-note" id="compWeightNote"></div>
+                                        <label class="comp-field">
+                                            <span>Tuần đang ghi nhận (mọi bản ghi mới gắn vào tuần này)</span>
+                                            <select id="compCfgActiveWeek" class="input-field"></select>
+                                        </label>
+                                        <div class="comp-lock-list" id="compLockList"></div>
+                                    </div>
+                                </div>
+
+                                <div class="comp-save-bar">
+                                    <button class="btn btn-primary" onclick="saveCompetitionConfig()"><i class="fa-solid fa-floppy-disk"></i> Lưu quy chế</button>
+                                    <button class="btn" onclick="loadCompetitionConfig(true)"><i class="fa-solid fa-rotate-left"></i> Hoàn tác thay đổi</button>
+                                    <span class="comp-save-hint">Cần quyền Admin. Đổi quy chế sẽ tính lại toàn bộ bảng xếp hạng của cả 3 tuần.</span>
+                                </div>
+
+                                <div class="comp-block">
+                                    <div class="comp-block-head">
+                                        <h4><i class="fa-solid fa-square-root-variable"></i> Công thức đầy đủ</h4>
+                                        <p>Đúng bằng công thức mà máy đang chạy, không phải bản mô tả viết tay.</p>
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="data-table comp-table">
+                                            <thead><tr><th>Hạng mục</th><th>Giá trị</th><th>Diễn giải</th></tr></thead>
+                                            <tbody id="compTableFormula"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- ======================= GOOGLE SHEET ======================= -->
+                        <div id="comp-sheet" class="comp-pane" style="display: none;">
+                            <div class="comp-pane-inner">
+                                <div class="comp-block-head">
+                                    <h4><i class="fa-solid fa-cloud-arrow-up"></i> Đồng bộ Google Sheet</h4>
+                                    <p>App là nơi tính điểm, Sheet là nơi xem &amp; nhập liệu. Hai chiều dùng chung một bộ công thức nên số liệu luôn khớp nhau.</p>
+                                </div>
+
+                                <div class="comp-warn" id="compSheetSecurityNote">
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                    <div>
+                                        <strong>Lưu ý bảo mật:</strong> các đường dẫn đồng bộ là địa chỉ công khai, chỉ được bảo vệ bằng token bí mật.
+                                        Ai có token là đọc/ghi được số liệu thi đua — chỉ dán vào Google Sheet của bạn, và bấm <em>Đổi token</em> nếu nghi ngờ bị lộ.
+                                        Bỏ tick <em>Bật đồng bộ Google Sheet</em> là đóng hẳn các đường dẫn này lại (token cũng bị từ chối).
+                                    </div>
+                                </div>
+                                <div class="comp-warn comp-warn-info" id="compSheetLocalNote" style="display: none;">
+                                    <i class="fa-solid fa-circle-info"></i>
+                                    <div id="compSheetLocalText"></div>
+                                </div>
+
+                                <div class="comp-config-grid">
+                                    <div class="comp-config-card">
+                                        <h5><i class="fa-solid fa-link"></i> Bước 1 · Kết nối Sheet</h5>
+                                        <label class="comp-field">
+                                            <span>Link Google Sheet của bạn</span>
+                                            <input type="text" id="compSheetUrl" class="input-field" placeholder="https://docs.google.com/spreadsheets/d/..../edit">
+                                        </label>
+                                        <label class="comp-field">
+                                            <span>URL công khai của app (để Google gọi về được)</span>
+                                            <input type="text" id="compSheetBaseUrl" class="input-field" placeholder="https://ten-app-cua-ban.com">
+                                        </label>
+                                        <div class="comp-token-row">
+                                            <label class="comp-field comp-grow">
+                                                <span>Token đồng bộ</span>
+                                                <input type="text" id="compSheetToken" class="input-field" readonly>
+                                            </label>
+                                            <button class="btn" onclick="copyCompetitionToken()"><i class="fa-solid fa-copy"></i> Sao chép</button>
+                                            <button class="btn comp-btn-danger" onclick="rotateCompetitionToken()"><i class="fa-solid fa-key"></i> Đổi token</button>
+                                        </div>
+                                        <label class="comp-check">
+                                            <input type="checkbox" id="compSheetEnabled">
+                                            <span>Bật đồng bộ Google Sheet</span>
+                                        </label>
+                                        <div class="comp-save-bar comp-save-bar-tight">
+                                            <button class="btn btn-primary" onclick="saveCompetitionSheetConfig()"><i class="fa-solid fa-floppy-disk"></i> Lưu kết nối</button>
+                                            <a class="btn" id="compSheetOpenLink" href="#" target="_blank" rel="noopener"><i class="fa-solid fa-arrow-up-right-from-square"></i> Mở Sheet</a>
+                                        </div>
+                                    </div>
+
+                                    <div class="comp-config-card">
+                                        <h5><i class="fa-solid fa-right-left"></i> Bước 2 · Chọn cách đồng bộ</h5>
+                                        <div class="comp-sync-option">
+                                            <strong>Cách A — Dán công thức (nhanh nhất, một chiều App → Sheet)</strong>
+                                            <p>Mỗi tab dán một dòng <code>IMPORTDATA</code>, Google tự làm mới. Không cần cài gì thêm.</p>
+                                            <div id="compImportFormulas" class="comp-formula-list"></div>
+                                        </div>
+                                        <div class="comp-sync-option">
+                                            <strong>Cách B — Apps Script (hai chiều, có menu trong Sheet)</strong>
+                                            <p>Mở Sheet → Extensions → Apps Script → dán toàn bộ đoạn dưới → Save → tải lại Sheet.</p>
+                                            <div class="comp-save-bar comp-save-bar-tight">
+                                                <button class="btn" onclick="loadCompetitionAppScript()"><i class="fa-solid fa-code"></i> Tạo mã</button>
+                                                <button class="btn" onclick="copyCompetitionAppScript()"><i class="fa-solid fa-copy"></i> Sao chép mã</button>
+                                                <a class="btn" id="compAppScriptDownload" href="#"><i class="fa-solid fa-download"></i> Tải .gs</a>
+                                            </div>
+                                            <textarea id="compAppScriptBox" class="input-field comp-code" rows="10" readonly placeholder="Bấm “Tạo mã” để sinh đoạn script đã điền sẵn địa chỉ và token."></textarea>
+                                        </div>
+                                        <div class="comp-sync-option">
+                                            <strong>Cách C — App tự đọc Sheet (chiều Sheet → App)</strong>
+                                            <p>Chia sẻ Sheet ở chế độ <em>Anyone with the link</em>, điền gid của 2 tab nhập liệu rồi bấm kéo dữ liệu về.</p>
+                                            <div class="comp-gid-row">
+                                                <label class="comp-field"><span>gid tab NHAP_BAN_HANG</span><input type="text" id="compGidSales" class="input-field" placeholder="0"></label>
+                                                <label class="comp-field"><span>gid tab NHAP_VI_PHAM</span><input type="text" id="compGidViolations" class="input-field" placeholder="123456"></label>
+                                                <button class="btn btn-primary" onclick="pullCompetitionSheet()"><i class="fa-solid fa-cloud-arrow-down"></i> Kéo dữ liệu về app</button>
+                                            </div>
+                                        </div>
+                                        <div class="comp-sync-status" id="compSheetStatus"></div>
+                                    </div>
+                                </div>
+
+                                <div class="comp-block">
+                                    <div class="comp-block-head">
+                                        <h4><i class="fa-solid fa-list-check"></i> Các tab sẽ có trong Sheet</h4>
+                                        <p>8 tab do app ghi ra và 2 tab để bạn nhập tay.</p>
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="data-table comp-table">
+                                            <thead><tr><th>Tab</th><th class="c">Số cột</th><th class="c">Số dòng</th><th>Nội dung</th></tr></thead>
+                                            <tbody id="compSheetTabsBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+
                     </div>
                 </section>
             </main>

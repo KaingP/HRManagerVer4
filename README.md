@@ -25,6 +25,32 @@
 * **Thống kê chuyên sâu**: Ghi nhận chi tiết lịch sử sự cố (Đi muộn, vắng không phép, vắng khẩn cấp, người thay thế).
 * **Xuất Excel nhanh chóng**: Xuất toàn bộ báo cáo phân tích ca vắng, phương án dự phòng và nhật ký sự cố ra file Excel (`.xlsx`) chuẩn hóa để phục vụ công tác tính lương HR.
 
+### 5. 🏆 Thi Đua Project F&B (Chu Kỳ 3 Tuần, 8 Giải Thưởng)
+* **Chu kỳ & chốt tuần**: Chu kỳ gồm 3 tuần. Hết Tuần 1 và Tuần 2 thì tổng kết rồi **reset bảng xếp hạng tuần**; hết Tuần 3 thì tổng kết và khoá dữ liệu cả chu kỳ. Reset chỉ áp dụng cho bảng xếp hạng — **dữ liệu gốc của cả 3 tuần không bao giờ bị xoá**, vì các giải tổng kết cần đến chúng.
+* **5 giải mỗi tuần**: `Best Seller` (sản lượng cá nhân cao nhất) · `Best All-Rounder` (Sản lượng 40% + Năng suất 40% + Uy tín 20%) · `Nhóm Trực Ca Xuất Sắc` Nhất / Nhì / Ba (Sản lượng nhóm 70% + Uy tín nhóm 30%, mỗi ca xét riêng, **không cộng dồn giữa các ca**).
+* **3 giải tổng kết**: `Best Seller of Project F&B` (cộng dồn sản lượng 3 tuần) · `All Round Member of Project` (trung bình điểm toàn diện **đã chuẩn hoá** của các tuần có tham gia, để công bằng giữa người trực nhiều ca và ít ca) · `Giải Tập Thể Xuất Sắc Theo Ban` (Đóng góp BQ 40% + Hiệu suất BQ 40% + Uy tín BQ 20%).
+* **Trực quan hoá công thức**: Bấm vào **bất kỳ dòng nào** trong ba bảng xếp hạng để bung ra đúng công thức đã thay số của dòng đó (sản lượng quy đổi, mẫu số chuẩn hoá, điểm từng thành phần, tổng điểm) — HR giải thích được mọi con số mà không cần mở code.
+* **Quy chế sửa trực tiếp**: Điểm uy tín khởi điểm, danh mục vi phạm và điểm trừ, bộ trọng số của cả 3 nhóm giải, tuần đang ghi nhận và trạng thái chốt tuần đều cấu hình được trong tab con **Quy Chế & Công Thức** (tổng trọng số mỗi nhóm được kiểm tra phải bằng 100).
+* **Đồng bộ Google Sheet hai chiều**: App ↔ Sheet dùng chung một bộ công thức nên số liệu luôn khớp. Xem [Đồng Bộ Google Sheet](#-đồng-bộ-google-sheet-cho-tab-thi-đua) bên dưới.
+
+---
+
+## 🔗 Đồng Bộ Google Sheet Cho Tab Thi Đua
+
+Mở tab **Thi Đua Project F&B → Google Sheet**. Có hai cách, dùng chung một token bí mật do app sinh ra:
+
+| | Cách A — Dán công thức | Cách B — Apps Script |
+| --- | --- | --- |
+| Chiều dữ liệu | Một chiều: App → Sheet | Hai chiều: App ↔ Sheet |
+| Cách làm | Dán công thức `IMPORTDATA(...)` vào ô A1 của từng tab | Tải file `CompetitionSync.gs` từ app, dán vào **Extensions → Apps Script** của Sheet |
+| Cập nhật | Google tự làm mới định kỳ | Menu **Thi Đua F&B** trên Sheet, hoặc bật trigger tự động mỗi giờ |
+| Nhập liệu từ Sheet | Không | Có: hai tab `NHAP_BAN_HANG` và `NHAP_VI_PHAM` được đọc ngược về app |
+
+Yêu cầu bắt buộc: **Google phải gọi được vào app**. Khi app còn chạy ở `localhost`, tab Google Sheet sẽ hiện cảnh báo và cả hai cách đều không hoạt động — hãy deploy app ra Internet trước (xem `DEPLOY_GUIDE.md`) rồi điền URL công khai vào ô *URL công khai của app*.
+
+> ⚠️ Token trong công thức và trong file `.gs` là **chìa khoá đọc/ghi số liệu thi đua**. Chỉ chia sẻ trong nội bộ HR; nếu nghi bị lộ, bấm **Đổi token** rồi dán lại công thức mới.
+
+
 ---
 
 ## 🛠️ Công Nghệ Sử Dụng
@@ -67,6 +93,8 @@ npm start
 
 ```text
 ├── src/
+│   ├── competition.ts     # Toàn bộ công thức chấm điểm thi đua (tuần + tổng kết)
+│   ├── sheet_sync_script.ts # Sinh mã Apps Script đồng bộ hai chiều với Google Sheet
 │   └── types/             # Định nghĩa cấu trúc kiểu dữ liệu TypeScript
 ├── templates/
 │   └── index.html         # Giao diện ứng dụng chính (Single-page Dashboard)

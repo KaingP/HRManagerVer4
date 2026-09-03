@@ -43491,6 +43491,2126 @@
       "role": "Dự phòng",
       "type": "Ngoai",
       "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA001",
+      "member_id": "TV011",
+      "name": "Lý Minh Khang",
+      "day": "Thứ 2",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA001",
+      "member_id": "TV020",
+      "name": "Đỗ Thị Bình",
+      "day": "Thứ 2",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA001",
+      "member_id": "TV044",
+      "name": "Hoàng Quốc Em",
+      "day": "Thứ 2",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA001",
+      "member_id": "TV002",
+      "name": "Lê Quốc Mai",
+      "day": "Thứ 2",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA001",
+      "member_id": "TV031",
+      "name": "Lý Thảo Hà",
+      "day": "Thứ 2",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA002",
+      "member_id": "TV004",
+      "name": "Hoàng Minh Hương",
+      "day": "Thứ 2",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA002",
+      "member_id": "TV042",
+      "name": "Dương Ngọc Nam",
+      "day": "Thứ 2",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA002",
+      "member_id": "TV009",
+      "name": "Hồ Ngọc Bình",
+      "day": "Thứ 2",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA002",
+      "member_id": "TV002",
+      "name": "Lê Quốc Mai",
+      "day": "Thứ 2",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA002",
+      "member_id": "TV007",
+      "name": "Trần Hoàng Bình",
+      "day": "Thứ 2",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA002",
+      "member_id": "TV037",
+      "name": "Võ Thị Dung",
+      "day": "Thứ 2",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA003",
+      "member_id": "TV022",
+      "name": "Dương Quốc Châu",
+      "day": "Thứ 2",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA003",
+      "member_id": "TV005",
+      "name": "Lý Ngọc Khang",
+      "day": "Thứ 2",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA003",
+      "member_id": "TV039",
+      "name": "Nguyễn Minh Khang",
+      "day": "Thứ 2",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA003",
+      "member_id": "TV041",
+      "name": "Hồ Thị Mai",
+      "day": "Thứ 2",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA003",
+      "member_id": "TV033",
+      "name": "Huỳnh Thảo Phương",
+      "day": "Thứ 2",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA003",
+      "member_id": "TV048",
+      "name": "Huỳnh Thị Uyên",
+      "day": "Thứ 2",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA004",
+      "member_id": "TV036",
+      "name": "Đỗ Hồng Uyên",
+      "day": "Thứ 2",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA004",
+      "member_id": "TV043",
+      "name": "Huỳnh Minh Nam",
+      "day": "Thứ 2",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA004",
+      "member_id": "TV032",
+      "name": "Trần Đức Khang",
+      "day": "Thứ 2",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA004",
+      "member_id": "TV015",
+      "name": "Hồ Nhật Uyên",
+      "day": "Thứ 2",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA004",
+      "member_id": "TV025",
+      "name": "Trần Tuấn Châu",
+      "day": "Thứ 2",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA005",
+      "member_id": "TV047",
+      "name": "Bùi Gia Trang",
+      "day": "Thứ 2",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA005",
+      "member_id": "TV028",
+      "name": "Đặng Bảo Quyên",
+      "day": "Thứ 2",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA005",
+      "member_id": "TV036",
+      "name": "Đỗ Hồng Uyên",
+      "day": "Thứ 2",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA005",
+      "member_id": "TV045",
+      "name": "Lê Hải Yến",
+      "day": "Thứ 2",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA005",
+      "member_id": "TV006",
+      "name": "Võ Tuấn Châu",
+      "day": "Thứ 2",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA006",
+      "member_id": "TV004",
+      "name": "Hoàng Minh Hương",
+      "day": "Thứ 3",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA006",
+      "member_id": "TV001",
+      "name": "Đỗ Thị Anh",
+      "day": "Thứ 3",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA006",
+      "member_id": "TV013",
+      "name": "Nguyễn Minh Mai",
+      "day": "Thứ 3",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA006",
+      "member_id": "TV024",
+      "name": "Võ Nhật Vinh",
+      "day": "Thứ 3",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA006",
+      "member_id": "TV029",
+      "name": "Đỗ Tuấn Uyên",
+      "day": "Thứ 3",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA007",
+      "member_id": "TV016",
+      "name": "Bùi Thảo Châu",
+      "day": "Thứ 3",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA007",
+      "member_id": "TV003",
+      "name": "Huỳnh Quốc Khang",
+      "day": "Thứ 3",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA007",
+      "member_id": "TV047",
+      "name": "Bùi Gia Trang",
+      "day": "Thứ 3",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA007",
+      "member_id": "TV042",
+      "name": "Dương Ngọc Nam",
+      "day": "Thứ 3",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA007",
+      "member_id": "TV033",
+      "name": "Huỳnh Thảo Phương",
+      "day": "Thứ 3",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA007",
+      "member_id": "TV032",
+      "name": "Trần Đức Khang",
+      "day": "Thứ 3",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA008",
+      "member_id": "TV038",
+      "name": "Dương Tuấn Quyên",
+      "day": "Thứ 3",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA008",
+      "member_id": "TV012",
+      "name": "Hồ Hồng Uyên",
+      "day": "Thứ 3",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA008",
+      "member_id": "TV018",
+      "name": "Hồ Quốc Châu",
+      "day": "Thứ 3",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA008",
+      "member_id": "TV003",
+      "name": "Huỳnh Quốc Khang",
+      "day": "Thứ 3",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA008",
+      "member_id": "TV040",
+      "name": "Trần Đức Quyên",
+      "day": "Thứ 3",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA008",
+      "member_id": "TV006",
+      "name": "Võ Tuấn Châu",
+      "day": "Thứ 3",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA009",
+      "member_id": "TV015",
+      "name": "Hồ Nhật Uyên",
+      "day": "Thứ 3",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA009",
+      "member_id": "TV035",
+      "name": "Nguyễn Gia Nam",
+      "day": "Thứ 3",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA009",
+      "member_id": "TV017",
+      "name": "Đặng Quốc Dung",
+      "day": "Thứ 3",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA009",
+      "member_id": "TV040",
+      "name": "Trần Đức Quyên",
+      "day": "Thứ 3",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA009",
+      "member_id": "TV006",
+      "name": "Võ Tuấn Châu",
+      "day": "Thứ 3",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA010",
+      "member_id": "TV023",
+      "name": "Võ Bảo Sơn",
+      "day": "Thứ 3",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA010",
+      "member_id": "TV042",
+      "name": "Dương Ngọc Nam",
+      "day": "Thứ 3",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA010",
+      "member_id": "TV017",
+      "name": "Đặng Quốc Dung",
+      "day": "Thứ 3",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA010",
+      "member_id": "TV001",
+      "name": "Đỗ Thị Anh",
+      "day": "Thứ 3",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA010",
+      "member_id": "TV049",
+      "name": "Huỳnh Hải Sơn",
+      "day": "Thứ 3",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA011",
+      "member_id": "TV041",
+      "name": "Hồ Thị Mai",
+      "day": "Thứ 4",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA011",
+      "member_id": "TV003",
+      "name": "Huỳnh Quốc Khang",
+      "day": "Thứ 4",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA011",
+      "member_id": "TV014",
+      "name": "Lê Gia Khang",
+      "day": "Thứ 4",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA011",
+      "member_id": "TV007",
+      "name": "Trần Hoàng Bình",
+      "day": "Thứ 4",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA011",
+      "member_id": "TV046",
+      "name": "Phạm Minh Yến",
+      "day": "Thứ 4",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA012",
+      "member_id": "TV008",
+      "name": "Lê Nhật Quyên",
+      "day": "Thứ 4",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA012",
+      "member_id": "TV011",
+      "name": "Lý Minh Khang",
+      "day": "Thứ 4",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA012",
+      "member_id": "TV005",
+      "name": "Lý Ngọc Khang",
+      "day": "Thứ 4",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA012",
+      "member_id": "TV035",
+      "name": "Nguyễn Gia Nam",
+      "day": "Thứ 4",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA012",
+      "member_id": "TV027",
+      "name": "Nguyễn Minh Linh",
+      "day": "Thứ 4",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA012",
+      "member_id": "TV013",
+      "name": "Nguyễn Minh Mai",
+      "day": "Thứ 4",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA013",
+      "member_id": "TV023",
+      "name": "Võ Bảo Sơn",
+      "day": "Thứ 4",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA013",
+      "member_id": "TV047",
+      "name": "Bùi Gia Trang",
+      "day": "Thứ 4",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA013",
+      "member_id": "TV019",
+      "name": "Hồ Minh Quyên",
+      "day": "Thứ 4",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA013",
+      "member_id": "TV014",
+      "name": "Lê Gia Khang",
+      "day": "Thứ 4",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA013",
+      "member_id": "TV036",
+      "name": "Đỗ Hồng Uyên",
+      "day": "Thứ 4",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA013",
+      "member_id": "TV050",
+      "name": "Lý Tuấn Hà",
+      "day": "Thứ 4",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA014",
+      "member_id": "TV011",
+      "name": "Lý Minh Khang",
+      "day": "Thứ 4",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA014",
+      "member_id": "TV028",
+      "name": "Đặng Bảo Quyên",
+      "day": "Thứ 4",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA014",
+      "member_id": "TV044",
+      "name": "Hoàng Quốc Em",
+      "day": "Thứ 4",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA014",
+      "member_id": "TV009",
+      "name": "Hồ Ngọc Bình",
+      "day": "Thứ 4",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA014",
+      "member_id": "TV018",
+      "name": "Hồ Quốc Châu",
+      "day": "Thứ 4",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA015",
+      "member_id": "TV030",
+      "name": "Dương Minh Sơn",
+      "day": "Thứ 4",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA015",
+      "member_id": "TV026",
+      "name": "Đỗ Thị Giang",
+      "day": "Thứ 4",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA015",
+      "member_id": "TV048",
+      "name": "Huỳnh Thị Uyên",
+      "day": "Thứ 4",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA015",
+      "member_id": "TV027",
+      "name": "Nguyễn Minh Linh",
+      "day": "Thứ 4",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA015",
+      "member_id": "TV032",
+      "name": "Trần Đức Khang",
+      "day": "Thứ 4",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA016",
+      "member_id": "TV008",
+      "name": "Lê Nhật Quyên",
+      "day": "Thứ 5",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA016",
+      "member_id": "TV050",
+      "name": "Lý Tuấn Hà",
+      "day": "Thứ 5",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA016",
+      "member_id": "TV046",
+      "name": "Phạm Minh Yến",
+      "day": "Thứ 5",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA016",
+      "member_id": "TV037",
+      "name": "Võ Thị Dung",
+      "day": "Thứ 5",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA016",
+      "member_id": "TV010",
+      "name": "Vũ Minh Linh",
+      "day": "Thứ 5",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA017",
+      "member_id": "TV026",
+      "name": "Đỗ Thị Giang",
+      "day": "Thứ 5",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA017",
+      "member_id": "TV019",
+      "name": "Hồ Minh Quyên",
+      "day": "Thứ 5",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA017",
+      "member_id": "TV049",
+      "name": "Huỳnh Hải Sơn",
+      "day": "Thứ 5",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA017",
+      "member_id": "TV007",
+      "name": "Trần Hoàng Bình",
+      "day": "Thứ 5",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA017",
+      "member_id": "TV017",
+      "name": "Đặng Quốc Dung",
+      "day": "Thứ 5",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA017",
+      "member_id": "TV020",
+      "name": "Đỗ Thị Bình",
+      "day": "Thứ 5",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA018",
+      "member_id": "TV029",
+      "name": "Đỗ Tuấn Uyên",
+      "day": "Thứ 5",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA018",
+      "member_id": "TV035",
+      "name": "Nguyễn Gia Nam",
+      "day": "Thứ 5",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA018",
+      "member_id": "TV028",
+      "name": "Đặng Bảo Quyên",
+      "day": "Thứ 5",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA018",
+      "member_id": "TV036",
+      "name": "Đỗ Hồng Uyên",
+      "day": "Thứ 5",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA018",
+      "member_id": "TV001",
+      "name": "Đỗ Thị Anh",
+      "day": "Thứ 5",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA018",
+      "member_id": "TV044",
+      "name": "Hoàng Quốc Em",
+      "day": "Thứ 5",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA019",
+      "member_id": "TV030",
+      "name": "Dương Minh Sơn",
+      "day": "Thứ 5",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA019",
+      "member_id": "TV019",
+      "name": "Hồ Minh Quyên",
+      "day": "Thứ 5",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA019",
+      "member_id": "TV049",
+      "name": "Huỳnh Hải Sơn",
+      "day": "Thứ 5",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA019",
+      "member_id": "TV002",
+      "name": "Lê Quốc Mai",
+      "day": "Thứ 5",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA019",
+      "member_id": "TV024",
+      "name": "Võ Nhật Vinh",
+      "day": "Thứ 5",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA020",
+      "member_id": "TV039",
+      "name": "Nguyễn Minh Khang",
+      "day": "Thứ 5",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA020",
+      "member_id": "TV047",
+      "name": "Bùi Gia Trang",
+      "day": "Thứ 5",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA020",
+      "member_id": "TV001",
+      "name": "Đỗ Thị Anh",
+      "day": "Thứ 5",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA020",
+      "member_id": "TV014",
+      "name": "Lê Gia Khang",
+      "day": "Thứ 5",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA020",
+      "member_id": "TV040",
+      "name": "Trần Đức Quyên",
+      "day": "Thứ 5",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA021",
+      "member_id": "TV005",
+      "name": "Lý Ngọc Khang",
+      "day": "Thứ 6",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA021",
+      "member_id": "TV009",
+      "name": "Hồ Ngọc Bình",
+      "day": "Thứ 6",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA021",
+      "member_id": "TV045",
+      "name": "Lê Hải Yến",
+      "day": "Thứ 6",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA021",
+      "member_id": "TV004",
+      "name": "Hoàng Minh Hương",
+      "day": "Thứ 6",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA021",
+      "member_id": "TV024",
+      "name": "Võ Nhật Vinh",
+      "day": "Thứ 6",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA022",
+      "member_id": "TV022",
+      "name": "Dương Quốc Châu",
+      "day": "Thứ 6",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA022",
+      "member_id": "TV020",
+      "name": "Đỗ Thị Bình",
+      "day": "Thứ 6",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA022",
+      "member_id": "TV045",
+      "name": "Lê Hải Yến",
+      "day": "Thứ 6",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA022",
+      "member_id": "TV031",
+      "name": "Lý Thảo Hà",
+      "day": "Thứ 6",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA022",
+      "member_id": "TV034",
+      "name": "Phạm Hồng Sơn",
+      "day": "Thứ 6",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA022",
+      "member_id": "TV046",
+      "name": "Phạm Minh Yến",
+      "day": "Thứ 6",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA023",
+      "member_id": "TV004",
+      "name": "Hoàng Minh Hương",
+      "day": "Thứ 6",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA023",
+      "member_id": "TV015",
+      "name": "Hồ Nhật Uyên",
+      "day": "Thứ 6",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA023",
+      "member_id": "TV017",
+      "name": "Đặng Quốc Dung",
+      "day": "Thứ 6",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA023",
+      "member_id": "TV026",
+      "name": "Đỗ Thị Giang",
+      "day": "Thứ 6",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA023",
+      "member_id": "TV025",
+      "name": "Trần Tuấn Châu",
+      "day": "Thứ 6",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA023",
+      "member_id": "TV024",
+      "name": "Võ Nhật Vinh",
+      "day": "Thứ 6",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA024",
+      "member_id": "TV033",
+      "name": "Huỳnh Thảo Phương",
+      "day": "Thứ 6",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA024",
+      "member_id": "TV048",
+      "name": "Huỳnh Thị Uyên",
+      "day": "Thứ 6",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA024",
+      "member_id": "TV025",
+      "name": "Trần Tuấn Châu",
+      "day": "Thứ 6",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA024",
+      "member_id": "TV049",
+      "name": "Huỳnh Hải Sơn",
+      "day": "Thứ 6",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA024",
+      "member_id": "TV014",
+      "name": "Lê Gia Khang",
+      "day": "Thứ 6",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA025",
+      "member_id": "TV022",
+      "name": "Dương Quốc Châu",
+      "day": "Thứ 6",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA025",
+      "member_id": "TV020",
+      "name": "Đỗ Thị Bình",
+      "day": "Thứ 6",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA025",
+      "member_id": "TV010",
+      "name": "Vũ Minh Linh",
+      "day": "Thứ 6",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA025",
+      "member_id": "TV038",
+      "name": "Dương Tuấn Quyên",
+      "day": "Thứ 6",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA025",
+      "member_id": "TV001",
+      "name": "Đỗ Thị Anh",
+      "day": "Thứ 6",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA026",
+      "member_id": "TV036",
+      "name": "Đỗ Hồng Uyên",
+      "day": "Thứ 7",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA026",
+      "member_id": "TV012",
+      "name": "Hồ Hồng Uyên",
+      "day": "Thứ 7",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA026",
+      "member_id": "TV049",
+      "name": "Huỳnh Hải Sơn",
+      "day": "Thứ 7",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA026",
+      "member_id": "TV027",
+      "name": "Nguyễn Minh Linh",
+      "day": "Thứ 7",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA026",
+      "member_id": "TV004",
+      "name": "Hoàng Minh Hương",
+      "day": "Thứ 7",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA027",
+      "member_id": "TV015",
+      "name": "Hồ Nhật Uyên",
+      "day": "Thứ 7",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA027",
+      "member_id": "TV023",
+      "name": "Võ Bảo Sơn",
+      "day": "Thứ 7",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA027",
+      "member_id": "TV018",
+      "name": "Hồ Quốc Châu",
+      "day": "Thứ 7",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA027",
+      "member_id": "TV048",
+      "name": "Huỳnh Thị Uyên",
+      "day": "Thứ 7",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA027",
+      "member_id": "TV030",
+      "name": "Dương Minh Sơn",
+      "day": "Thứ 7",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA027",
+      "member_id": "TV043",
+      "name": "Huỳnh Minh Nam",
+      "day": "Thứ 7",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA028",
+      "member_id": "TV042",
+      "name": "Dương Ngọc Nam",
+      "day": "Thứ 7",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA028",
+      "member_id": "TV021",
+      "name": "Hồ Hải Linh",
+      "day": "Thứ 7",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA028",
+      "member_id": "TV031",
+      "name": "Lý Thảo Hà",
+      "day": "Thứ 7",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA028",
+      "member_id": "TV050",
+      "name": "Lý Tuấn Hà",
+      "day": "Thứ 7",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA028",
+      "member_id": "TV037",
+      "name": "Võ Thị Dung",
+      "day": "Thứ 7",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA028",
+      "member_id": "TV041",
+      "name": "Hồ Thị Mai",
+      "day": "Thứ 7",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA029",
+      "member_id": "TV022",
+      "name": "Dương Quốc Châu",
+      "day": "Thứ 7",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA029",
+      "member_id": "TV026",
+      "name": "Đỗ Thị Giang",
+      "day": "Thứ 7",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA029",
+      "member_id": "TV014",
+      "name": "Lê Gia Khang",
+      "day": "Thứ 7",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA029",
+      "member_id": "TV045",
+      "name": "Lê Hải Yến",
+      "day": "Thứ 7",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA029",
+      "member_id": "TV034",
+      "name": "Phạm Hồng Sơn",
+      "day": "Thứ 7",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA030",
+      "member_id": "TV009",
+      "name": "Hồ Ngọc Bình",
+      "day": "Thứ 7",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA030",
+      "member_id": "TV016",
+      "name": "Bùi Thảo Châu",
+      "day": "Thứ 7",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA030",
+      "member_id": "TV030",
+      "name": "Dương Minh Sơn",
+      "day": "Thứ 7",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA030",
+      "member_id": "TV021",
+      "name": "Hồ Hải Linh",
+      "day": "Thứ 7",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA030",
+      "member_id": "TV018",
+      "name": "Hồ Quốc Châu",
+      "day": "Thứ 7",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA031",
+      "member_id": "TV038",
+      "name": "Dương Tuấn Quyên",
+      "day": "Chủ Nhật",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA031",
+      "member_id": "TV026",
+      "name": "Đỗ Thị Giang",
+      "day": "Chủ Nhật",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA031",
+      "member_id": "TV031",
+      "name": "Lý Thảo Hà",
+      "day": "Chủ Nhật",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA031",
+      "member_id": "TV032",
+      "name": "Trần Đức Khang",
+      "day": "Chủ Nhật",
+      "slot": "07:00 - 09:30",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA031",
+      "member_id": "TV029",
+      "name": "Đỗ Tuấn Uyên",
+      "day": "Chủ Nhật",
+      "slot": "07:00 - 09:30",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA032",
+      "member_id": "TV038",
+      "name": "Dương Tuấn Quyên",
+      "day": "Chủ Nhật",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA032",
+      "member_id": "TV044",
+      "name": "Hoàng Quốc Em",
+      "day": "Chủ Nhật",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA032",
+      "member_id": "TV037",
+      "name": "Võ Thị Dung",
+      "day": "Chủ Nhật",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA032",
+      "member_id": "TV008",
+      "name": "Lê Nhật Quyên",
+      "day": "Chủ Nhật",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA032",
+      "member_id": "TV003",
+      "name": "Huỳnh Quốc Khang",
+      "day": "Chủ Nhật",
+      "slot": "09:35 - 12:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA032",
+      "member_id": "TV007",
+      "name": "Trần Hoàng Bình",
+      "day": "Chủ Nhật",
+      "slot": "09:35 - 12:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA033",
+      "member_id": "TV016",
+      "name": "Bùi Thảo Châu",
+      "day": "Chủ Nhật",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA033",
+      "member_id": "TV045",
+      "name": "Lê Hải Yến",
+      "day": "Chủ Nhật",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA033",
+      "member_id": "TV002",
+      "name": "Lê Quốc Mai",
+      "day": "Chủ Nhật",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA033",
+      "member_id": "TV013",
+      "name": "Nguyễn Minh Mai",
+      "day": "Chủ Nhật",
+      "slot": "12:05 - 14:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA033",
+      "member_id": "TV034",
+      "name": "Phạm Hồng Sơn",
+      "day": "Chủ Nhật",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA033",
+      "member_id": "TV010",
+      "name": "Vũ Minh Linh",
+      "day": "Chủ Nhật",
+      "slot": "12:05 - 14:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA034",
+      "member_id": "TV008",
+      "name": "Lê Nhật Quyên",
+      "day": "Chủ Nhật",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA034",
+      "member_id": "TV016",
+      "name": "Bùi Thảo Châu",
+      "day": "Chủ Nhật",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA034",
+      "member_id": "TV021",
+      "name": "Hồ Hải Linh",
+      "day": "Chủ Nhật",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA034",
+      "member_id": "TV012",
+      "name": "Hồ Hồng Uyên",
+      "day": "Chủ Nhật",
+      "slot": "14:05 - 16:05",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA034",
+      "member_id": "TV023",
+      "name": "Võ Bảo Sơn",
+      "day": "Chủ Nhật",
+      "slot": "14:05 - 16:05",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA035",
+      "member_id": "TV039",
+      "name": "Nguyễn Minh Khang",
+      "day": "Chủ Nhật",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA035",
+      "member_id": "TV012",
+      "name": "Hồ Hồng Uyên",
+      "day": "Chủ Nhật",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA035",
+      "member_id": "TV040",
+      "name": "Trần Đức Quyên",
+      "day": "Chủ Nhật",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA035",
+      "member_id": "TV017",
+      "name": "Đặng Quốc Dung",
+      "day": "Chủ Nhật",
+      "slot": "16:10 - 18:00",
+      "role": "Chính",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "CA035",
+      "member_id": "TV006",
+      "name": "Võ Tuấn Châu",
+      "day": "Chủ Nhật",
+      "slot": "16:10 - 18:00",
+      "role": "Dự phòng",
+      "type": "Phong",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_01",
+      "member_id": "TV019",
+      "name": "Hồ Minh Quyên",
+      "day": "Thứ 7",
+      "slot": "17:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_01",
+      "member_id": "TV002",
+      "name": "Lê Quốc Mai",
+      "day": "Thứ 7",
+      "slot": "17:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_01",
+      "member_id": "TV034",
+      "name": "Phạm Hồng Sơn",
+      "day": "Thứ 7",
+      "slot": "17:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_01",
+      "member_id": "TV025",
+      "name": "Trần Tuấn Châu",
+      "day": "Thứ 7",
+      "slot": "17:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_01",
+      "member_id": "TV028",
+      "name": "Đặng Bảo Quyên",
+      "day": "Thứ 7",
+      "slot": "17:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_01",
+      "member_id": "TV046",
+      "name": "Phạm Minh Yến",
+      "day": "Thứ 7",
+      "slot": "17:00 - 19:30",
+      "role": "Dự phòng",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_02",
+      "member_id": "TV018",
+      "name": "Hồ Quốc Châu",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_02",
+      "member_id": "TV043",
+      "name": "Huỳnh Minh Nam",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_02",
+      "member_id": "TV031",
+      "name": "Lý Thảo Hà",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_02",
+      "member_id": "TV027",
+      "name": "Nguyễn Minh Linh",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_02",
+      "member_id": "TV010",
+      "name": "Vũ Minh Linh",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Dự phòng",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_03",
+      "member_id": "TV041",
+      "name": "Hồ Thị Mai",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_03",
+      "member_id": "TV005",
+      "name": "Lý Ngọc Khang",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_03",
+      "member_id": "TV047",
+      "name": "Bùi Gia Trang",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_03",
+      "member_id": "TV020",
+      "name": "Đỗ Thị Bình",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_03",
+      "member_id": "TV013",
+      "name": "Nguyễn Minh Mai",
+      "day": "Chủ Nhật",
+      "slot": "18:00 - 19:30",
+      "role": "Dự phòng",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV029",
+      "name": "Đỗ Tuấn Uyên",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV044",
+      "name": "Hoàng Quốc Em",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV021",
+      "name": "Hồ Hải Linh",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV043",
+      "name": "Huỳnh Minh Nam",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV033",
+      "name": "Huỳnh Thảo Phương",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV050",
+      "name": "Lý Tuấn Hà",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Chính",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
+    },
+    {
+      "shift_id": "NGOAI_04",
+      "member_id": "TV037",
+      "name": "Võ Thị Dung",
+      "day": "Thứ 5",
+      "slot": "18:00 - 19:30",
+      "role": "Dự phòng",
+      "type": "Ngoai",
+      "status": "Đúng giờ"
     }
   ],
   "shift_audits": [
@@ -43540,5 +45660,61 @@
       "total_diff": 0,
       "summary_note": "Báo cáo kiểm kê ca CA015"
     }
-  ]
+  ],
+  "online_orders": [],
+  "competition_config": {
+    "active_week": "Tuần 1",
+    "weeks": [
+      "Tuần 1",
+      "Tuần 2",
+      "Tuần 3"
+    ],
+    "base_reputation": 100,
+    "penalties": {
+      "Đi trễ": 5,
+      "Vắng không phép": 20,
+      "Sử dụng điện thoại khi có khách": 5,
+      "Mất tập trung": 5,
+      "Bỏ quầy": 5,
+      "Vắng đột xuất": 20,
+      "Vắng mặt": 20,
+      "Vắng mặt (Không gọi được dự phòng)": 20,
+      "Xin nghỉ trước": 0,
+      "Hủy ca": 0,
+      "Có mặt": 0
+    },
+    "absence_types": [
+      "Vắng không phép",
+      "Vắng đột xuất",
+      "Vắng mặt",
+      "Vắng mặt (Không gọi được dự phòng)",
+      "Xin nghỉ trước",
+      "Hủy ca"
+    ],
+    "exclude_absent_from_shift_count": true,
+    "weights": {
+      "ind_sales": 40,
+      "ind_prod": 40,
+      "ind_rep": 20,
+      "grp_sales": 70,
+      "grp_rep": 30,
+      "dept_sales": 40,
+      "dept_prod": 40,
+      "dept_rep": 20
+    },
+    "locked_weeks": [],
+    "snapshots": {},
+    "sheet": {
+      "enabled": false,
+      "token": "ahB6eIGwfJ2WZO_4fSIbaGsB",
+      "url": "",
+      "sheet_id": "",
+      "gid_map": {},
+      "public_base_url": "",
+      "auto_interval_min": 5,
+      "last_push_at": "",
+      "last_pull_at": "",
+      "last_pull_summary": ""
+    }
+  }
 }

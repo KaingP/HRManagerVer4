@@ -22,6 +22,7 @@ import {
 import { ShiftScheduler } from "./src/scheduler";
 import { exportScheduleToExcel } from "./src/exporter";
 import { TASK_2_DETAILS } from "./src/risk_and_hr_protocols";
+import { renderAppsScript } from "./src/sheet_sync_script";
 import {
     CompetitionConfig,
     CompetitionInput,
@@ -38,12 +39,18 @@ import {
 } from "./src/competition";
 
 const app = express();
-const PORT = 3000;
+// Đọc cổng từ biến môi trường PORT (mặc định 3000) để chạy được song song
+// nhiều instance / môi trường preview mà không phải sửa code.
+const PORT = getRuntimePort();
 const STATE_FILE = process.env.STATE_FILE || "state.json";
 const REPORT_PATH = "reports/Lich_Truc_Toi_Uu_Hung_Vuong_Concert.xlsx";
 
 function resolveAppRoot(): string {
-    for (const candidate of [__dirname, path.join(__dirname, ".."), process.cwd()]) {
+    for (const candidate of [
+        __dirname,
+        path.join(__dirname, ".."),
+        process.cwd(),
+    ]) {
         if (fs.existsSync(path.join(candidate, "templates", "index.html"))) {
             return candidate;
         }
@@ -188,7 +195,11 @@ let LATEST_SCHEDULE_RESULT: any = null;
 
 export interface SystemNotification {
     id: string;
-    type: "UNREACHABLE_BACKUP" | "REPLACEMENT_UPDATED" | "MEMBER_ADDED" | "GENERAL";
+    type:
+        | "UNREACHABLE_BACKUP"
+        | "REPLACEMENT_UPDATED"
+        | "MEMBER_ADDED"
+        | "GENERAL";
     title: string;
     message: string;
     shift_id: string;
@@ -234,7 +245,12 @@ function competitionInput(): CompetitionInput {
     };
 }
 
-function addSystemNotification(notif: Omit<SystemNotification, "id" | "created_at" | "timestamp_ms" | "resolved"> & { id?: string; resolved?: boolean }) {
+function addSystemNotification(
+    notif: Omit<
+        SystemNotification,
+        "id" | "created_at" | "timestamp_ms" | "resolved"
+    > & { id?: string; resolved?: boolean },
+) {
     const timestamp = new Date().toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
         hour12: false,
@@ -246,7 +262,9 @@ function addSystemNotification(notif: Omit<SystemNotification, "id" | "created_a
         second: "2-digit",
     });
     const newNotif: SystemNotification = {
-        id: notif.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        id:
+            notif.id ||
+            `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: notif.type,
         title: notif.title,
         message: notif.message,
@@ -364,7 +382,12 @@ let OPTIMIZER_CONFIG: OptimizerConfig = JSON.parse(
     JSON.stringify(DEFAULT_OPTIMIZER_CONFIG),
 );
 
-function getShiftNumber(s: { shift_id?: string; slot?: string; start_time?: string; type?: string }): number | null {
+function getShiftNumber(s: {
+    shift_id?: string;
+    slot?: string;
+    start_time?: string;
+    type?: string;
+}): number | null {
     if (s.type && s.type !== "Phong") return null;
     const id = (s.shift_id || "").trim().toUpperCase();
 
@@ -389,9 +412,27 @@ function getShiftNumber(s: { shift_id?: string; slot?: string; start_time?: stri
     const sl = (s.slot || "").trim();
     if (st.startsWith("07") || sl.includes("07") || sl.includes("7h")) return 1;
     if (st.startsWith("09") || sl.includes("09") || sl.includes("9h")) return 2;
-    if (st.startsWith("11") || st.startsWith("12") || sl.includes("12") || sl.includes("11h")) return 3;
-    if (st.startsWith("13") || st.startsWith("14") || sl.includes("14") || sl.includes("13h")) return 4;
-    if (st.startsWith("15") || st.startsWith("16") || sl.includes("16") || sl.includes("15h")) return 5;
+    if (
+        st.startsWith("11") ||
+        st.startsWith("12") ||
+        sl.includes("12") ||
+        sl.includes("11h")
+    )
+        return 3;
+    if (
+        st.startsWith("13") ||
+        st.startsWith("14") ||
+        sl.includes("14") ||
+        sl.includes("13h")
+    )
+        return 4;
+    if (
+        st.startsWith("15") ||
+        st.startsWith("16") ||
+        sl.includes("16") ||
+        sl.includes("15h")
+    )
+        return 5;
 
     return null;
 }
@@ -411,7 +452,10 @@ const LEGACY_SLOTS = [
     "15h - 17h",
 ];
 
-function applyDailyConfigsToShifts(shifts: Shift[], dailyConfigs: DailyShiftConfig[]) {
+function applyDailyConfigsToShifts(
+    shifts: Shift[],
+    dailyConfigs: DailyShiftConfig[],
+) {
     if (!dailyConfigs || !dailyConfigs.length) return;
     const configMap = new Map<number, DailyShiftConfig>();
     dailyConfigs.forEach((c) => configMap.set(Number(c.shift_num), c));
@@ -423,7 +467,9 @@ function applyDailyConfigsToShifts(shifts: Shift[], dailyConfigs: DailyShiftConf
                 const conf = configMap.get(num)!;
                 if (conf.start_time) s.start_time = conf.start_time;
                 if (conf.end_time) s.end_time = conf.end_time;
-                const stdSlot = STANDARD_SLOTS[num - 1] || `${conf.start_time} - ${conf.end_time}`;
+                const stdSlot =
+                    STANDARD_SLOTS[num - 1] ||
+                    `${conf.start_time} - ${conf.end_time}`;
                 const legSlot = LEGACY_SLOTS[num - 1] || stdSlot;
                 s.slot = `${conf.start_time} - ${conf.end_time}`;
                 s.overlapping_slots = [
@@ -530,7 +576,10 @@ function applyStartDateToShifts(shifts: Shift[], startDate: string) {
 async function runDefaultOptimization() {
     applyStartDateToShifts(CURRENT_SHIFTS, START_DATE);
     if (OPTIMIZER_CONFIG.daily_shift_configs) {
-        applyDailyConfigsToShifts(CURRENT_SHIFTS, OPTIMIZER_CONFIG.daily_shift_configs);
+        applyDailyConfigsToShifts(
+            CURRENT_SHIFTS,
+            OPTIMIZER_CONFIG.daily_shift_configs,
+        );
     }
     const config = {
         start_date: START_DATE,
@@ -551,6 +600,20 @@ async function runDefaultOptimization() {
         LATEST_SCHEDULE_RESULT = result;
         await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
         persist();
+    }
+}
+
+/**
+ * Token đồng bộ Sheet phải sống sót qua mỗi lần khởi động lại, vì công thức
+ * IMPORTDATA đã dán trong Google Sheet mang theo token cũ. Lần đầu chạy (state
+ * chưa có token) thì ghi ngay xuống đĩa, không đợi một thao tác lưu khác.
+ */
+function persistFreshSheetToken(savedConfig: any) {
+    if (savedConfig && savedConfig.sheet && savedConfig.sheet.token) return;
+    if (persist()) {
+        console.log(
+            "[app] Đã lưu token đồng bộ Google Sheet lần đầu — token sẽ không đổi sau mỗi lần khởi động lại.",
+        );
     }
 }
 
@@ -636,7 +699,10 @@ function bootstrapState() {
     OPTIMIZER_CONFIG = JSON.parse(JSON.stringify(DEFAULT_OPTIMIZER_CONFIG));
 
     applyStartDateToShifts(CURRENT_SHIFTS, START_DATE);
-    applyDailyConfigsToShifts(CURRENT_SHIFTS, OPTIMIZER_CONFIG.daily_shift_configs);
+    applyDailyConfigsToShifts(
+        CURRENT_SHIFTS,
+        OPTIMIZER_CONFIG.daily_shift_configs,
+    );
 
     // Run initial optimization once so that there is immediate data visible to users
     runDefaultOptimization().catch((err) =>
@@ -661,12 +727,10 @@ app.get("/index.html", (req, res) => {
 app.post("/api/auth/login", (req, res) => {
     const { password } = req.body || {};
     if (!password) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Vui lòng nhập mật khẩu Quản trị viên!",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Vui lòng nhập mật khẩu Quản trị viên!",
+        });
     }
 
     if (password.trim() === ADMIN_PASSWORD.trim()) {
@@ -709,12 +773,10 @@ app.post("/api/auth/logout", (req, res) => {
 app.post("/api/auth/change-password", requireAdmin, (req, res) => {
     const { old_password, new_password } = req.body || {};
     if (!old_password || !new_password) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Vui lòng nhập mật khẩu cũ và mật khẩu mới!",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Vui lòng nhập mật khẩu cũ và mật khẩu mới!",
+        });
     }
 
     if (old_password.trim() !== ADMIN_PASSWORD.trim()) {
@@ -724,12 +786,10 @@ app.post("/api/auth/change-password", requireAdmin, (req, res) => {
     }
 
     if (new_password.trim().length < 4) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Mật khẩu mới phải có ít nhất 4 ký tự!",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Mật khẩu mới phải có ít nhất 4 ký tự!",
+        });
     }
 
     ADMIN_PASSWORD = new_password.trim();
@@ -817,12 +877,10 @@ app.post("/api/inventory/product", requireAdmin, (req, res) => {
     const note = String(data.note || "").trim();
 
     if (!name) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Tên sản phẩm không được để trống!",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Tên sản phẩm không được để trống!",
+        });
     }
 
     if (id) {
@@ -936,7 +994,10 @@ function parseStockQty(val: any): number {
 }
 
 function parseProductsFromExcelSheet(sheet: xlsx.WorkSheet) {
-    const matrix = xlsx.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "" });
+    const matrix = xlsx.utils.sheet_to_json<any[]>(sheet, {
+        header: 1,
+        defval: "",
+    });
     if (!matrix || matrix.length === 0) {
         return [];
     }
@@ -1018,7 +1079,10 @@ function parseProductsFromExcelSheet(sheet: xlsx.WorkSheet) {
             }
         }
 
-        if (foundName !== -1 && (foundPrice !== -1 || foundStock !== -1 || foundUnit !== -1)) {
+        if (
+            foundName !== -1 &&
+            (foundPrice !== -1 || foundStock !== -1 || foundUnit !== -1)
+        ) {
             headerRowIdx = r;
             colName = foundName;
             colUnit = foundUnit;
@@ -1049,16 +1113,23 @@ function parseProductsFromExcelSheet(sheet: xlsx.WorkSheet) {
             if (!rawName) continue;
 
             const lower = rawName.toLowerCase();
-            if (lower === "tổng" || lower === "tổng cộng" || lower.startsWith("tổng:")) {
+            if (
+                lower === "tổng" ||
+                lower === "tổng cộng" ||
+                lower.startsWith("tổng:")
+            ) {
                 continue;
             }
 
-            const rawUnit = colUnit !== -1 ? String(row[colUnit] || "").trim() : "Phần";
+            const rawUnit =
+                colUnit !== -1 ? String(row[colUnit] || "").trim() : "Phần";
             const unit = rawUnit || "Phần";
             const price = colPrice !== -1 ? parseMoneyAmount(row[colPrice]) : 0;
-            const initial_stock = colStock !== -1 ? parseStockQty(row[colStock]) : 0;
+            const initial_stock =
+                colStock !== -1 ? parseStockQty(row[colStock]) : 0;
             const rawId = colId !== -1 ? String(row[colId] || "").trim() : "";
-            const note = colNote !== -1 ? String(row[colNote] || "").trim() : "";
+            const note =
+                colNote !== -1 ? String(row[colNote] || "").trim() : "";
 
             const stt = colId !== -1 ? row[colId] : parsedList.length + 1;
             const id = rawId && !/^\d+$/.test(rawId) ? rawId : "";
@@ -1079,35 +1150,42 @@ function parseProductsFromExcelSheet(sheet: xlsx.WorkSheet) {
         for (const row of objRows) {
             const name = String(
                 row["TÊN MẶT HÀNG"] ||
-                row["Tên mặt hàng"] ||
-                row["Tên sản phẩm"] ||
-                row["Tên SP"] ||
-                row["Name"] ||
-                row["name"] ||
-                "",
+                    row["Tên mặt hàng"] ||
+                    row["Tên sản phẩm"] ||
+                    row["Tên SP"] ||
+                    row["Name"] ||
+                    row["name"] ||
+                    "",
             ).trim();
             if (!name) continue;
 
             const unit = String(
                 row["ĐƠN VỊ TÍNH"] ||
-                row["Đơn vị tính"] ||
-                row["ĐVT"] ||
-                row["Unit"] ||
-                "Phần",
+                    row["Đơn vị tính"] ||
+                    row["ĐVT"] ||
+                    row["Unit"] ||
+                    "Phần",
             ).trim();
 
             const price = parseMoneyAmount(
-                row["GIÁ TIỀN"] || row["Giá tiền"] || row["Giá bán"] || row["Giá"] || row["Price"] || "0",
+                row["GIÁ TIỀN"] ||
+                    row["Giá tiền"] ||
+                    row["Giá bán"] ||
+                    row["Giá"] ||
+                    row["Price"] ||
+                    "0",
             );
             const initial_stock = parseStockQty(
                 row["SỐ LƯỢNG NHẬP"] ||
-                row["Số lượng nhập"] ||
-                row["Tồn kho đầu"] ||
-                row["Tồn kho"] ||
-                row["Stock"] ||
-                "0",
+                    row["Số lượng nhập"] ||
+                    row["Tồn kho đầu"] ||
+                    row["Tồn kho"] ||
+                    row["Stock"] ||
+                    "0",
             );
-            const note = String(row["GHI CHÚ"] || row["Ghi chú"] || row["Note"] || "").trim();
+            const note = String(
+                row["GHI CHÚ"] || row["Ghi chú"] || row["Note"] || "",
+            ).trim();
             const id = String(row["Mã SP"] || row["ID"] || "").trim();
 
             parsedList.push({
@@ -1129,7 +1207,7 @@ function parseProductsFromExcelSheet(sheet: xlsx.WorkSheet) {
 app.get("/api/inventory/template-excel", (req, res) => {
     try {
         const wb = xlsx.utils.book_new();
-        
+
         // Structure matches the user's uploaded template image exactly:
         // Row 1: Title "BẢNG DANH MỤC HÀNG HOÁ"
         // Row 2: "STT", "TÊN MẶT HÀNG", "ĐƠN VỊ TÍNH", "GIÁ TIỀN", "SỐ LƯỢNG NHẬP"
@@ -1147,13 +1225,11 @@ app.get("/api/inventory/template-excel", (req, res) => {
         const ws = xlsx.utils.aoa_to_sheet(wsData);
 
         // Merge title row A1:E1
-        ws["!merges"] = [
-            { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }
-        ];
+        ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }];
 
         // Column widths
         ws["!cols"] = [
-            { wch: 8 },  // STT
+            { wch: 8 }, // STT
             { wch: 28 }, // TÊN MẶT HÀNG
             { wch: 16 }, // ĐƠN VỊ TÍNH
             { wch: 18 }, // GIÁ TIỀN
@@ -1187,15 +1263,19 @@ function normalizeDateStr(d: string): string {
     if (clean.includes("/")) {
         const parts = clean.split("/");
         if (parts.length === 3) {
-            if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-            if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+            if (parts[2].length === 4)
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+            if (parts[0].length === 4)
+                return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
         }
     }
     if (clean.includes("-")) {
         const parts = clean.split("-");
         if (parts.length === 3) {
-            if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-            if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            if (parts[0].length === 4)
+                return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+            if (parts[2].length === 4)
+                return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
         }
     }
     return clean;
@@ -1215,25 +1295,29 @@ function parseExcelDate(val: any): string {
     if (!val) return "";
     if (val instanceof Date) {
         const y = val.getFullYear();
-        const m = String(val.getMonth() + 1).padStart(2, '0');
-        const d = String(val.getDate()).padStart(2, '0');
+        const m = String(val.getMonth() + 1).padStart(2, "0");
+        const d = String(val.getDate()).padStart(2, "0");
         return `${y}-${m}-${d}`;
     }
     if (typeof val === "number" && val > 20000 && val < 60000) {
         const jsDate = new Date(Math.round((val - 25569) * 86400 * 1000));
         const y = jsDate.getFullYear();
-        const m = String(jsDate.getMonth() + 1).padStart(2, '0');
-        const d = String(jsDate.getDate()).padStart(2, '0');
+        const m = String(jsDate.getMonth() + 1).padStart(2, "0");
+        const d = String(jsDate.getDate()).padStart(2, "0");
         return `${y}-${m}-${d}`;
     }
     return normalizeDateStr(String(val || ""));
 }
 
-function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts: Shift[]): Shift | null {
+function matchShiftForOnlineOrder(
+    pickupDateStr: string,
+    slotStr: string,
+    shifts: Shift[],
+): Shift | null {
     if (!shifts || shifts.length === 0) return null;
 
     const normSlot = (slotStr || "").toLowerCase();
-    
+
     let caNumber = -1;
     const caMatch = normSlot.match(/ca\s*(\d+)/i);
     if (caMatch) {
@@ -1242,31 +1326,67 @@ function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts
 
     let slotIndex = -1;
     if (caNumber > 0) slotIndex = caNumber - 1;
-    else if (normSlot.includes("7h") || normSlot.includes("07h") || normSlot.includes("07:00")) slotIndex = 0;
-    else if (normSlot.includes("9h") || normSlot.includes("09h") || normSlot.includes("09:35")) slotIndex = 1;
-    else if (normSlot.includes("12h") || normSlot.includes("11h") || normSlot.includes("12:05")) slotIndex = 2;
-    else if (normSlot.includes("14h") || normSlot.includes("13h") || normSlot.includes("14:05")) slotIndex = 3;
-    else if (normSlot.includes("16h") || normSlot.includes("15h") || normSlot.includes("16:10")) slotIndex = 4;
+    else if (
+        normSlot.includes("7h") ||
+        normSlot.includes("07h") ||
+        normSlot.includes("07:00")
+    )
+        slotIndex = 0;
+    else if (
+        normSlot.includes("9h") ||
+        normSlot.includes("09h") ||
+        normSlot.includes("09:35")
+    )
+        slotIndex = 1;
+    else if (
+        normSlot.includes("12h") ||
+        normSlot.includes("11h") ||
+        normSlot.includes("12:05")
+    )
+        slotIndex = 2;
+    else if (
+        normSlot.includes("14h") ||
+        normSlot.includes("13h") ||
+        normSlot.includes("14:05")
+    )
+        slotIndex = 3;
+    else if (
+        normSlot.includes("16h") ||
+        normSlot.includes("15h") ||
+        normSlot.includes("16:10")
+    )
+        slotIndex = 4;
 
     const targetDateNorm = normalizeDateStr(pickupDateStr);
 
     // 1. Try matching by normalized date
     if (targetDateNorm) {
-        const dateShifts = shifts.filter(s => normalizeDateStr(s.date) === targetDateNorm);
+        const dateShifts = shifts.filter(
+            (s) => normalizeDateStr(s.date) === targetDateNorm,
+        );
         if (dateShifts.length > 0) {
             if (caNumber > 0) {
-                const matchCa = dateShifts.find(s => 
-                    (s.slot && new RegExp(`ca\\s*${caNumber}\\b`, 'i').test(s.slot)) ||
-                    (s.shift_id && new RegExp(`(?:ca|s)?0*${caNumber}$`, 'i').test(s.shift_id))
+                const matchCa = dateShifts.find(
+                    (s) =>
+                        (s.slot &&
+                            new RegExp(`ca\\s*${caNumber}\\b`, "i").test(
+                                s.slot,
+                            )) ||
+                        (s.shift_id &&
+                            new RegExp(`(?:ca|s)?0*${caNumber}$`, "i").test(
+                                s.shift_id,
+                            )),
                 );
                 if (matchCa) return matchCa;
             }
             if (slotIndex >= 0 && dateShifts[slotIndex]) {
                 return dateShifts[slotIndex];
             }
-            const matchSlot = dateShifts.find(s => 
-                (s.slot && s.slot.toLowerCase().includes(normSlot)) ||
-                (s.start_time && normSlot.includes(s.start_time.toLowerCase()))
+            const matchSlot = dateShifts.find(
+                (s) =>
+                    (s.slot && s.slot.toLowerCase().includes(normSlot)) ||
+                    (s.start_time &&
+                        normSlot.includes(s.start_time.toLowerCase())),
             );
             if (matchSlot) return matchSlot;
             return dateShifts[0];
@@ -1278,19 +1398,36 @@ function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts
     if (targetDateNorm && targetDateNorm.includes("-")) {
         const d = new Date(targetDateNorm);
         if (!isNaN(d.getTime())) {
-            const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+            const days = [
+                "Chủ Nhật",
+                "Thứ Hai",
+                "Thứ Ba",
+                "Thứ Tư",
+                "Thứ Năm",
+                "Thứ Sáu",
+                "Thứ Bảy",
+            ];
             dayOfWeekStr = days[d.getDay()];
         }
     }
 
-    const dayShifts = shifts.filter(s => 
-        (s.day && (s.day.toLowerCase().includes(pickupDateStr.toLowerCase()) || (dayOfWeekStr && s.day.toLowerCase().includes(dayOfWeekStr.toLowerCase()))))
+    const dayShifts = shifts.filter(
+        (s) =>
+            s.day &&
+            (s.day.toLowerCase().includes(pickupDateStr.toLowerCase()) ||
+                (dayOfWeekStr &&
+                    s.day.toLowerCase().includes(dayOfWeekStr.toLowerCase()))),
     );
     if (dayShifts.length > 0) {
         if (caNumber > 0) {
-            const matchCa = dayShifts.find(s => 
-                (s.slot && new RegExp(`ca\\s*${caNumber}\\b`, 'i').test(s.slot)) ||
-                (s.shift_id && new RegExp(`(?:ca|s)?0*${caNumber}$`, 'i').test(s.shift_id))
+            const matchCa = dayShifts.find(
+                (s) =>
+                    (s.slot &&
+                        new RegExp(`ca\\s*${caNumber}\\b`, "i").test(s.slot)) ||
+                    (s.shift_id &&
+                        new RegExp(`(?:ca|s)?0*${caNumber}$`, "i").test(
+                            s.shift_id,
+                        )),
             );
             if (matchCa) return matchCa;
         }
@@ -1302,9 +1439,14 @@ function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts
 
     // 3. Fallback: match by ca number across shifts
     if (caNumber > 0) {
-        const matchCa = shifts.find(s => 
-            (s.slot && new RegExp(`ca\\s*${caNumber}\\b`, 'i').test(s.slot)) ||
-            (s.shift_id && new RegExp(`(?:ca|s)?0*${caNumber}$`, 'i').test(s.shift_id))
+        const matchCa = shifts.find(
+            (s) =>
+                (s.slot &&
+                    new RegExp(`ca\\s*${caNumber}\\b`, "i").test(s.slot)) ||
+                (s.shift_id &&
+                    new RegExp(`(?:ca|s)?0*${caNumber}$`, "i").test(
+                        s.shift_id,
+                    )),
         );
         if (matchCa) return matchCa;
     }
@@ -1317,22 +1459,38 @@ function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts
 }
 
 // Helper: Parse Online Orders from Excel File (Supports Matrix Columns as well as Pair Columns)
-function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Product[]): OnlineOrder[] {
+function parseOnlineOrdersExcel(
+    buffer: Buffer,
+    shifts: Shift[],
+    products: Product[],
+): OnlineOrder[] {
     const workbook = xlsx.read(buffer, { type: "buffer", cellDates: true });
     const firstSheetName = workbook.SheetNames[0];
     if (!firstSheetName) return [];
     const worksheet = workbook.Sheets[firstSheetName];
-    
+
     // Read as 2D array to accurately identify the header row
-    const rawRows: any[][] = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    const rawRows: any[][] = xlsx.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: "",
+    });
     if (!rawRows || rawRows.length === 0) return [];
 
     // Find the header row (index where "họ và tên" or "khách hàng" or "họ tên" or "lớp" is present)
     let headerRowIdx = -1;
     for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
         const row = rawRows[r];
-        const rowStrs = row.map(c => stripAccents(String(c)));
-        if (rowStrs.some(s => s.includes("hovaten") || s.includes("hoten") || s.includes("khachhang") || (s.includes("ten") && rowStrs.some(s2 => s2.includes("lop"))))) {
+        const rowStrs = row.map((c) => stripAccents(String(c)));
+        if (
+            rowStrs.some(
+                (s) =>
+                    s.includes("hovaten") ||
+                    s.includes("hoten") ||
+                    s.includes("khachhang") ||
+                    (s.includes("ten") &&
+                        rowStrs.some((s2) => s2.includes("lop"))),
+            )
+        ) {
             headerRowIdx = r;
             break;
         }
@@ -1347,13 +1505,17 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
         classCol: number;
         dateCol: number;
         slotCol: number;
-        productCols: { colIdx: number; headerText: string; matchedProduct?: Product }[];
+        productCols: {
+            colIdx: number;
+            headerText: string;
+            matchedProduct?: Product;
+        }[];
     } = {
         nameCol: -1,
         classCol: -1,
         dateCol: -1,
         slotCol: -1,
-        productCols: []
+        productCols: [],
     };
 
     headerRow.forEach((colVal, colIdx) => {
@@ -1361,32 +1523,62 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
         if (!txt) return;
         const norm = stripAccents(txt);
 
-        if (colMap.nameCol === -1 && (norm.includes("hovaten") || norm.includes("hoten") || norm.includes("khachhang") || norm === "ten" || norm === "name")) {
+        if (
+            colMap.nameCol === -1 &&
+            (norm.includes("hovaten") ||
+                norm.includes("hoten") ||
+                norm.includes("khachhang") ||
+                norm === "ten" ||
+                norm === "name")
+        ) {
             colMap.nameCol = colIdx;
-        } else if (colMap.classCol === -1 && (norm.includes("lop") || norm.includes("class") || norm.includes("donvi"))) {
+        } else if (
+            colMap.classCol === -1 &&
+            (norm.includes("lop") ||
+                norm.includes("class") ||
+                norm.includes("donvi"))
+        ) {
             colMap.classCol = colIdx;
-        } else if (colMap.dateCol === -1 && (norm.includes("ngaydukienlay") || norm.includes("ngaylay") || norm.includes("ngaydukien") || norm.includes("ngay") || norm.includes("date"))) {
+        } else if (
+            colMap.dateCol === -1 &&
+            (norm.includes("ngaydukienlay") ||
+                norm.includes("ngaylay") ||
+                norm.includes("ngaydukien") ||
+                norm.includes("ngay") ||
+                norm.includes("date"))
+        ) {
             colMap.dateCol = colIdx;
-        } else if (colMap.slotCol === -1 && (norm.includes("khunggiolayca") || norm.includes("khunggiolay") || norm.includes("khunggio") || norm.includes("calay") || norm === "ca" || norm === "slot" || norm.includes("timeslot"))) {
+        } else if (
+            colMap.slotCol === -1 &&
+            (norm.includes("khunggiolayca") ||
+                norm.includes("khunggiolay") ||
+                norm.includes("khunggio") ||
+                norm.includes("calay") ||
+                norm === "ca" ||
+                norm === "slot" ||
+                norm.includes("timeslot"))
+        ) {
             colMap.slotCol = colIdx;
         } else {
             // Check if this column is a product column
-            let matched = products.find(p => 
-                p.name.trim().toLowerCase() === txt.toLowerCase() || 
-                p.id.trim().toLowerCase() === txt.toLowerCase() ||
-                stripAccents(p.name) === norm ||
-                stripAccents(p.id) === norm
+            let matched = products.find(
+                (p) =>
+                    p.name.trim().toLowerCase() === txt.toLowerCase() ||
+                    p.id.trim().toLowerCase() === txt.toLowerCase() ||
+                    stripAccents(p.name) === norm ||
+                    stripAccents(p.id) === norm,
             );
             if (!matched) {
-                matched = products.find(p => 
-                    norm.includes(stripAccents(p.name)) || 
-                    stripAccents(p.name).includes(norm)
+                matched = products.find(
+                    (p) =>
+                        norm.includes(stripAccents(p.name)) ||
+                        stripAccents(p.name).includes(norm),
                 );
             }
             colMap.productCols.push({
                 colIdx,
                 headerText: txt,
-                matchedProduct: matched
+                matchedProduct: matched,
             });
         }
     });
@@ -1398,10 +1590,15 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
         const row = rawRows[r];
         if (!row || row.length === 0) continue;
 
-        const customerName = colMap.nameCol >= 0 ? String(row[colMap.nameCol] || "").trim() : "";
-        const className = colMap.classCol >= 0 ? String(row[colMap.classCol] || "").trim() : "";
+        const customerName =
+            colMap.nameCol >= 0 ? String(row[colMap.nameCol] || "").trim() : "";
+        const className =
+            colMap.classCol >= 0
+                ? String(row[colMap.classCol] || "").trim()
+                : "";
         const rawDate = colMap.dateCol >= 0 ? row[colMap.dateCol] : "";
-        const slotVal = colMap.slotCol >= 0 ? String(row[colMap.slotCol] || "").trim() : "";
+        const slotVal =
+            colMap.slotCol >= 0 ? String(row[colMap.slotCol] || "").trim() : "";
 
         if (!customerName && !className && !rawDate && !slotVal) {
             continue; // skip empty rows
@@ -1411,19 +1608,27 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
         const orderItems: OnlineOrderItem[] = [];
 
         // 1. Matrix/column-per-product format (Matches user's uploaded image)
-        colMap.productCols.forEach(pCol => {
+        colMap.productCols.forEach((pCol) => {
             const cellVal = row[pCol.colIdx];
-            if (cellVal === "" || cellVal === null || cellVal === undefined) return;
-            const qty = parseFloat(String(cellVal).replace(/[^0-9\.]/g, "")) || 0;
+            if (cellVal === "" || cellVal === null || cellVal === undefined)
+                return;
+            const qty =
+                parseFloat(String(cellVal).replace(/[^0-9\.]/g, "")) || 0;
             if (qty > 0) {
                 let prod = pCol.matchedProduct;
                 const prodName = prod ? prod.name : pCol.headerText;
-                let prodId = prod ? prod.id : `SP_${stripAccents(pCol.headerText).substring(0, 8).toUpperCase()}`;
+                let prodId = prod
+                    ? prod.id
+                    : `SP_${stripAccents(pCol.headerText).substring(0, 8).toUpperCase()}`;
                 const unitPrice = prod ? prod.price : 20000;
 
                 // Auto-register missing product in INVENTORY_PRODUCTS if needed
                 if (!prod) {
-                    const existing = INVENTORY_PRODUCTS.find(p => p.id === prodId || stripAccents(p.name) === stripAccents(prodName));
+                    const existing = INVENTORY_PRODUCTS.find(
+                        (p) =>
+                            p.id === prodId ||
+                            stripAccents(p.name) === stripAccents(prodName),
+                    );
                     if (!existing) {
                         const newProd: Product = {
                             id: prodId,
@@ -1432,7 +1637,7 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
                             price: unitPrice,
                             initial_stock: 100,
                             sold_count: 0,
-                            note: "Tạo từ Excel đơn online"
+                            note: "Tạo từ Excel đơn online",
                         };
                         INVENTORY_PRODUCTS.push(newProd);
                         pCol.matchedProduct = newProd;
@@ -1446,7 +1651,7 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
                     product_name: prodName,
                     quantity: qty,
                     unit_price: unitPrice,
-                    total_price: qty * unitPrice
+                    total_price: qty * unitPrice,
                 });
             }
         });
@@ -1455,34 +1660,62 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
         if (orderItems.length === 0) {
             for (let i = 0; i < headerRow.length; i++) {
                 const hNorm = stripAccents(String(headerRow[i] || ""));
-                if (hNorm.includes("mathang") || hNorm.includes("tenhang") || hNorm.includes("sanpham")) {
+                if (
+                    hNorm.includes("mathang") ||
+                    hNorm.includes("tenhang") ||
+                    hNorm.includes("sanpham")
+                ) {
                     const itemName = String(row[i] || "").trim();
                     if (itemName) {
                         let qty = 1;
                         if (i + 1 < row.length) {
-                            const nextHNorm = stripAccents(String(headerRow[i + 1] || ""));
-                            if (nextHNorm.includes("soluong") || nextHNorm.includes("sl")) {
-                                qty = parseFloat(String(row[i + 1]).replace(/[^0-9\.]/g, "")) || 1;
+                            const nextHNorm = stripAccents(
+                                String(headerRow[i + 1] || ""),
+                            );
+                            if (
+                                nextHNorm.includes("soluong") ||
+                                nextHNorm.includes("sl")
+                            ) {
+                                qty =
+                                    parseFloat(
+                                        String(row[i + 1]).replace(
+                                            /[^0-9\.]/g,
+                                            "",
+                                        ),
+                                    ) || 1;
                             }
                         }
-                        const matched = products.find(p => p.name.toLowerCase() === itemName.toLowerCase() || p.id.toLowerCase() === itemName.toLowerCase());
+                        const matched = products.find(
+                            (p) =>
+                                p.name.toLowerCase() ===
+                                    itemName.toLowerCase() ||
+                                p.id.toLowerCase() === itemName.toLowerCase(),
+                        );
                         orderItems.push({
                             product_id: matched ? matched.id : "",
                             product_name: matched ? matched.name : itemName,
                             quantity: qty,
                             unit_price: matched ? matched.price : 20000,
-                            total_price: qty * (matched ? matched.price : 20000)
+                            total_price:
+                                qty * (matched ? matched.price : 20000),
                         });
                     }
                 }
             }
         }
 
-        const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0);
-        const mappedShift = matchShiftForOnlineOrder(pickupDate, slotVal, shifts);
+        const totalAmount = orderItems.reduce(
+            (sum, item) => sum + item.total_price,
+            0,
+        );
+        const mappedShift = matchShiftForOnlineOrder(
+            pickupDate,
+            slotVal,
+            shifts,
+        );
 
         const caMatch = (slotVal || "").match(/ca\s*(\d+)/i);
-        const caNumStr = caMatch ? `Ca ${caMatch[1]}` : (slotVal || "Ca 1");
+        const caNumStr = caMatch ? `Ca ${caMatch[1]}` : slotVal || "Ca 1";
 
         const newOrder: OnlineOrder = {
             id: `ORD_ONLINE_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${r}`,
@@ -1490,12 +1723,22 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
             class_name: className || "K.XĐ",
             pickup_date: pickupDate || "Chưa xác định",
             pickup_time_slot: slotVal || caNumStr,
-            shift_id: mappedShift ? mappedShift.shift_id : (caMatch ? `CA00${caMatch[1]}` : (shifts[0]?.shift_id || "CA001")),
-            shift_label: mappedShift ? `${mappedShift.day} (${mappedShift.date || pickupDate}) - ${mappedShift.slot || slotVal}` : (slotVal ? `${pickupDate} - ${slotVal}` : "Ca Lấy"),
+            shift_id: mappedShift
+                ? mappedShift.shift_id
+                : caMatch
+                  ? `CA00${caMatch[1]}`
+                  : shifts[0]?.shift_id || "CA001",
+            shift_label: mappedShift
+                ? `${mappedShift.day} (${mappedShift.date || pickupDate}) - ${mappedShift.slot || slotVal}`
+                : slotVal
+                  ? `${pickupDate} - ${slotVal}`
+                  : "Ca Lấy",
             items: orderItems,
             total_amount: totalAmount,
             payment_status: "Chưa thanh toán",
-            created_at: new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })
+            created_at: new Date().toLocaleString("vi-VN", {
+                timeZone: "Asia/Ho_Chi_Minh",
+            }),
         };
 
         newOrders.push(newOrder);
@@ -1509,7 +1752,7 @@ app.get("/api/online-orders", (req, res) => {
     const shift_id = req.query.shift_id ? String(req.query.shift_id) : "";
     let result = ONLINE_ORDERS;
     if (shift_id) {
-        result = ONLINE_ORDERS.filter(o => o.shift_id === shift_id);
+        result = ONLINE_ORDERS.filter((o) => o.shift_id === shift_id);
     }
     res.json({
         success: true,
@@ -1522,57 +1765,114 @@ app.post(
     requireAdmin,
     upload.single("file") as any,
     (req: any, res: any) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ success: false, message: "Vui lòng chọn file Excel để tải lên!" });
+        try {
+            if (!req.file) {
+                return res
+                    .status(400)
+                    .json({
+                        success: false,
+                        message: "Vui lòng chọn file Excel để tải lên!",
+                    });
+            }
+            let fileBuffer: Buffer | null = req.file.buffer || null;
+            if (!fileBuffer && req.file.path && fs.existsSync(req.file.path)) {
+                fileBuffer = fs.readFileSync(req.file.path);
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (e) {}
+            }
+            if (!fileBuffer) {
+                return res
+                    .status(400)
+                    .json({
+                        success: false,
+                        message: "Không thể đọc nội dung file Excel tải lên!",
+                    });
+            }
+            const parsed = parseOnlineOrdersExcel(
+                fileBuffer,
+                CURRENT_SHIFTS,
+                INVENTORY_PRODUCTS,
+            );
+            if (parsed.length === 0) {
+                return res
+                    .status(400)
+                    .json({
+                        success: false,
+                        message:
+                            "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel! Vui lòng tải file mẫu để xem định dạng đúng.",
+                    });
+            }
+            ONLINE_ORDERS = [...ONLINE_ORDERS, ...parsed];
+            persist();
+            res.json({
+                success: true,
+                message: `Đã nhập thành công ${parsed.length} đơn hàng online từ Excel!`,
+                count: parsed.length,
+                online_orders: ONLINE_ORDERS,
+            });
+        } catch (err: any) {
+            res.status(500).json({
+                success: false,
+                message: `Lỗi xử lý file Excel đơn online: ${err.message}`,
+            });
         }
-        let fileBuffer: Buffer | null = req.file.buffer || null;
-        if (!fileBuffer && req.file.path && fs.existsSync(req.file.path)) {
-            fileBuffer = fs.readFileSync(req.file.path);
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-        }
-        if (!fileBuffer) {
-            return res.status(400).json({ success: false, message: "Không thể đọc nội dung file Excel tải lên!" });
-        }
-        const parsed = parseOnlineOrdersExcel(fileBuffer, CURRENT_SHIFTS, INVENTORY_PRODUCTS);
-        if (parsed.length === 0) {
-            return res.status(400).json({ success: false, message: "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel! Vui lòng tải file mẫu để xem định dạng đúng." });
-        }
-        ONLINE_ORDERS = [...ONLINE_ORDERS, ...parsed];
-        persist();
-        res.json({
-            success: true,
-            message: `Đã nhập thành công ${parsed.length} đơn hàng online từ Excel!`,
-            count: parsed.length,
-            online_orders: ONLINE_ORDERS,
-        });
-    } catch (err: any) {
-        res.status(500).json({ success: false, message: `Lỗi xử lý file Excel đơn online: ${err.message}` });
-    }
-});
+    },
+);
 
 app.post("/api/online-orders/create", (req, res) => {
     try {
-        const { customer_name, class_name, pickup_date, pickup_time_slot, items, payment_status } = req.body || {};
-        if (!customer_name || !pickup_date || !pickup_time_slot || !Array.isArray(items) || items.length === 0) {
-            return res.status(400).json({ success: false, message: "Vui lòng nhập đầy đủ thông tin khách hàng, ngày lấy, khung giờ và ít nhất 1 sản phẩm!" });
+        const {
+            customer_name,
+            class_name,
+            pickup_date,
+            pickup_time_slot,
+            items,
+            payment_status,
+        } = req.body || {};
+        if (
+            !customer_name ||
+            !pickup_date ||
+            !pickup_time_slot ||
+            !Array.isArray(items) ||
+            items.length === 0
+        ) {
+            return res
+                .status(400)
+                .json({
+                    success: false,
+                    message:
+                        "Vui lòng nhập đầy đủ thông tin khách hàng, ngày lấy, khung giờ và ít nhất 1 sản phẩm!",
+                });
         }
 
         const orderItems: OnlineOrderItem[] = items.map((it: any) => {
-            const prod = INVENTORY_PRODUCTS.find(p => p.id === it.product_id || p.name.toLowerCase() === (it.product_name || "").toLowerCase());
+            const prod = INVENTORY_PRODUCTS.find(
+                (p) =>
+                    p.id === it.product_id ||
+                    p.name.toLowerCase() ===
+                        (it.product_name || "").toLowerCase(),
+            );
             const pQty = Number(it.quantity) || 1;
-            const pPrice = prod ? prod.price : (Number(it.unit_price) || 0);
+            const pPrice = prod ? prod.price : Number(it.unit_price) || 0;
             return {
-                product_id: prod ? prod.id : (it.product_id || ""),
-                product_name: prod ? prod.name : (it.product_name || "Sản phẩm"),
+                product_id: prod ? prod.id : it.product_id || "",
+                product_name: prod ? prod.name : it.product_name || "Sản phẩm",
                 quantity: pQty,
                 unit_price: pPrice,
                 total_price: pQty * pPrice,
             };
         });
 
-        const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0);
-        const mappedShift = matchShiftForOnlineOrder(pickup_date, pickup_time_slot, CURRENT_SHIFTS);
+        const totalAmount = orderItems.reduce(
+            (sum, item) => sum + item.total_price,
+            0,
+        );
+        const mappedShift = matchShiftForOnlineOrder(
+            pickup_date,
+            pickup_time_slot,
+            CURRENT_SHIFTS,
+        );
 
         const newOrder: OnlineOrder = {
             id: `ORD_MANUAL_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1580,21 +1880,37 @@ app.post("/api/online-orders/create", (req, res) => {
             class_name: String(class_name || "K.XĐ").trim(),
             pickup_date: String(pickup_date).trim(),
             pickup_time_slot: String(pickup_time_slot).trim(),
-            shift_id: mappedShift ? mappedShift.shift_id : (CURRENT_SHIFTS.length > 0 ? CURRENT_SHIFTS[0].shift_id : "UNKNOWN"),
-            shift_label: mappedShift ? `${mappedShift.day} (${mappedShift.date || ""}) - ${mappedShift.slot || mappedShift.start_time}` : `${pickup_date} - ${pickup_time_slot}`,
+            shift_id: mappedShift
+                ? mappedShift.shift_id
+                : CURRENT_SHIFTS.length > 0
+                  ? CURRENT_SHIFTS[0].shift_id
+                  : "UNKNOWN",
+            shift_label: mappedShift
+                ? `${mappedShift.day} (${mappedShift.date || ""}) - ${mappedShift.slot || mappedShift.start_time}`
+                : `${pickup_date} - ${pickup_time_slot}`,
             items: orderItems,
             total_amount: totalAmount,
-            payment_status: payment_status === "Đã thanh toán" ? "Đã thanh toán" : "Chưa thanh toán",
-            created_at: new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
+            payment_status:
+                payment_status === "Đã thanh toán"
+                    ? "Đã thanh toán"
+                    : "Chưa thanh toán",
+            created_at: new Date().toLocaleString("vi-VN", {
+                timeZone: "Asia/Ho_Chi_Minh",
+            }),
         };
 
         if (newOrder.payment_status === "Đã thanh toán") {
-            const nowTime = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
-            newOrder.items.forEach(item => {
+            const nowTime = new Date().toLocaleString("vi-VN", {
+                timeZone: "Asia/Ho_Chi_Minh",
+            });
+            newOrder.items.forEach((item) => {
                 if (item.product_id) {
-                    const prod = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+                    const prod = INVENTORY_PRODUCTS.find(
+                        (p) => p.id === item.product_id,
+                    );
                     if (prod) {
-                        prod.sold_count = (prod.sold_count || 0) + item.quantity;
+                        prod.sold_count =
+                            (prod.sold_count || 0) + item.quantity;
                     }
                 }
                 SALES_LOGS.push({
@@ -1627,32 +1943,53 @@ app.post("/api/online-orders/create", (req, res) => {
             online_orders: ONLINE_ORDERS,
         });
     } catch (err: any) {
-        res.status(500).json({ success: false, message: `Lỗi tạo đơn hàng: ${err.message}` });
+        res.status(500).json({
+            success: false,
+            message: `Lỗi tạo đơn hàng: ${err.message}`,
+        });
     }
 });
 
-app.post("/api/online-orders/update-status", (req, res) => {
+app.post("/api/online-orders/update-status", requireAdmin, (req, res) => {
     try {
         const { order_id, payment_status } = req.body || {};
         if (!order_id || !payment_status) {
-            return res.status(400).json({ success: false, message: "Thiếu order_id hoặc payment_status!" });
+            return res
+                .status(400)
+                .json({
+                    success: false,
+                    message: "Thiếu order_id hoặc payment_status!",
+                });
         }
-        const orderIndex = ONLINE_ORDERS.findIndex(o => o.id === order_id);
+        const orderIndex = ONLINE_ORDERS.findIndex((o) => o.id === order_id);
         if (orderIndex === -1) {
-            return res.status(404).json({ success: false, message: "Không tìm thấy đơn hàng online!" });
+            return res
+                .status(404)
+                .json({
+                    success: false,
+                    message: "Không tìm thấy đơn hàng online!",
+                });
         }
         const order = ONLINE_ORDERS[orderIndex];
         const oldStatus = order.payment_status;
         order.payment_status = payment_status;
 
         // If changed to "Đã thanh toán", update inventory stock/sales
-        if (oldStatus !== "Đã thanh toán" && payment_status === "Đã thanh toán") {
-            const nowTime = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
-            order.items.forEach(item => {
+        if (
+            oldStatus !== "Đã thanh toán" &&
+            payment_status === "Đã thanh toán"
+        ) {
+            const nowTime = new Date().toLocaleString("vi-VN", {
+                timeZone: "Asia/Ho_Chi_Minh",
+            });
+            order.items.forEach((item) => {
                 if (item.product_id) {
-                    const prod = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+                    const prod = INVENTORY_PRODUCTS.find(
+                        (p) => p.id === item.product_id,
+                    );
                     if (prod) {
-                        prod.sold_count = (prod.sold_count || 0) + item.quantity;
+                        prod.sold_count =
+                            (prod.sold_count || 0) + item.quantity;
                     }
                 }
                 SALES_LOGS.push({
@@ -1673,11 +2010,16 @@ app.post("/api/online-orders/update-status", (req, res) => {
                     week: currentWeekTag(),
                 });
             });
-        } else if (oldStatus === "Đã thanh toán" && payment_status === "Chưa thanh toán") {
+        } else if (
+            oldStatus === "Đã thanh toán" &&
+            payment_status === "Chưa thanh toán"
+        ) {
             // Revert inventory sold_count
-            order.items.forEach(item => {
+            order.items.forEach((item) => {
                 if (item.product_id) {
-                    const prod = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+                    const prod = INVENTORY_PRODUCTS.find(
+                        (p) => p.id === item.product_id,
+                    );
                     if (prod && (prod.sold_count || 0) >= item.quantity) {
                         prod.sold_count -= item.quantity;
                     }
@@ -1693,7 +2035,10 @@ app.post("/api/online-orders/update-status", (req, res) => {
             online_orders: ONLINE_ORDERS,
         });
     } catch (err: any) {
-        res.status(500).json({ success: false, message: `Lỗi cập nhật trạng thái đơn: ${err.message}` });
+        res.status(500).json({
+            success: false,
+            message: `Lỗi cập nhật trạng thái đơn: ${err.message}`,
+        });
     }
 });
 
@@ -1701,9 +2046,15 @@ app.get("/api/online-orders/template-excel", (req, res) => {
     try {
         const wb = xlsx.utils.book_new();
         // Product list: prioritize active products from inventory, or default chemistry drinks
-        const productList = INVENTORY_PRODUCTS.length > 0
-            ? INVENTORY_PRODUCTS.map(p => p.name)
-            : ["Glutamic Acid", "[CU(NH3)4](OH)2", "Lysine", "(C17H35COO)C3H5"];
+        const productList =
+            INVENTORY_PRODUCTS.length > 0
+                ? INVENTORY_PRODUCTS.map((p) => p.name)
+                : [
+                      "Glutamic Acid",
+                      "[CU(NH3)4](OH)2",
+                      "Lysine",
+                      "(C17H35COO)C3H5",
+                  ];
 
         const headerRow = [
             "Họ và tên",
@@ -1715,10 +2066,46 @@ app.get("/api/online-orders/template-excel", (req, res) => {
 
         const wsData: any[][] = [
             headerRow,
-            ["Nguyễn Văn A", "12A1", "2026-08-25", "Ca 1: 07h00 - 09h30", 2, 1, 1, 0],
-            ["Trần Thị B", "11T2", "2026-08-25", "Ca 2: 09h35 - 12h00", 1, 2, 2, 0],
-            ["Lê Văn C", "10T1", "2026-08-26", "Ca 3: 12h05 - 14h00", 3, 0, 0, 0],
-            ["Phạm Minh D", "12H1", "2026-08-26", "Ca 4: 14h05 - 16h30", 0, 2, 0, 1],
+            [
+                "Nguyễn Văn A",
+                "12A1",
+                "2026-08-25",
+                "Ca 1: 07h00 - 09h30",
+                2,
+                1,
+                1,
+                0,
+            ],
+            [
+                "Trần Thị B",
+                "11T2",
+                "2026-08-25",
+                "Ca 2: 09h35 - 12h00",
+                1,
+                2,
+                2,
+                0,
+            ],
+            [
+                "Lê Văn C",
+                "10T1",
+                "2026-08-26",
+                "Ca 3: 12h05 - 14h00",
+                3,
+                0,
+                0,
+                0,
+            ],
+            [
+                "Phạm Minh D",
+                "12H1",
+                "2026-08-26",
+                "Ca 4: 14h05 - 16h30",
+                0,
+                2,
+                0,
+                1,
+            ],
         ];
 
         const ws = xlsx.utils.aoa_to_sheet(wsData);
@@ -1732,30 +2119,44 @@ app.get("/api/online-orders/template-excel", (req, res) => {
         xlsx.utils.book_append_sheet(wb, ws, "DON_HANG_ONLINE");
         const buf = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
 
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", 'attachment; filename="Mau_Nhap_Don_Hang_Online.xlsx"');
+        res.setHeader(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader(
+            "Content-Disposition",
+            'attachment; filename="Mau_Nhap_Don_Hang_Online.xlsx"',
+        );
         res.send(buf);
     } catch (err: any) {
-        res.status(500).json({ success: false, message: `Lỗi tạo file mẫu: ${err.message}` });
+        res.status(500).json({
+            success: false,
+            message: `Lỗi tạo file mẫu: ${err.message}`,
+        });
     }
 });
 
-app.post("/api/online-orders/delete", (req, res) => {
+app.post("/api/online-orders/delete", requireAdmin, (req, res) => {
     try {
         const { order_id, clear_all } = req.body || {};
         if (clear_all) {
             ONLINE_ORDERS = [];
         } else if (order_id) {
-            ONLINE_ORDERS = ONLINE_ORDERS.filter(o => o.id !== order_id);
+            ONLINE_ORDERS = ONLINE_ORDERS.filter((o) => o.id !== order_id);
         }
         persist();
         res.json({
             success: true,
-            message: clear_all ? "Đã xóa tất cả đơn hàng online!" : "Đã xóa đơn hàng online thành công!",
+            message: clear_all
+                ? "Đã xóa tất cả đơn hàng online!"
+                : "Đã xóa đơn hàng online thành công!",
             online_orders: ONLINE_ORDERS,
         });
     } catch (err: any) {
-        res.status(500).json({ success: false, message: `Lỗi xóa đơn hàng: ${err.message}` });
+        res.status(500).json({
+            success: false,
+            message: `Lỗi xóa đơn hàng: ${err.message}`,
+        });
     }
 });
 
@@ -1782,7 +2183,7 @@ app.get("/api/members/template-excel", (req, res) => {
                 "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [9h - 12h]",
                 "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [11h - 14h]",
                 "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [13h - 16h]",
-                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [15h - 18h]"
+                "Hãy điền 1 khung giờ bạn cam kết có thể tham gia trực ca? [15h - 18h]",
             ],
             [
                 "Nguyễn Vân Anh",
@@ -1802,7 +2203,7 @@ app.get("/api/members/template-excel", (req, res) => {
                 "Không rảnh ngày nào",
                 "Chủ nhật",
                 "Thứ 7",
-                "Không rảnh ngày nào"
+                "Không rảnh ngày nào",
             ],
             [
                 "Hoàng Bảo Sơn",
@@ -1822,8 +2223,8 @@ app.get("/api/members/template-excel", (req, res) => {
                 "Không rảnh ngày nào",
                 "Không rảnh ngày nào",
                 "Không rảnh ngày nào",
-                "Không rảnh ngày nào"
-            ]
+                "Không rảnh ngày nào",
+            ],
         ];
 
         const ws = xlsx.utils.aoa_to_sheet(wsData);
@@ -1845,7 +2246,7 @@ app.get("/api/members/template-excel", (req, res) => {
             { wch: 25 }, // Cam kết 9-12
             { wch: 25 }, // Cam kết 11-14
             { wch: 25 }, // Cam kết 13-16
-            { wch: 25 }  // Cam kết 15-18
+            { wch: 25 }, // Cam kết 15-18
         ];
 
         xlsx.utils.book_append_sheet(wb, ws, "DANH_SACH_THANH_VIEN");
@@ -1891,7 +2292,8 @@ app.post(
             if (items.length === 0) {
                 return res.status(400).json({
                     success: false,
-                    message: "Không tìm thấy dữ liệu mặt hàng hợp lệ trong file Excel. Vui lòng kiểm tra định dạng bảng!",
+                    message:
+                        "Không tìm thấy dữ liệu mặt hàng hợp lệ trong file Excel. Vui lòng kiểm tra định dạng bảng!",
                 });
             }
 
@@ -1916,12 +2318,10 @@ app.post(
     async (req: any, res: any) => {
         try {
             if (!req.file) {
-                return res
-                    .status(400)
-                    .json({
-                        success: false,
-                        message: "Không tìm thấy file tải lên!",
-                    });
+                return res.status(400).json({
+                    success: false,
+                    message: "Không tìm thấy file tải lên!",
+                });
             }
             const mode = String(req.body.mode || "merge").trim(); // 'merge' or 'replace'
             const filePath = req.file.path;
@@ -1934,7 +2334,8 @@ app.post(
             if (rawProducts.length === 0) {
                 return res.status(400).json({
                     success: false,
-                    message: "Không tìm thấy dòng sản phẩm nào hợp lệ trong file Excel. Vui lòng kiểm tra lại cấu trúc cột!",
+                    message:
+                        "Không tìm thấy dòng sản phẩm nào hợp lệ trong file Excel. Vui lòng kiểm tra lại cấu trúc cột!",
                 });
             }
 
@@ -1954,7 +2355,8 @@ app.post(
 
                 const existingIdx = INVENTORY_PRODUCTS.findIndex(
                     (p) =>
-                        (item.id && p.id.toUpperCase() === item.id.toUpperCase()) ||
+                        (item.id &&
+                            p.id.toUpperCase() === item.id.toUpperCase()) ||
                         p.name.toLowerCase() === name.toLowerCase(),
                 );
 
@@ -2013,7 +2415,7 @@ app.post(
     },
 );
 
-// --- 
+// ---
 app.post("/api/inventory/checkout", (req, res) => {
     const data = req.body || {};
     const items = data.items || [];
@@ -2026,7 +2428,9 @@ app.post("/api/inventory/checkout", (req, res) => {
     const note = String(data.note || "").trim();
 
     if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ success: false, message: "Giỏ hàng trống" });
+        return res
+            .status(400)
+            .json({ success: false, message: "Giỏ hàng trống" });
     }
 
     // Generate single transaction ID for the whole order
@@ -2046,17 +2450,37 @@ app.post("/api/inventory/checkout", (req, res) => {
 
     // First check all items in stock
     for (const item of items) {
-        const product_id = String(item.product_id || "").trim().toUpperCase();
+        const product_id = String(item.product_id || "")
+            .trim()
+            .toUpperCase();
         const quantity = Math.max(1, parseInt(item.quantity || "1", 10));
-        const product = INVENTORY_PRODUCTS.find(p => String(p.id || "").trim().toUpperCase() === product_id);
+        const product = INVENTORY_PRODUCTS.find(
+            (p) =>
+                String(p.id || "")
+                    .trim()
+                    .toUpperCase() === product_id,
+        );
         if (!product) {
-            return res.status(404).json({ success: false, message: `Không tìm thấy sản phẩm ${item.product_id}` });
+            return res
+                .status(404)
+                .json({
+                    success: false,
+                    message: `Không tìm thấy sản phẩm ${item.product_id}`,
+                });
         }
-        const currentStock = Math.max(0, product.initial_stock - (product.sold_count || 0));
+        const currentStock = Math.max(
+            0,
+            product.initial_stock - (product.sold_count || 0),
+        );
         if (quantity > currentStock) {
-            return res.status(400).json({ success: false, message: `Sản phẩm ${product.name} chỉ còn ${currentStock} trong kho.` });
+            return res
+                .status(400)
+                .json({
+                    success: false,
+                    message: `Sản phẩm ${product.name} chỉ còn ${currentStock} trong kho.`,
+                });
         }
-        
+
         newTransactions.push({
             id: txId,
             timestamp,
@@ -2078,7 +2502,7 @@ app.post("/api/inventory/checkout", (req, res) => {
 
     // Now commit the sale
     for (const tx of newTransactions) {
-        const product = INVENTORY_PRODUCTS.find(p => p.id === tx.product_id);
+        const product = INVENTORY_PRODUCTS.find((p) => p.id === tx.product_id);
         if (product) {
             product.sold_count = (product.sold_count || 0) + tx.quantity;
         }
@@ -2097,28 +2521,24 @@ app.post("/api/inventory/checkout", (req, res) => {
     });
 });
 
-// --- refund --- 
+// --- refund ---
 app.post("/api/inventory/refund", (req, res) => {
     const data = req.body || {};
     const transaction_id = String(data.transaction_id || "").trim();
 
     const transactions = SALES_LOGS.filter((t) => t.id === transaction_id);
     if (transactions.length === 0) {
-        return res
-            .status(404)
-            .json({
-                success: false,
-                message: `Không tìm thấy giao dịch ${transaction_id}`,
-            });
+        return res.status(404).json({
+            success: false,
+            message: `Không tìm thấy giao dịch ${transaction_id}`,
+        });
     }
 
     if (transactions.some((t) => t.refunded)) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: `Giao dịch ${transaction_id} đã được hủy/hoàn tác trước đó!`,
-            });
+        return res.status(400).json({
+            success: false,
+            message: `Giao dịch ${transaction_id} đã được hủy/hoàn tác trước đó!`,
+        });
     }
 
     // Refund all products in this transaction
@@ -2165,12 +2585,10 @@ app.post("/api/inventory/sell", (req, res) => {
             String(p.id || "").trim() === product_id,
     );
     if (!product) {
-        return res
-            .status(404)
-            .json({
-                success: false,
-                message: `Không tìm thấy sản phẩm ${product_id}`,
-            });
+        return res.status(404).json({
+            success: false,
+            message: `Không tìm thấy sản phẩm ${product_id}`,
+        });
     }
 
     const currentStock = Math.max(
@@ -2229,7 +2647,6 @@ app.post("/api/inventory/sell", (req, res) => {
         ...inv,
     });
 });
-
 
 app.post("/api/inventory/reset", requireAdmin, (req, res) => {
     INVENTORY_PRODUCTS = JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
@@ -2320,12 +2737,10 @@ app.post("/api/members/update", requireAdmin, (req, res) => {
 
     const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
     if (!member) {
-        return res
-            .status(404)
-            .json({
-                success: false,
-                message: `Không tìm thấy thành viên có ID ${member_id}`,
-            });
+        return res.status(404).json({
+            success: false,
+            message: `Không tìm thấy thành viên có ID ${member_id}`,
+        });
     }
 
     if (data.name !== undefined) member.name = String(data.name).trim();
@@ -2431,10 +2846,10 @@ app.get("/api/kpi/attendance", (req, res) => {
     shifts.forEach((s: any) => {
         const assigned = s.assigned_members || [];
         assigned.forEach((m: any) => {
-            const key = `${s.id}|${m.member_id}`;
+            const key = `${s.shift_id}|${m.member_id}`;
             if (!existingKeys.has(key)) {
                 KPI_ATTENDANCE.push({
-                    shift_id: s.id,
+                    shift_id: s.shift_id,
                     member_id: m.member_id,
                     name: m.name,
                     day: s.day,
@@ -2477,7 +2892,7 @@ app.post("/api/kpi/attendance", requireAdmin, (req, res) => {
             LATEST_SCHEDULE_RESULT && LATEST_SCHEDULE_RESULT.assigned_shifts
                 ? LATEST_SCHEDULE_RESULT.assigned_shifts
                 : [];
-        const sh = shifts.find((s: any) => s.id === shift_id);
+        const sh = shifts.find((s: any) => s.shift_id === shift_id);
         const mem = sh
             ? (sh.assigned_members || []).find(
                   (m: any) => m.member_id === member_id,
@@ -2647,12 +3062,10 @@ app.post(
                 // Fetch Google Sheet export URL as CSV
                 const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
                 if (!match) {
-                    return res
-                        .status(400)
-                        .json({
-                            success: false,
-                            message: "URL Google Sheet không hợp lệ!",
-                        });
+                    return res.status(400).json({
+                        success: false,
+                        message: "URL Google Sheet không hợp lệ!",
+                    });
                 }
                 const sheet_id = match[1];
                 const gid_match = url.match(/[#&?]gid=([0-9]+)/);
@@ -2680,12 +3093,10 @@ app.post(
                         : "";
                 msg = `Đồng bộ Google Sheets thành công! Đã tải ${CURRENT_MEMBERS.length} thành viên${dupStr}.`;
             } else {
-                return res
-                    .status(400)
-                    .json({
-                        success: false,
-                        message: "Không tìm thấy file hoặc link Google Sheets",
-                    });
+                return res.status(400).json({
+                    success: false,
+                    message: "Không tìm thấy file hoặc link Google Sheets",
+                });
             }
 
             // Rerun optimization
@@ -2796,13 +3207,18 @@ app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
     const shift_id = data.shift_id;
     const member_id = data.member_id;
     const role = data.role === "Dự phòng" ? "Dự phòng" : "Chính";
-    const position_role = data.position_role || (role === "Chính" ? "Bán hàng F&B" : "⚡ Dự bị tiếp ứng");
+    const position_role =
+        data.position_role ||
+        (role === "Chính" ? "Bán hàng F&B" : "⚡ Dự bị tiếp ứng");
     const set_as_leader = Boolean(data.set_as_leader);
 
     if (!shift_id || !member_id) {
         return res
             .status(400)
-            .json({ success: false, message: "Thiếu thông tin ca trực hoặc nhân sự" });
+            .json({
+                success: false,
+                message: "Thiếu thông tin ca trực hoặc nhân sự",
+            });
     }
 
     const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
@@ -2818,7 +3234,10 @@ app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
     if (!member) {
         return res
             .status(404)
-            .json({ success: false, message: `Không tìm thấy nhân sự mã ${member_id}` });
+            .json({
+                success: false,
+                message: `Không tìm thấy nhân sự mã ${member_id}`,
+            });
     }
 
     target_shift.assigned_members = target_shift.assigned_members || [];
@@ -2828,7 +3247,8 @@ app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
 
     if (existingIndex >= 0) {
         target_shift.assigned_members[existingIndex].role = role;
-        target_shift.assigned_members[existingIndex].position_role = position_role;
+        target_shift.assigned_members[existingIndex].position_role =
+            position_role;
     } else {
         target_shift.assigned_members.push({
             member_id: member.member_id,
@@ -2851,7 +3271,10 @@ app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
 
     if (set_as_leader) {
         target_shift.shift_leader = member.name;
-    } else if (!target_shift.shift_leader || target_shift.shift_leader === "Chưa chỉ định") {
+    } else if (
+        !target_shift.shift_leader ||
+        target_shift.shift_leader === "Chưa chỉ định"
+    ) {
         target_shift.shift_leader = member.name;
     }
 
@@ -3057,12 +3480,12 @@ app.post("/api/contingency/log-incident", async (req, res) => {
             });
         }
         target_shift.assigned_count = target_shift.assigned_members.length;
-        target_shift.chinh_assigned_count = (target_shift.assigned_members || []).filter(
-            (m: any) => m.role === "Chính",
-        ).length;
-        target_shift.dp_assigned_count = (target_shift.assigned_members || []).filter(
-            (m: any) => m.role !== "Chính",
-        ).length;
+        target_shift.chinh_assigned_count = (
+            target_shift.assigned_members || []
+        ).filter((m: any) => m.role === "Chính").length;
+        target_shift.dp_assigned_count = (
+            target_shift.assigned_members || []
+        ).filter((m: any) => m.role !== "Chính").length;
     }
 
     const timestamp = new Date().toLocaleString("vi-VN", {
@@ -3075,11 +3498,14 @@ app.post("/api/contingency/log-incident", async (req, res) => {
         minute: "2-digit",
     });
 
-    const resp_time = data.response_time !== undefined && data.response_time !== null
-        ? parseInt(data.response_time, 10)
-        : (rep_m || replacement_member_id
-            ? (late_minutes > 0 ? late_minutes : Math.floor(Math.random() * 7) + 6)
-            : null);
+    const resp_time =
+        data.response_time !== undefined && data.response_time !== null
+            ? parseInt(data.response_time, 10)
+            : rep_m || replacement_member_id
+              ? late_minutes > 0
+                  ? late_minutes
+                  : Math.floor(Math.random() * 7) + 6
+              : null;
 
     const incident_record = {
         id: INCIDENT_LOGS.length + 1,
@@ -3103,11 +3529,14 @@ app.post("/api/contingency/log-incident", async (req, res) => {
     INCIDENT_LOGS.unshift(incident_record);
 
     SCHEDULE_VERSION++;
-    if (status_type.includes("Không gọi được") || status_type.includes("Không liên lạc được")) {
+    if (
+        status_type.includes("Không gọi được") ||
+        status_type.includes("Không liên lạc được")
+    ) {
         addSystemNotification({
             type: "UNREACHABLE_BACKUP",
             title: "🚨 KHẨN CẤP: Không Gọi Được Dự Phòng!",
-            message: `Ca ${shift_id} (${target_shift.day} - ${target_shift.slot}): Không liên lạc được dự phòng ${rep_m ? rep_m.name : (replacement_member_id || "")} thay cho ${absent_m ? absent_m.name : (absent_member_id || "thành viên vắng")}. Trưởng ca yêu cầu Admin điều phối ngay!`,
+            message: `Ca ${shift_id} (${target_shift.day} - ${target_shift.slot}): Không liên lạc được dự phòng ${rep_m ? rep_m.name : replacement_member_id || ""} thay cho ${absent_m ? absent_m.name : absent_member_id || "thành viên vắng"}. Trưởng ca yêu cầu Admin điều phối ngay!`,
             shift_id: shift_id,
             shift_day: target_shift.day,
             shift_slot: target_shift.slot,
@@ -3144,7 +3573,9 @@ app.post("/api/contingency/log-incident", async (req, res) => {
             total_late: late_logs.length,
             total_absent: absent_logs.length,
             replaced_count: INCIDENT_LOGS.filter(
-                (i) => i.replacement_member && i.replacement_member !== "Không thay thế",
+                (i) =>
+                    i.replacement_member &&
+                    i.replacement_member !== "Không thay thế",
             ).length,
         },
     });
@@ -3157,20 +3588,29 @@ app.post("/api/contingency/report-unreachable", async (req, res) => {
             .json({ success: false, message: "Chưa có lịch trực" });
     }
 
-    const { shift_id, backup_member_id, absent_member_id, note } = req.body || {};
+    const { shift_id, backup_member_id, absent_member_id, note } =
+        req.body || {};
     if (!shift_id) {
-        return res.status(400).json({ success: false, message: "Thiếu shift_id" });
+        return res
+            .status(400)
+            .json({ success: false, message: "Thiếu shift_id" });
     }
 
     const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
         (s: any) => s.shift_id === shift_id,
     );
     if (!target_shift) {
-        return res.status(404).json({ success: false, message: "Không tìm thấy ca trực" });
+        return res
+            .status(404)
+            .json({ success: false, message: "Không tìm thấy ca trực" });
     }
 
-    const absent_m = CURRENT_MEMBERS.find((m) => m.member_id === absent_member_id);
-    const backup_m = CURRENT_MEMBERS.find((m) => m.member_id === backup_member_id);
+    const absent_m = CURRENT_MEMBERS.find(
+        (m) => m.member_id === absent_member_id,
+    );
+    const backup_m = CURRENT_MEMBERS.find(
+        (m) => m.member_id === backup_member_id,
+    );
 
     const timestamp = new Date().toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
@@ -3191,12 +3631,16 @@ app.post("/api/contingency/report-unreachable", async (req, res) => {
         location: target_shift.location || target_shift.type_label,
         status_type: "Vắng mặt (Không gọi được dự phòng)",
         late_minutes: 0,
-        absent_member: absent_m ? absent_m.name : (absent_member_id || "Chưa xác định"),
+        absent_member: absent_m
+            ? absent_m.name
+            : absent_member_id || "Chưa xác định",
         absent_member_id: absent_member_id,
         replacement_member: "Không thay thế",
         replacement_member_id: null,
         response_time: null,
-        note: note || `Trưởng ca không liên lạc được nhân sự dự phòng ${backup_m ? backup_m.name : (backup_member_id || "dự phòng")}, báo cáo Quản Trị Viên điều phối người khác`,
+        note:
+            note ||
+            `Trưởng ca không liên lạc được nhân sự dự phòng ${backup_m ? backup_m.name : backup_member_id || "dự phòng"}, báo cáo Quản Trị Viên điều phối người khác`,
         timestamp: timestamp,
         week: currentWeekTag(),
     };
@@ -3235,7 +3679,7 @@ app.post("/api/contingency/report-unreachable", async (req, res) => {
     const urgentNotif = addSystemNotification({
         type: "UNREACHABLE_BACKUP",
         title: "🚨 KHẨN CẤP: Không Gọi Được Dự Phòng!",
-        message: `Ca ${shift_id} (${target_shift.day} - ${target_shift.slot}): Không liên lạc được dự phòng ${backup_m ? backup_m.name : (backup_member_id || "")} thay cho ${absent_m ? absent_m.name : (absent_member_id || "thành viên vắng")}. Trưởng ca yêu cầu Admin điều phối ngay!`,
+        message: `Ca ${shift_id} (${target_shift.day} - ${target_shift.slot}): Không liên lạc được dự phòng ${backup_m ? backup_m.name : backup_member_id || ""} thay cho ${absent_m ? absent_m.name : absent_member_id || "thành viên vắng"}. Trưởng ca yêu cầu Admin điều phối ngay!`,
         shift_id: shift_id,
         shift_day: target_shift.day,
         shift_slot: target_shift.slot,
@@ -3258,151 +3702,204 @@ app.post("/api/contingency/report-unreachable", async (req, res) => {
         notification: urgentNotif,
         shift: target_shift,
         shift_id: shift_id,
-        absent_member_name: absent_m ? absent_m.name : (absent_member_id || "Thành viên vắng"),
-        backup_member_name: backup_m ? backup_m.name : (backup_member_id || "Nhân sự dự phòng"),
+        absent_member_name: absent_m
+            ? absent_m.name
+            : absent_member_id || "Thành viên vắng",
+        backup_member_name: backup_m
+            ? backup_m.name
+            : backup_member_id || "Nhân sự dự phòng",
     });
 });
 
-app.post("/api/contingency/update-replacement", requireAdmin, async (req, res) => {
-    if (!LATEST_SCHEDULE_RESULT) {
-        return res
-            .status(400)
-            .json({ success: false, message: "Chưa có lịch trực" });
-    }
-
-    const { incident_id, timestamp, shift_id, absent_member, replacement_member_id, note } = req.body || {};
-
-    let target_incident: any = null;
-    if (incident_id !== undefined && incident_id !== null && incident_id !== "") {
-        const numId = Number(incident_id);
-        target_incident = INCIDENT_LOGS.find((i: any) => i.id === numId || String(i.id) === String(incident_id));
-    } else if (timestamp) {
-        target_incident = INCIDENT_LOGS.find((i: any) => i.timestamp === timestamp);
-    } else if (shift_id && absent_member) {
-        target_incident = INCIDENT_LOGS.find((i: any) => i.shift_id === shift_id && i.absent_member === absent_member);
-    }
-
-    if (!target_incident) {
-        return res.status(404).json({ success: false, message: "Không tìm thấy bản ghi sự cố cần chỉnh sửa" });
-    }
-
-    const targetShiftId = target_incident.shift_id;
-    const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
-        (s: any) => s.shift_id === targetShiftId,
-    );
-
-    const old_rep_id = target_incident.replacement_member_id;
-
-    if (replacement_member_id && replacement_member_id !== "none" && replacement_member_id !== "no_replacement") {
-        const new_rep = CURRENT_MEMBERS.find((m) => m.member_id === replacement_member_id);
-        if (!new_rep) {
-            return res.status(404).json({ success: false, message: "Không tìm thấy nhân sự thay thế được chọn" });
+app.post(
+    "/api/contingency/update-replacement",
+    requireAdmin,
+    async (req, res) => {
+        if (!LATEST_SCHEDULE_RESULT) {
+            return res
+                .status(400)
+                .json({ success: false, message: "Chưa có lịch trực" });
         }
 
-        target_incident.replacement_member = new_rep.name;
-        target_incident.replacement_member_id = new_rep.member_id;
-        if (note !== undefined && note !== "") {
-            target_incident.note = note;
-        }
+        const {
+            incident_id,
+            timestamp,
+            shift_id,
+            absent_member,
+            replacement_member_id,
+            note,
+        } = req.body || {};
 
-        if (target_shift) {
-            // Remove old replacement from assigned members if present
-            if (old_rep_id && old_rep_id !== new_rep.member_id) {
-                target_shift.assigned_members = (target_shift.assigned_members || []).filter(
-                    (m: any) => m.member_id !== old_rep_id,
-                );
-            }
-            // Add new replacement if not already in assigned members
-            const alreadyAssigned = (target_shift.assigned_members || []).some(
-                (m: any) => m.member_id === new_rep.member_id,
+        let target_incident: any = null;
+        if (
+            incident_id !== undefined &&
+            incident_id !== null &&
+            incident_id !== ""
+        ) {
+            const numId = Number(incident_id);
+            target_incident = INCIDENT_LOGS.find(
+                (i: any) =>
+                    i.id === numId || String(i.id) === String(incident_id),
             );
-            if (!alreadyAssigned) {
-                target_shift.assigned_members.push({
-                    member_id: new_rep.member_id,
-                    name: new_rep.name,
-                    department: new_rep.department,
-                    residence: new_rep.residence,
-                    vehicle: new_rep.vehicle,
-                    job: new_rep.job,
-                    school: new_rep.school,
-                    phone: new_rep.phone,
-                    role: "Dự phòng thay thế",
-                    position_role: "⚡ Dự bị tiếp ứng",
-                    is_standby: new_rep.is_standby,
-                    is_committed: false,
+        } else if (timestamp) {
+            target_incident = INCIDENT_LOGS.find(
+                (i: any) => i.timestamp === timestamp,
+            );
+        } else if (shift_id && absent_member) {
+            target_incident = INCIDENT_LOGS.find(
+                (i: any) =>
+                    i.shift_id === shift_id &&
+                    i.absent_member === absent_member,
+            );
+        }
+
+        if (!target_incident) {
+            return res
+                .status(404)
+                .json({
+                    success: false,
+                    message: "Không tìm thấy bản ghi sự cố cần chỉnh sửa",
                 });
-            }
-            target_shift.assigned_count = target_shift.assigned_members.length;
-            target_shift.dp_assigned_count = (target_shift.assigned_members || []).filter(
-                (m: any) => m.role !== "Chính",
-            ).length;
-        }
-    } else {
-        // Remove replacement
-        target_incident.replacement_member = "Không thay thế";
-        target_incident.replacement_member_id = "";
-        if (note !== undefined && note !== "") {
-            target_incident.note = note;
         }
 
-        if (target_shift && old_rep_id) {
-            target_shift.assigned_members = (target_shift.assigned_members || []).filter(
-                (m: any) => m.member_id !== old_rep_id,
-            );
-            target_shift.assigned_count = target_shift.assigned_members.length;
-            target_shift.dp_assigned_count = (target_shift.assigned_members || []).filter(
-                (m: any) => m.role !== "Chính",
-            ).length;
-        }
-    }
-
-    if (target_shift && target_shift.history) {
-        const histItem = target_shift.history.find(
-            (h: any) => h.id === target_incident.id || h.timestamp === target_incident.timestamp,
+        const targetShiftId = target_incident.shift_id;
+        const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
+            (s: any) => s.shift_id === targetShiftId,
         );
-        if (histItem) {
-            histItem.replacement_member = target_incident.replacement_member;
-            histItem.replacement_member_id = target_incident.replacement_member_id;
-            histItem.note = target_incident.note;
+
+        const old_rep_id = target_incident.replacement_member_id;
+
+        if (
+            replacement_member_id &&
+            replacement_member_id !== "none" &&
+            replacement_member_id !== "no_replacement"
+        ) {
+            const new_rep = CURRENT_MEMBERS.find(
+                (m) => m.member_id === replacement_member_id,
+            );
+            if (!new_rep) {
+                return res
+                    .status(404)
+                    .json({
+                        success: false,
+                        message: "Không tìm thấy nhân sự thay thế được chọn",
+                    });
+            }
+
+            target_incident.replacement_member = new_rep.name;
+            target_incident.replacement_member_id = new_rep.member_id;
+            if (note !== undefined && note !== "") {
+                target_incident.note = note;
+            }
+
+            if (target_shift) {
+                // Remove old replacement from assigned members if present
+                if (old_rep_id && old_rep_id !== new_rep.member_id) {
+                    target_shift.assigned_members = (
+                        target_shift.assigned_members || []
+                    ).filter((m: any) => m.member_id !== old_rep_id);
+                }
+                // Add new replacement if not already in assigned members
+                const alreadyAssigned = (
+                    target_shift.assigned_members || []
+                ).some((m: any) => m.member_id === new_rep.member_id);
+                if (!alreadyAssigned) {
+                    target_shift.assigned_members.push({
+                        member_id: new_rep.member_id,
+                        name: new_rep.name,
+                        department: new_rep.department,
+                        residence: new_rep.residence,
+                        vehicle: new_rep.vehicle,
+                        job: new_rep.job,
+                        school: new_rep.school,
+                        phone: new_rep.phone,
+                        role: "Dự phòng thay thế",
+                        position_role: "⚡ Dự bị tiếp ứng",
+                        is_standby: new_rep.is_standby,
+                        is_committed: false,
+                    });
+                }
+                target_shift.assigned_count =
+                    target_shift.assigned_members.length;
+                target_shift.dp_assigned_count = (
+                    target_shift.assigned_members || []
+                ).filter((m: any) => m.role !== "Chính").length;
+            }
+        } else {
+            // Remove replacement
+            target_incident.replacement_member = "Không thay thế";
+            target_incident.replacement_member_id = "";
+            if (note !== undefined && note !== "") {
+                target_incident.note = note;
+            }
+
+            if (target_shift && old_rep_id) {
+                target_shift.assigned_members = (
+                    target_shift.assigned_members || []
+                ).filter((m: any) => m.member_id !== old_rep_id);
+                target_shift.assigned_count =
+                    target_shift.assigned_members.length;
+                target_shift.dp_assigned_count = (
+                    target_shift.assigned_members || []
+                ).filter((m: any) => m.role !== "Chính").length;
+            }
         }
-    }
 
-    SCHEDULE_VERSION++;
-
-    // Add notification for staff accounts
-    addSystemNotification({
-        type: "REPLACEMENT_UPDATED",
-        title: "Cập nhật nhân sự thay thế",
-        message: `Admin đã điều phối ${target_incident.replacement_member} tiếp ứng cho Ca ${targetShiftId}`,
-        shift_id: targetShiftId,
-        shift_day: target_shift?.day,
-        shift_slot: target_shift?.slot,
-        absent_member_id: target_incident.absent_member_id,
-        absent_member_name: target_incident.absent_member,
-        backup_member_id: target_incident.replacement_member_id,
-        backup_member_name: target_incident.replacement_member,
-        target_role: "all",
-    });
-
-    // Mark any urgent notification for this shift as resolved
-    SYSTEM_NOTIFICATIONS.forEach((n) => {
-        if (n.shift_id === targetShiftId && n.type === "UNREACHABLE_BACKUP") {
-            n.resolved = true;
+        if (target_shift && target_shift.history) {
+            const histItem = target_shift.history.find(
+                (h: any) =>
+                    h.id === target_incident.id ||
+                    h.timestamp === target_incident.timestamp,
+            );
+            if (histItem) {
+                histItem.replacement_member =
+                    target_incident.replacement_member;
+                histItem.replacement_member_id =
+                    target_incident.replacement_member_id;
+                histItem.note = target_incident.note;
+            }
         }
-    });
 
-    await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
-    persist();
+        SCHEDULE_VERSION++;
 
-    res.json({
-        success: true,
-        message: `Đã cập nhật nhân sự thay thế cho ca ${targetShiftId} thành công!`,
-        incident: target_incident,
-        incidents: INCIDENT_LOGS,
-        schedule_version: SCHEDULE_VERSION,
-        shift: target_shift,
-    });
-});
+        // Add notification for staff accounts
+        addSystemNotification({
+            type: "REPLACEMENT_UPDATED",
+            title: "Cập nhật nhân sự thay thế",
+            message: `Admin đã điều phối ${target_incident.replacement_member} tiếp ứng cho Ca ${targetShiftId}`,
+            shift_id: targetShiftId,
+            shift_day: target_shift?.day,
+            shift_slot: target_shift?.slot,
+            absent_member_id: target_incident.absent_member_id,
+            absent_member_name: target_incident.absent_member,
+            backup_member_id: target_incident.replacement_member_id,
+            backup_member_name: target_incident.replacement_member,
+            target_role: "all",
+        });
+
+        // Mark any urgent notification for this shift as resolved
+        SYSTEM_NOTIFICATIONS.forEach((n) => {
+            if (
+                n.shift_id === targetShiftId &&
+                n.type === "UNREACHABLE_BACKUP"
+            ) {
+                n.resolved = true;
+            }
+        });
+
+        await exportScheduleToExcel(LATEST_SCHEDULE_RESULT, REPORT_PATH);
+        persist();
+
+        res.json({
+            success: true,
+            message: `Đã cập nhật nhân sự thay thế cho ca ${targetShiftId} thành công!`,
+            incident: target_incident,
+            incidents: INCIDENT_LOGS,
+            schedule_version: SCHEDULE_VERSION,
+            shift: target_shift,
+        });
+    },
+);
 
 app.get("/api/notifications", (req, res) => {
     const role = (req.query.role as string) || "all";
@@ -3425,7 +3922,9 @@ app.get("/api/notifications", (req, res) => {
 app.post("/api/notifications/resolve", requireAdmin, (req, res) => {
     const { notification_id, shift_id } = req.body || {};
     if (notification_id) {
-        const notif = SYSTEM_NOTIFICATIONS.find((n) => n.id === notification_id);
+        const notif = SYSTEM_NOTIFICATIONS.find(
+            (n) => n.id === notification_id,
+        );
         if (notif) notif.resolved = true;
     } else if (shift_id) {
         SYSTEM_NOTIFICATIONS.forEach((n) => {
@@ -3460,19 +3959,31 @@ app.post("/api/contingency/reset", requireAdmin, (req, res) => {
 
 app.post("/api/contingency/delete-incident", requireAdmin, (req, res) => {
     const { id, timestamp, shift_id, absent_member } = req.body || {};
-    
+
     if (id !== undefined && id !== null) {
         const numId = Number(id);
-        INCIDENT_LOGS = INCIDENT_LOGS.filter((item: any) => item.id !== numId && String(item.id) !== String(id));
+        INCIDENT_LOGS = INCIDENT_LOGS.filter(
+            (item: any) => item.id !== numId && String(item.id) !== String(id),
+        );
     } else if (timestamp) {
-        INCIDENT_LOGS = INCIDENT_LOGS.filter((item: any) => item.timestamp !== timestamp);
+        INCIDENT_LOGS = INCIDENT_LOGS.filter(
+            (item: any) => item.timestamp !== timestamp,
+        );
     } else if (shift_id && absent_member) {
-        INCIDENT_LOGS = INCIDENT_LOGS.filter((item: any) => !(item.shift_id === shift_id && item.absent_member === absent_member));
+        INCIDENT_LOGS = INCIDENT_LOGS.filter(
+            (item: any) =>
+                !(
+                    item.shift_id === shift_id &&
+                    item.absent_member === absent_member
+                ),
+        );
     }
 
     persist();
 
-    const late_logs = INCIDENT_LOGS.filter((i: any) => i.status_type === "Đi trễ");
+    const late_logs = INCIDENT_LOGS.filter(
+        (i: any) => i.status_type === "Đi trễ",
+    );
     const absent_logs = INCIDENT_LOGS.filter(
         (i: any) =>
             i.status_type === "Vắng đột xuất" ||
@@ -3490,7 +4001,9 @@ app.post("/api/contingency/delete-incident", requireAdmin, (req, res) => {
             total_late: late_logs.length,
             total_absent: absent_logs.length,
             replaced_count: INCIDENT_LOGS.filter(
-                (i: any) => i.replacement_member && i.replacement_member !== "Không thay thế",
+                (i: any) =>
+                    i.replacement_member &&
+                    i.replacement_member !== "Không thay thế",
             ).length,
         },
     });
@@ -3667,8 +4180,7 @@ app.post("/api/shift/cancel", requireAdmin, async (req, res) => {
     // Hủy toàn bộ ca trực
     if (target_shift.type === "Ngoai") {
         CUSTOM_CA_NGOAI = (CUSTOM_CA_NGOAI || []).filter(
-            (c: any) =>
-                c.id !== shift_id && c.name !== target_shift.location,
+            (c: any) => c.id !== shift_id && c.name !== target_shift.location,
         );
         LATEST_SCHEDULE_RESULT.assigned_shifts =
             LATEST_SCHEDULE_RESULT.assigned_shifts.filter(
@@ -3731,10 +4243,12 @@ app.post("/api/schedule/run", requireAdmin, async (req, res) => {
         CUSTOM_CA_NGOAI = data.custom_ca_ngoai;
     }
     if (data.phong_chinh_count !== undefined) {
-        OPTIMIZER_CONFIG.phong_chinh_count = parseInt(data.phong_chinh_count, 10) || 4;
+        OPTIMIZER_CONFIG.phong_chinh_count =
+            parseInt(data.phong_chinh_count, 10) || 4;
     }
     if (data.phong_dp_count !== undefined) {
-        OPTIMIZER_CONFIG.phong_dp_count = parseInt(data.phong_dp_count, 10) || 1;
+        OPTIMIZER_CONFIG.phong_dp_count =
+            parseInt(data.phong_dp_count, 10) || 1;
     }
     if (data.min_shifts !== undefined) {
         OPTIMIZER_CONFIG.min_shifts = parseInt(data.min_shifts, 10) || 3;
@@ -3743,18 +4257,36 @@ app.post("/api/schedule/run", requireAdmin, async (req, res) => {
         OPTIMIZER_CONFIG.max_shifts = parseInt(data.max_shifts, 10) || 5;
     }
     if (data.max_shifts_per_day !== undefined) {
-        OPTIMIZER_CONFIG.max_shifts_per_day = parseInt(data.max_shifts_per_day, 10) || 2;
+        OPTIMIZER_CONFIG.max_shifts_per_day =
+            parseInt(data.max_shifts_per_day, 10) || 2;
     }
-    if (Array.isArray(data.daily_shift_configs) && data.daily_shift_configs.length > 0) {
+    if (
+        Array.isArray(data.daily_shift_configs) &&
+        data.daily_shift_configs.length > 0
+    ) {
         OPTIMIZER_CONFIG.daily_shift_configs = data.daily_shift_configs;
-        applyDailyConfigsToShifts(CURRENT_SHIFTS, OPTIMIZER_CONFIG.daily_shift_configs);
+        applyDailyConfigsToShifts(
+            CURRENT_SHIFTS,
+            OPTIMIZER_CONFIG.daily_shift_configs,
+        );
     }
 
     const config = {
         start_date: START_DATE,
-        min_shifts_per_member: parseInt(data.min_shifts || OPTIMIZER_CONFIG.min_shifts || "3", 10),
-        max_shifts_per_member: parseInt(data.max_shifts || OPTIMIZER_CONFIG.max_shifts || "5", 10),
-        max_shifts_per_day: parseInt(data.max_shifts_per_day || OPTIMIZER_CONFIG.max_shifts_per_day || "2", 10),
+        min_shifts_per_member: parseInt(
+            data.min_shifts || OPTIMIZER_CONFIG.min_shifts || "3",
+            10,
+        ),
+        max_shifts_per_member: parseInt(
+            data.max_shifts || OPTIMIZER_CONFIG.max_shifts || "5",
+            10,
+        ),
+        max_shifts_per_day: parseInt(
+            data.max_shifts_per_day ||
+                OPTIMIZER_CONFIG.max_shifts_per_day ||
+                "2",
+            10,
+        ),
         enable_ca_ngoai: ENABLE_CA_NGOAI,
         custom_ca_ngoai: CUSTOM_CA_NGOAI,
         active_types: ENABLE_CA_NGOAI ? ["Phong", "Ngoai"] : ["Phong"],
@@ -3841,12 +4373,10 @@ app.get("/api/contingency/export-excel", async (req, res) => {
         await runDefaultOptimization();
     }
     if (!LATEST_SCHEDULE_RESULT) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Chưa có lịch trực để xuất báo cáo",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Chưa có lịch trực để xuất báo cáo",
+        });
     }
 
     const out_file = await exportScheduleToExcel(
@@ -3862,12 +4392,10 @@ app.get("/api/preview", async (req, res) => {
         await runDefaultOptimization();
     }
     if (!LATEST_SCHEDULE_RESULT) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Chưa có lịch trực để xem trước",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Chưa có lịch trực để xem trước",
+        });
     }
 
     const assigned = LATEST_SCHEDULE_RESULT.assigned_shifts || [];
@@ -4136,7 +4664,10 @@ app.get("/api/competition/stats", (req, res) => {
 
     const input = competitionInput();
     const project = computeProject(input);
-    const weekResult = isTotal ? null : (project.weeks.find((w) => w.week === week) || computeWeek(input, week));
+    const weekResult = isTotal
+        ? null
+        : project.weeks.find((w) => w.week === week) ||
+          computeWeek(input, week);
 
     let bestSellerRows: any[];
     let allRounderRows: any[];
@@ -4184,7 +4715,8 @@ app.get("/api/competition/stats", (req, res) => {
         deptRows = project.departments;
         // Giải nhóm trực ca không cộng dồn qua các tuần: chỉ liệt kê podium mỗi tuần.
         groupRows = project.weekly_podiums.reduce(
-            (acc: any[], p) => acc.concat(p.groups.map((g) => ({ ...g, week: p.week }))),
+            (acc: any[], p) =>
+                acc.concat(p.groups.map((g) => ({ ...g, week: p.week }))),
             [],
         );
     }
@@ -4198,7 +4730,9 @@ app.get("/api/competition/stats", (req, res) => {
         best_seller: bestSellerRows.slice(0, 20),
         all_rounder: allRounderRows.slice(0, 30),
         departments: deptRows,
-        shift_groups: groupRows.filter((g: any) => g.member_count > 0).slice(0, 24),
+        shift_groups: groupRows
+            .filter((g: any) => g.member_count > 0)
+            .slice(0, 24),
 
         // --- Dữ liệu mở rộng: minh bạch công thức ------------------------
         config: {
@@ -4209,10 +4743,15 @@ app.get("/api/competition/stats", (req, res) => {
             penalties: COMPETITION_CONFIG.penalties,
             weights: COMPETITION_CONFIG.weights,
             locked_weeks: COMPETITION_CONFIG.locked_weeks,
-            exclude_absent_from_shift_count: COMPETITION_CONFIG.exclude_absent_from_shift_count,
+            exclude_absent_from_shift_count:
+                COMPETITION_CONFIG.exclude_absent_from_shift_count,
         },
         awards: weekResult
-            ? { best_seller: weekResult.best_seller, all_rounder: weekResult.all_rounder, podium: weekResult.podium }
+            ? {
+                  best_seller: weekResult.best_seller,
+                  all_rounder: weekResult.all_rounder,
+                  podium: weekResult.podium,
+              }
             : {
                   best_seller: project.best_seller_project[0] || null,
                   all_rounder: project.all_round_project[0] || null,
@@ -4224,12 +4763,19 @@ app.get("/api/competition/stats", (req, res) => {
             locked: w.locked,
             totals: w.totals,
             best_seller: w.best_seller
-                ? { name: w.best_seller.name, value: w.best_seller.individual_sales }
+                ? {
+                      name: w.best_seller.name,
+                      value: w.best_seller.individual_sales,
+                  }
                 : null,
             all_rounder: w.all_rounder
                 ? { name: w.all_rounder.name, value: w.all_rounder.total_score }
                 : null,
-            podium: w.podium.map((g) => ({ shift_id: g.shift_id, label: g.label, total_score: g.total_score })),
+            podium: w.podium.map((g) => ({
+                shift_id: g.shift_id,
+                label: g.label,
+                total_score: g.total_score,
+            })),
         })),
         project: {
             best_seller: project.best_seller_project,
@@ -4248,13 +4794,21 @@ app.post("/api/competition/seed", (req, res) => {
         if (SALES_LOGS[i].id.startsWith("TX_MOCK_")) SALES_LOGS.splice(i, 1);
     }
     for (let i = INCIDENT_LOGS.length - 1; i >= 0; i--) {
-        if (INCIDENT_LOGS[i].id.startsWith("INC_MOCK_")) INCIDENT_LOGS.splice(i, 1);
+        if (INCIDENT_LOGS[i].id.startsWith("INC_MOCK_"))
+            INCIDENT_LOGS.splice(i, 1);
     }
 
-    const shiftsToUse = LATEST_SCHEDULE_RESULT && LATEST_SCHEDULE_RESULT.assigned_shifts ? LATEST_SCHEDULE_RESULT.assigned_shifts : [];
-    
+    const shiftsToUse =
+        LATEST_SCHEDULE_RESULT && LATEST_SCHEDULE_RESULT.assigned_shifts
+            ? LATEST_SCHEDULE_RESULT.assigned_shifts
+            : [];
+
     if (shiftsToUse.length === 0) {
-        return res.json({ success: false, message: "Chưa có lịch trực. Vui lòng xếp lịch tự động (OR-Tools) trước khi tạo dữ liệu mẫu." });
+        return res.json({
+            success: false,
+            message:
+                "Chưa có lịch trực. Vui lòng xếp lịch tự động (OR-Tools) trước khi tạo dữ liệu mẫu.",
+        });
     }
 
     // Lặp qua tất cả các ca trực đã xếp để tạo doanh số thực tế cho từng ca
@@ -4263,11 +4817,14 @@ app.post("/api/competition/seed", (req, res) => {
         if (assignedMembers.length === 0) return;
 
         // Mô phỏng 1 ca có từ 2 đến 10 đơn hàng
-        const numOrders = Math.floor(Math.random() * 8) + 2; 
+        const numOrders = Math.floor(Math.random() * 8) + 2;
 
         for (let i = 0; i < numOrders; i++) {
             // Chọn ngẫu nhiên 1 người bán trong ca
-            const seller = assignedMembers[Math.floor(Math.random() * assignedMembers.length)].name;
+            const seller =
+                assignedMembers[
+                    Math.floor(Math.random() * assignedMembers.length)
+                ].name;
             const quantity = Math.floor(Math.random() * 5) + 1; // 1-5 sản phẩm
             const unit_price = 15000;
 
@@ -4286,15 +4843,27 @@ app.post("/api/competition/seed", (req, res) => {
                 seller: seller,
                 shift_id: shift.shift_id,
                 refunded: false,
-                week: weekStr
+                week: weekStr,
             });
         }
 
         // Thi thoảng tạo lỗi vi phạm (Đi trễ, Mất tập trung, Bỏ quầy, Vắng không phép)
-        if (Math.random() < 0.2) { // 20% xác suất có lỗi trong ca
-            const badMember = assignedMembers[Math.floor(Math.random() * assignedMembers.length)];
-            const violationTypes = ["Đi trễ", "Mất tập trung", "Bỏ quầy", "Vắng không phép"];
-            const chosenViolation = violationTypes[Math.floor(Math.random() * violationTypes.length)];
+        if (Math.random() < 0.2) {
+            // 20% xác suất có lỗi trong ca
+            const badMember =
+                assignedMembers[
+                    Math.floor(Math.random() * assignedMembers.length)
+                ];
+            const violationTypes = [
+                "Đi trễ",
+                "Mất tập trung",
+                "Bỏ quầy",
+                "Vắng không phép",
+            ];
+            const chosenViolation =
+                violationTypes[
+                    Math.floor(Math.random() * violationTypes.length)
+                ];
             const randomWeekIndex = Math.floor(Math.random() * 3) + 1;
             const hasBackup = Math.random() < 0.6;
             INCIDENT_LOGS.push({
@@ -4303,19 +4872,593 @@ app.post("/api/competition/seed", (req, res) => {
                 member: badMember.name,
                 absent_member: badMember.name,
                 absent_member_id: badMember.member_id,
-                replacement_member: hasBackup ? "Dự phòng tiếp ứng" : "Không thay thế",
+                replacement_member: hasBackup
+                    ? "Dự phòng tiếp ứng"
+                    : "Không thay thế",
                 replacement_member_id: hasBackup ? "MEM_DP_MOCK" : null,
-                response_time: hasBackup ? Math.floor(Math.random() * 8) + 6 : null,
+                response_time: hasBackup
+                    ? Math.floor(Math.random() * 8) + 6
+                    : null,
                 status_type: chosenViolation,
                 note: `Vi phạm mẫu: ${chosenViolation}`,
                 week: `Tuần ${randomWeekIndex}`,
-                timestamp: `0${randomWeekIndex}/09/2026 10:00`
+                timestamp: `0${randomWeekIndex}/09/2026 10:00`,
             });
         }
     });
 
     persist();
-    res.json({ success: true, message: "Đã tạo dữ liệu giao dịch bán hàng và vi phạm thực tế cho các ca trực." });
+    res.json({
+        success: true,
+        message:
+            "Đã tạo dữ liệu giao dịch bán hàng và vi phạm thực tế cho các ca trực.",
+    });
+});
+
+/* ==========================================================================
+   THI ĐUA PROJECT F&B — CẤU HÌNH, CHỐT TUẦN & ĐỒNG BỘ GOOGLE SHEET
+   ========================================================================== */
+
+/** Che token khi trả cấu hình cho client chưa đăng nhập Admin. */
+function publicCompetitionConfig(req: express.Request) {
+    const admin = isValidAdmin(req);
+    const { sheet, snapshots, ...rest } = COMPETITION_CONFIG;
+    return {
+        ...rest,
+        total_label: TOTAL_LABEL,
+        snapshot_weeks: Object.keys(snapshots || {}),
+        sheet: {
+            enabled: sheet.enabled,
+            url: sheet.url,
+            sheet_id: sheet.sheet_id,
+            public_base_url: sheet.public_base_url,
+            auto_interval_min: sheet.auto_interval_min,
+            last_push_at: sheet.last_push_at,
+            last_pull_at: sheet.last_pull_at,
+            last_pull_summary: sheet.last_pull_summary,
+            gid_map: admin ? sheet.gid_map || {} : {},
+            token: admin ? sheet.token : "",
+            has_token: !!sheet.token,
+        },
+    };
+}
+
+app.get("/api/competition/config", (req, res) => {
+    res.json({ success: true, config: publicCompetitionConfig(req) });
+});
+
+/**
+ * Cập nhật quy chế: tuần đang chạy, điểm uy tín khởi điểm, bảng điểm trừ,
+ * trọng số từng hạng mục và thông tin Google Sheet. Chỉ Admin được sửa vì
+ * đây là dữ liệu quyết định thắng/thua của giải.
+ */
+app.post("/api/competition/config", requireAdmin, (req, res) => {
+    const body = req.body || {};
+    const cfg = COMPETITION_CONFIG;
+
+    if (
+        typeof body.active_week === "string" &&
+        cfg.weeks.includes(body.active_week)
+    ) {
+        cfg.active_week = body.active_week;
+    }
+    if (Array.isArray(body.weeks) && body.weeks.length > 0) {
+        cfg.weeks = body.weeks
+            .map((w: any) => String(w).trim())
+            .filter(Boolean);
+        if (!cfg.weeks.includes(cfg.active_week))
+            cfg.active_week = cfg.weeks[0];
+    }
+    const base = Number(body.base_reputation);
+    if (Number.isFinite(base) && base > 0) cfg.base_reputation = base;
+
+    if (body.penalties && typeof body.penalties === "object") {
+        const next: { [k: string]: number } = {};
+        Object.keys(body.penalties).forEach((k) => {
+            const key = String(k).trim();
+            const val = Number(body.penalties[k]);
+            if (key && Number.isFinite(val) && val >= 0) next[key] = val;
+        });
+        if (Object.keys(next).length > 0) cfg.penalties = next;
+    }
+    if (Array.isArray(body.absence_types)) {
+        cfg.absence_types = body.absence_types
+            .map((t: any) => String(t).trim())
+            .filter(Boolean);
+    }
+    if (typeof body.exclude_absent_from_shift_count === "boolean") {
+        cfg.exclude_absent_from_shift_count =
+            body.exclude_absent_from_shift_count;
+    }
+    if (body.weights && typeof body.weights === "object") {
+        Object.keys(cfg.weights).forEach((k) => {
+            const val = Number((body.weights as any)[k]);
+            if (Number.isFinite(val) && val >= 0) (cfg.weights as any)[k] = val;
+        });
+    }
+    if (body.sheet && typeof body.sheet === "object") {
+        const s = body.sheet;
+        if (typeof s.enabled === "boolean") cfg.sheet.enabled = s.enabled;
+        if (typeof s.url === "string") {
+            cfg.sheet.url = s.url.trim();
+            const m = cfg.sheet.url.match(
+                /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/,
+            );
+            if (m) cfg.sheet.sheet_id = m[1];
+        }
+        if (typeof s.sheet_id === "string" && s.sheet_id.trim())
+            cfg.sheet.sheet_id = s.sheet_id.trim();
+        if (typeof s.public_base_url === "string") {
+            cfg.sheet.public_base_url = s.public_base_url
+                .trim()
+                .replace(/\/+$/, "");
+        }
+        if (s.gid_map && typeof s.gid_map === "object")
+            cfg.sheet.gid_map = s.gid_map;
+        const iv = Number(s.auto_interval_min);
+        if (Number.isFinite(iv) && iv >= 0) cfg.sheet.auto_interval_min = iv;
+        if (s.rotate_token === true)
+            cfg.sheet.token = crypto.randomBytes(18).toString("base64url");
+    }
+
+    persist();
+    res.json({
+        success: true,
+        config: publicCompetitionConfig(req),
+        message: "Đã lưu quy chế thi đua.",
+    });
+});
+
+/**
+ * "Chốt tuần": lưu ảnh chụp bảng xếp hạng của tuần rồi khoá lại và chuyển
+ * sang tuần kế tiếp. KHÔNG xoá bất kỳ dữ liệu nguồn nào — HR vẫn cần đủ 3
+ * tuần để xét các giải TỔNG KẾT; việc "reset" chỉ là reset bảng hiển thị tuần.
+ */
+app.post("/api/competition/close-week", requireAdmin, (req, res) => {
+    const week = String(
+        (req.body && req.body.week) || COMPETITION_CONFIG.active_week,
+    );
+    if (!COMPETITION_CONFIG.weeks.includes(week)) {
+        return res
+            .status(400)
+            .json({ success: false, message: `Tuần không hợp lệ: ${week}` });
+    }
+    const result = computeWeek(competitionInput(), week);
+    COMPETITION_CONFIG.snapshots[week] = {
+        week,
+        closed_at: new Date().toLocaleString("vi-VN"),
+        best_seller: result.best_seller,
+        all_rounder: result.all_rounder,
+        podium: result.podium,
+        members: result.members.filter((m) => m.participated),
+        shift_groups: result.shift_groups,
+        departments: result.departments,
+        totals: result.totals,
+    };
+    if (!COMPETITION_CONFIG.locked_weeks.includes(week)) {
+        COMPETITION_CONFIG.locked_weeks.push(week);
+    }
+    // Chuyển con trỏ sang tuần chưa chốt gần nhất.
+    const nextWeek = COMPETITION_CONFIG.weeks.find(
+        (w) => !COMPETITION_CONFIG.locked_weeks.includes(w),
+    );
+    COMPETITION_CONFIG.active_week =
+        nextWeek ||
+        COMPETITION_CONFIG.weeks[COMPETITION_CONFIG.weeks.length - 1];
+
+    persist();
+    res.json({
+        success: true,
+        message: nextWeek
+            ? `Đã chốt ${week}. Bảng xếp hạng tuần được lưu lại, dữ liệu nguồn giữ nguyên. Tuần đang chạy: ${nextWeek}.`
+            : `Đã chốt ${week}. Cả 3 tuần đã hoàn tất — có thể xét các giải TỔNG KẾT.`,
+        active_week: COMPETITION_CONFIG.active_week,
+        all_closed: !nextWeek,
+        snapshot: COMPETITION_CONFIG.snapshots[week],
+    });
+});
+
+/** Mở lại tuần đã chốt (khi HR phát hiện dữ liệu cần bổ sung). */
+app.post("/api/competition/reopen-week", requireAdmin, (req, res) => {
+    const week = String((req.body && req.body.week) || "");
+    if (!COMPETITION_CONFIG.weeks.includes(week)) {
+        return res
+            .status(400)
+            .json({ success: false, message: `Tuần không hợp lệ: ${week}` });
+    }
+    COMPETITION_CONFIG.locked_weeks = COMPETITION_CONFIG.locked_weeks.filter(
+        (w) => w !== week,
+    );
+    COMPETITION_CONFIG.active_week = week;
+    persist();
+    res.json({
+        success: true,
+        message: `Đã mở lại ${week} để cập nhật dữ liệu.`,
+        active_week: week,
+    });
+});
+
+/** Ảnh chụp bảng xếp hạng đã chốt của một tuần. */
+app.get("/api/competition/snapshot", (req, res) => {
+    const week = String(req.query.week || "");
+    const snap = COMPETITION_CONFIG.snapshots[week];
+    if (!snap)
+        return res
+            .status(404)
+            .json({ success: false, message: `Chưa chốt ${week}.` });
+    res.json({ success: true, snapshot: snap });
+});
+/* --------------------------------------------------------------------------
+   ĐỒNG BỘ GOOGLE SHEET
+   Bảo mật: mọi endpoint dưới đây là endpoint công khai trên mạng, chỉ được
+   bảo vệ bằng token bí mật (?token= hoặc header x-sheet-token). Ai có token
+   đọc/ghi được số liệu thi đua — đừng dán token vào nơi công khai, và dùng
+   nút "Đổi token" khi nghi ngờ bị lộ.
+   -------------------------------------------------------------------------- */
+
+function sheetTokenOk(req: express.Request): boolean {
+    const expected = COMPETITION_CONFIG.sheet.token || "";
+    if (!expected) return false;
+    const raw =
+        req.query.token ||
+        req.headers["x-sheet-token"] ||
+        (req.body && req.body.token);
+    const got = typeof raw === "string" ? raw : "";
+    if (got.length !== expected.length) return false;
+    try {
+        return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+    } catch {
+        return false;
+    }
+}
+
+function requireSheetToken(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+) {
+    if (isValidAdmin(req)) return next();
+    if (!sheetTokenOk(req)) {
+        return res
+            .status(401)
+            .json({
+                success: false,
+                message: "Token đồng bộ Sheet không hợp lệ.",
+            });
+    }
+    // Công tắc "Bật đồng bộ Google Sheet" phải thực sự đóng cửa: khi HR tắt nó,
+    // token cũng không đọc/ghi được số liệu nữa (chỉ Admin đăng nhập mới xem).
+    if (!COMPETITION_CONFIG.sheet.enabled) {
+        return res.status(403).json({
+            success: false,
+            message:
+                "Đồng bộ Google Sheet đang tắt. Bật lại ở tab Thi Đua → Google Sheet.",
+        });
+    }
+    return next();
+}
+
+function currentSheetTables() {
+    const input = competitionInput();
+    return buildSheetTables(input, computeProject(input));
+}
+
+/** Toàn bộ bảng dưới dạng JSON — Apps Script gọi endpoint này để ghi vào Sheet. */
+app.get("/api/competition/sheet/json", requireSheetToken, (req, res) => {
+    const tables = currentSheetTables();
+    COMPETITION_CONFIG.sheet.last_push_at = new Date().toLocaleString("vi-VN");
+    res.json({
+        success: true,
+        generated_at: COMPETITION_CONFIG.sheet.last_push_at,
+        active_week: COMPETITION_CONFIG.active_week,
+        tables,
+    });
+});
+
+/**
+ * Một tab dưới dạng CSV. Dùng trực tiếp trong Google Sheet:
+ *   =IMPORTDATA("https://<host>/api/competition/sheet/csv?tab=tong_quan&token=<token>")
+ */
+app.get("/api/competition/sheet/csv", requireSheetToken, (req, res) => {
+    const want = String(req.query.tab || "tong_quan")
+        .trim()
+        .toLowerCase();
+    const tables = currentSheetTables();
+    const table = tables.find(
+        (t) => t.key === want || t.name.toLowerCase() === want,
+    );
+    if (!table) {
+        return res
+            .status(404)
+            .type("text/plain; charset=utf-8")
+            .send(
+                `Không có tab "${want}". Các tab: ${tables.map((t) => t.key).join(", ")}`,
+            );
+    }
+    COMPETITION_CONFIG.sheet.last_push_at = new Date().toLocaleString("vi-VN");
+    res.setHeader("Cache-Control", "no-store");
+    // BOM để Google Sheet/Excel đọc đúng tiếng Việt.
+    res.type("text/csv; charset=utf-8").send("﻿" + tableToCsv(table));
+});
+
+/** Danh mục tab (để dựng công thức IMPORTDATA trong giao diện). */
+app.get("/api/competition/sheet/tabs", (req, res) => {
+    res.json({
+        success: true,
+        tabs: currentSheetTables().map((t) => ({
+            key: t.key,
+            name: t.name,
+            note: (t as any).note || "",
+            columns: t.headers.length,
+            rows: t.rows.length,
+        })),
+    });
+});
+
+const SHEET_SALE_PREFIX = "TX_SHEET_";
+const SHEET_INCIDENT_PREFIX = "INC_SHEET_";
+
+/**
+ * Chiều Sheet → App. Nhận nội dung 2 tab nhập liệu và thay thế toàn bộ bản
+ * ghi có nguồn gốc từ Sheet (nên gọi lại nhiều lần vẫn cho cùng kết quả,
+ * không sinh dữ liệu trùng). Dữ liệu nhập trong app không bị ảnh hưởng.
+ */
+function ingestSheetRows(sales: any[], violations: any[]) {
+    const weeks = COMPETITION_CONFIG.weeks;
+    const pickWeek = (raw: any) => {
+        const w = String(raw || "").trim();
+        return weeks.includes(w) ? w : COMPETITION_CONFIG.active_week;
+    };
+    const stamp = new Date().toLocaleString("vi-VN");
+
+    for (let i = SALES_LOGS.length - 1; i >= 0; i--) {
+        if (String(SALES_LOGS[i].id || "").startsWith(SHEET_SALE_PREFIX))
+            SALES_LOGS.splice(i, 1);
+    }
+    for (let i = INCIDENT_LOGS.length - 1; i >= 0; i--) {
+        if (String(INCIDENT_LOGS[i].id || "").startsWith(SHEET_INCIDENT_PREFIX))
+            INCIDENT_LOGS.splice(i, 1);
+    }
+
+    let salesAdded = 0;
+    let skipped = 0;
+    (Array.isArray(sales) ? sales : []).forEach((row, idx) => {
+        const sellerName = String(row.seller || row["Người bán"] || "").trim();
+        const qty = Number(
+            row.quantity !== undefined ? row.quantity : row["Số lượng"],
+        );
+        if (!sellerName || !Number.isFinite(qty) || qty <= 0) {
+            skipped += 1;
+            return;
+        }
+        const member = CURRENT_MEMBERS.find(
+            (m) => m.name.trim().toLowerCase() === sellerName.toLowerCase(),
+        );
+        if (!member) {
+            skipped += 1;
+            return;
+        }
+        const price =
+            Number(
+                row.unit_price !== undefined ? row.unit_price : row["Đơn giá"],
+            ) || 0;
+        SALES_LOGS.push({
+            id: `${SHEET_SALE_PREFIX}${idx}_${Date.now()}`,
+            timestamp: stamp,
+            product_id: "SHEET",
+            product_name: String(
+                row.product || row["Sản phẩm"] || "Nhập từ Sheet",
+            ),
+            quantity: qty,
+            unit_price: price,
+            total_amount: qty * price,
+            channel: String(row.channel || row["Kênh"] || "Nhập từ Sheet"),
+            seller: member.name,
+            shift_id:
+                String(row.shift_id || row["Mã ca"] || "").trim() || undefined,
+            note: String(row.note || row["Ghi chú"] || ""),
+            week: pickWeek(row.week || row["Tuần"]),
+        } as any);
+        salesAdded += 1;
+    });
+
+    let incidentsAdded = 0;
+    (Array.isArray(violations) ? violations : []).forEach((row, idx) => {
+        const name = String(row.member || row["Thành viên"] || "").trim();
+        const type = String(
+            row.status_type || row["Loại vi phạm"] || "",
+        ).trim();
+        if (!name || !type) {
+            skipped += 1;
+            return;
+        }
+        const member = CURRENT_MEMBERS.find(
+            (m) => m.name.trim().toLowerCase() === name.toLowerCase(),
+        );
+        if (!member) {
+            skipped += 1;
+            return;
+        }
+        INCIDENT_LOGS.push({
+            id: `${SHEET_INCIDENT_PREFIX}${idx}_${Date.now()}`,
+            shift_id: String(row.shift_id || row["Mã ca"] || "").trim(),
+            member: member.name,
+            absent_member: member.name,
+            absent_member_id: member.member_id,
+            status_type: type,
+            note: String(row.note || row["Ghi chú"] || "Nhập từ Google Sheet"),
+            week: pickWeek(row.week || row["Tuần"]),
+            timestamp: stamp,
+        });
+        incidentsAdded += 1;
+    });
+
+    const summary = `Nhận ${salesAdded} dòng bán hàng, ${incidentsAdded} dòng vi phạm${skipped ? `, bỏ qua ${skipped} dòng không hợp lệ` : ""}.`;
+    COMPETITION_CONFIG.sheet.last_pull_at = stamp;
+    COMPETITION_CONFIG.sheet.last_pull_summary = summary;
+    persist();
+    return { salesAdded, incidentsAdded, skipped, summary };
+}
+
+app.post("/api/competition/sheet/ingest", requireSheetToken, (req, res) => {
+    const body = req.body || {};
+    const result = ingestSheetRows(
+        body.sales || body.NHAP_BAN_HANG,
+        body.violations || body.NHAP_VI_PHAM,
+    );
+    res.json({ success: true, ...result, message: result.summary });
+});
+/** Đọc CSV (kể cả ô có dấu phẩy/ngoặc kép) thành danh sách object theo header. */
+function csvToObjects(text: string): any[] {
+    const clean = text.replace(/^﻿/, "");
+    const wb = xlsx.read(clean, { type: "string", raw: false });
+    const first = wb.SheetNames[0];
+    if (!first) return [];
+    return xlsx.utils.sheet_to_json(wb.Sheets[first], { defval: "" }) as any[];
+}
+
+const publishedCsvUrl = (sheetId: string, gid: string) =>
+    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${encodeURIComponent(gid || "0")}`;
+
+/**
+ * App tự tải 2 tab nhập liệu từ Google Sheet (Sheet phải được chia sẻ
+ * "Anyone with the link"). Cần gid của từng tab trong cấu hình gid_map.
+ */
+app.post("/api/competition/sheet/pull", requireAdmin, async (req, res) => {
+    const sheet = COMPETITION_CONFIG.sheet;
+    const sheetId = String(
+        (req.body && req.body.sheet_id) || sheet.sheet_id || "",
+    ).trim();
+    if (!sheetId) {
+        return res.status(400).json({
+            success: false,
+            message:
+                "Chưa có Sheet ID. Dán link Google Sheet vào phần cấu hình trước.",
+        });
+    }
+    const gidSales = String(
+        (req.body && req.body.gid_sales) ||
+            sheet.gid_map["nhap_ban_hang"] ||
+            "",
+    );
+    const gidViolations = String(
+        (req.body && req.body.gid_violations) ||
+            sheet.gid_map["nhap_vi_pham"] ||
+            "",
+    );
+    if (!gidSales && !gidViolations) {
+        return res.status(400).json({
+            success: false,
+            message:
+                "Chưa có gid của tab NHAP_BAN_HANG / NHAP_VI_PHAM (số sau #gid= trên URL của tab).",
+        });
+    }
+
+    try {
+        const fetchTab = async (gid: string) => {
+            if (!gid) return [];
+            const r = await fetch(publishedCsvUrl(sheetId, gid), {
+                redirect: "follow",
+            });
+            if (!r.ok)
+                throw new Error(
+                    `Không tải được tab gid=${gid} (HTTP ${r.status}).`,
+                );
+            return csvToObjects(await r.text());
+        };
+        const [salesRows, violationRows] = await Promise.all([
+            fetchTab(gidSales),
+            fetchTab(gidViolations),
+        ]);
+        const result = ingestSheetRows(salesRows, violationRows);
+        res.json({ success: true, ...result, message: result.summary });
+    } catch (err: any) {
+        res.status(502).json({
+            success: false,
+            message: `Lỗi khi tải Google Sheet: ${err && err.message ? err.message : err}. Kiểm tra Sheet đã chia sẻ công khai chưa.`,
+        });
+    }
+});
+
+/** Xuất toàn bộ bảng thi đua ra một file Excel nhiều sheet. */
+app.get("/api/competition/export-excel", (req, res) => {
+    const tables = currentSheetTables();
+    const wb = xlsx.utils.book_new();
+    tables.forEach((t) => {
+        const aoa: any[][] = [];
+        if ((t as any).note) aoa.push([(t as any).note]);
+        aoa.push(t.headers);
+        t.rows.forEach((r) => aoa.push(r));
+        const ws = xlsx.utils.aoa_to_sheet(aoa);
+        ws["!cols"] = t.headers.map((h) => ({
+            wch: Math.max(12, Math.min(38, String(h).length + 6)),
+        }));
+        // Tên sheet trong Excel tối đa 31 ký tự.
+        xlsx.utils.book_append_sheet(wb, ws, t.name.slice(0, 31));
+    });
+    const buf = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="ThiDua_ProjectFnB_${stamp}.xlsx"`,
+    );
+    res.type(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ).send(buf);
+});
+
+/**
+ * Sinh mã Apps Script đã điền sẵn URL + token để dán vào Google Sheet
+ * (Extensions → Apps Script). Chỉ Admin xem được vì có chứa token.
+ */
+app.get("/api/competition/sheet/appscript", requireAdmin, (req, res) => {
+    const sheet = COMPETITION_CONFIG.sheet;
+    const base =
+        sheet.public_base_url ||
+        `${req.protocol}://${req.get("host") || `localhost:${PORT}`}`;
+    const tabs = currentSheetTables();
+    const outputTabs = tabs
+        .filter((t) => !t.key.startsWith("nhap_"))
+        .map((t) => t.name);
+    const code = renderAppsScript(
+        base.replace(/\/+$/, ""),
+        sheet.token,
+        outputTabs,
+    );
+    if (String(req.query.download || "") === "1") {
+        res.setHeader(
+            "Content-Disposition",
+            'attachment; filename="CompetitionSync.gs"',
+        );
+    }
+    res.type("text/plain; charset=utf-8").send(code);
+});
+
+app.get("/api/competition/sheet/instructions", requireAdmin, (req, res) => {
+    const sheet = COMPETITION_CONFIG.sheet;
+    const base =
+        sheet.public_base_url ||
+        `${req.protocol}://${req.get("host") || `localhost:${PORT}`}`;
+    const clean = base.replace(/\/+$/, "");
+    res.json({
+        success: true,
+        base_url: clean,
+        token: sheet.token,
+        local_warning: /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(clean)
+            ? "App đang chạy nội bộ nên Google không truy cập được. Muốn đồng bộ tự động, hãy deploy app ra Internet rồi điền URL công khai vào ô bên dưới."
+            : "",
+        importdata: currentSheetTables()
+            .filter((t) => !t.key.startsWith("nhap_"))
+            .map((t) => ({
+                tab: t.name,
+                formula: `=IMPORTDATA("${clean}/api/competition/sheet/csv?tab=${t.key}&token=${sheet.token}")`,
+            })),
+        endpoints: {
+            json: `${clean}/api/competition/sheet/json?token=${sheet.token}`,
+            csv: `${clean}/api/competition/sheet/csv?tab=<tab>&token=${sheet.token}`,
+            ingest: `${clean}/api/competition/sheet/ingest`,
+        },
+    });
 });
 
 // App Start

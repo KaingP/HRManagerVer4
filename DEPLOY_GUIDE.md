@@ -73,6 +73,25 @@ docker run -d -p 3000:3000 -e ADMIN_PASSWORD=hungvuong2026 hungvuong-scheduler
 
 ---
 
+## BẬT ĐỒNG BỘ GOOGLE SHEET CHO TAB THI ĐUA
+
+Đồng bộ chỉ chạy được khi Google gọi được vào app, nên phải làm **sau** khi đã deploy theo một trong ba cách trên.
+
+1. Mở app → tab **Thi Đua Project F&B** → tab con **Google Sheet**.
+2. Điền **URL công khai của app** đúng địa chỉ vừa deploy (ví dụ `https://hungvuong-shifts.onrender.com`, không có dấu `/` ở cuối). Nếu ô này còn trống hoặc app đang ở `localhost`, tab sẽ hiện cảnh báo màu cam và Google sẽ không lấy được số liệu.
+3. Dán **Link Google Sheet của bạn**, tick **Bật đồng bộ Google Sheet**, rồi bấm **Lưu kết nối**.
+4. Chọn một trong hai cách:
+   * **Cách A (nhanh, một chiều App → Sheet)**: copy từng công thức `IMPORTDATA(...)` ở cột bên phải, dán vào ô **A1** của tab tương ứng trong Google Sheet.
+   * **Cách B (hai chiều)**: bấm **Tạo mã Apps Script**, tải file `CompetitionSync.gs`, mở Google Sheet → **Extensions → Apps Script**, dán toàn bộ nội dung, lưu, rồi tải lại Sheet. Menu **Thi Đua F&B** sẽ xuất hiện với các lệnh lấy số liệu, gửi dữ liệu nhập tay về app và bật tự động đồng bộ mỗi giờ.
+5. Chia sẻ quyền xem Google Sheet cho HR. Hai tab `NHAP_BAN_HANG` và `NHAP_VI_PHAM` là nơi HR nhập tay; app sẽ đọc ngược hai tab này (Cách B) hoặc qua nút **Lấy dữ liệu từ Sheet** trong app.
+
+### Lưu ý bảo mật của tính năng này
+- Các endpoint `/api/competition/sheet/csv`, `/json` và `/ingest` **mở ra Internet** và chỉ được bảo vệ bằng **token bí mật** trong URL, không phải bằng mật khẩu Admin — vì Google Sheet không đăng nhập được. Ai có token là đọc và ghi được số liệu thi đua.
+- Chỉ chia sẻ token và file `.gs` trong nội bộ HR. Nghi bị lộ thì bấm **Đổi token** trong app rồi dán lại công thức / tải lại file `.gs` mới.
+- Nếu chưa cần tính năng này, để trống ô link và **không tick** *Bật đồng bộ* — khi đó các endpoint trên không phục vụ dữ liệu.
+
+---
+
 ## KIỂM TRA PHÂN QUYỀN TRÊN GIAO DIỆN
 - Khi mở web ở chế độ thường (Nhân viên):
   - Nút **"Nạp Dữ Liệu / Google Sheet"** và **"Chạy Tối Ưu Hóa (OR-Tools)"** sẽ tự động được ẩn.
