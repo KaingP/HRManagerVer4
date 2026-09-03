@@ -51,55 +51,55 @@
                 </div>
 
                 <nav class="nav-menu" aria-label="Điều hướng chính">
-                    <button class="nav-item active" data-tab="tab-schedule">
+                    <button class="nav-item active" data-tab="tab-analytics">
+                        <i class="fa-solid fa-chart-pie"></i>
+                        <span class="nav-full">Tổng hợp lịch rảnh</span>
+                        <span class="nav-short">Lịch rảnh</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-schedule">
                         <i class="fa-solid fa-table-cells-large"></i>
-                        <span class="nav-full">Bảng Phân Ca Tuần</span>
-                        <span class="nav-short">Bảng trực</span>
+                        <span class="nav-full">Phân công ca trực</span>
+                        <span class="nav-short">Phân công</span>
                     </button>
                     <button class="nav-item" data-tab="tab-optimizer">
                         <i class="fa-solid fa-sliders"></i>
-                        <span class="nav-full">Tinh Chỉnh &amp; Tối Ưu</span>
-                        <span class="nav-short">Xếp ca</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-inventory">
-                        <i class="fa-solid fa-boxes-stacked"></i>
-                        <span class="nav-full">Kho Hàng &amp; Doanh Thu</span>
-                        <span class="nav-short">Kho hàng</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-shift-audit">
-                        <i class="fa-solid fa-clipboard-check"></i>
-                        <span class="nav-full">Kiểm Kê Kho Ca Trực</span>
-                        <span class="nav-short">Kiểm kho</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-live-shift">
-                        <i class="fa-solid fa-tower-broadcast"></i>
-                        <span class="nav-full">Ca-Live &amp; POS Bán Hàng</span>
-                        <span class="nav-short">Ca-Live POS</span>
+                        <span class="nav-full">Cơ cấu ca trực</span>
+                        <span class="nav-short">Cơ cấu ca</span>
                     </button>
                     <button class="nav-item" data-tab="tab-contingency">
                         <i class="fa-solid fa-user-clock"></i>
-                        <span class="nav-full">Xử Lý Ca Vắng &amp; Backup</span>
-                        <span class="nav-short">Ca vắng</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-analytics">
-                        <i class="fa-solid fa-chart-pie"></i>
-                        <span class="nav-full">Thống Kê Báo Cáo</span>
-                        <span class="nav-short">Thống kê</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-kpi">
-                        <i class="fa-solid fa-boxes-packing"></i>
-                        <span class="nav-full">Chạy KPI Lấy Hàng</span>
-                        <span class="nav-short">Lấy Hàng</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-competition">
-                        <i class="fa-solid fa-trophy"></i>
-                        <span class="nav-full">Thi Đua Project F&B</span>
-                        <span class="nav-short">Thi đua</span>
+                        <span class="nav-full">Điều phối ca vắng, vi phạm nhân sự</span>
+                        <span class="nav-short">Điều phối</span>
                     </button>
                     <button class="nav-item" data-tab="tab-discipline">
                         <i class="fa-solid fa-gavel"></i>
-                        <span class="nav-full">Quản Lý Kỷ Luật</span>
-                        <span class="nav-short">Kỷ Luật</span>
+                        <span class="nav-full">Cộng điểm kỷ luật</span>
+                        <span class="nav-short">Điểm kỷ luật</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-live-shift">
+                        <i class="fa-solid fa-tower-broadcast"></i>
+                        <span class="nav-full">Thu ngân</span>
+                        <span class="nav-short">Thu ngân</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-shift-audit">
+                        <i class="fa-solid fa-clipboard-check"></i>
+                        <span class="nav-full">Kiểm kê ca trực</span>
+                        <span class="nav-short">Kiểm kê</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-inventory">
+                        <i class="fa-solid fa-boxes-stacked"></i>
+                        <span class="nav-full">Kho hàng, doanh thu</span>
+                        <span class="nav-short">Kho &amp; DT</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-kpi">
+                        <i class="fa-solid fa-boxes-packing"></i>
+                        <span class="nav-full">Best seller</span>
+                        <span class="nav-short">Best seller</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-competition">
+                        <i class="fa-solid fa-trophy"></i>
+                        <span class="nav-full">Thi đua F&amp;B</span>
+                        <span class="nav-short">Thi đua</span>
                     </button>
 
                     <!-- Chỉ hiện trên điện thoại: mở bảng chứa các tab phụ + xuất Excel -->
@@ -169,30 +169,45 @@
             >
                 <div class="more-panel">
                     <p class="more-title">Mục khác</p>
-                    <button class="nav-item" data-tab="tab-inventory">
-                        <i class="fa-solid fa-boxes-stacked"></i>
-                        <span class="nav-full">Kho Hàng &amp; Doanh Thu</span>
+                    <button class="nav-item" data-tab="tab-analytics">
+                        <i class="fa-solid fa-chart-pie"></i>
+                        <span class="nav-full">1. Tổng hợp lịch rảnh</span>
                     </button>
-                    <button class="nav-item" data-tab="tab-shift-audit">
-                        <i class="fa-solid fa-clipboard-check"></i>
-                        <span class="nav-full">Kiểm Kê Kho Ca Trực</span>
+                    <button class="nav-item" data-tab="tab-schedule">
+                        <i class="fa-solid fa-table-cells-large"></i>
+                        <span class="nav-full">2. Phân công ca trực</span>
                     </button>
-                    <button class="nav-item" data-tab="tab-live-shift">
-                        <i class="fa-solid fa-tower-broadcast"></i>
-                        <span class="nav-full">Ca-Live &amp; POS Bán Hàng</span>
+                    <button class="nav-item" data-tab="tab-optimizer">
+                        <i class="fa-solid fa-sliders"></i>
+                        <span class="nav-full">3. Cơ cấu ca trực</span>
                     </button>
                     <button class="nav-item" data-tab="tab-contingency">
                         <i class="fa-solid fa-user-clock"></i>
-                        <span class="nav-full">Xử Lý Ca Vắng &amp; Backup</span>
+                        <span class="nav-full">4. Điều phối ca vắng, vi phạm nhân sự</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-discipline">
+                        <i class="fa-solid fa-gavel"></i>
+                        <span class="nav-full">5. Cộng điểm kỷ luật</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-live-shift">
+                        <i class="fa-solid fa-tower-broadcast"></i>
+                        <span class="nav-full">6. Thu ngân</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-shift-audit">
+                        <i class="fa-solid fa-clipboard-check"></i>
+                        <span class="nav-full">7. Kiểm kê ca trực</span>
+                    </button>
+                    <button class="nav-item" data-tab="tab-inventory">
+                        <i class="fa-solid fa-boxes-stacked"></i>
+                        <span class="nav-full">8. Kho hàng, doanh thu</span>
                     </button>
                     <button class="nav-item" data-tab="tab-kpi">
                         <i class="fa-solid fa-boxes-packing"></i>
-                        <span class="nav-full">Chạy KPI Lấy Hàng</span>
+                        <span class="nav-full">9. Best seller</span>
                     </button>
                     <button class="nav-item" data-tab="tab-competition">
                         <i class="fa-solid fa-trophy"></i>
-                        <span class="nav-full">Thi Đua Project F&B</span>
-                        <span class="nav-short">Thi đua</span>
+                        <span class="nav-full">10. Thi đua F&amp;B</span>
                     </button>
                     <div class="more-actions">
                         <a href="/api/schedule/export" class="btn-export">
@@ -582,8 +597,8 @@
                                             <i
                                                 class="fa-solid fa-clock-rotate-left"
                                             ></i>
-                                            Bảng Tinh Chỉnh Tham Số Ca Trực Ngày
-                                            (5 Ca Cố Định)
+                                            Bảng Tinh Chỉnh Tham Số Ca Trực Ngày &amp; Cuối Tuần
+                                            (T2–T6, Thứ 7 &amp; Chủ Nhật)
                                         </span>
                                         <span
                                             style="
@@ -599,6 +614,94 @@
                                             và yêu cầu vận hành)
                                         </span>
                                     </h4>
+                                </div>
+
+                                <!-- DAY CONFIG TABS (T2-T6, THỨ 7, CHỦ NHẬT) -->
+                                <div
+                                    class="day-config-tabs"
+                                    style="
+                                        display: flex;
+                                        gap: 8px;
+                                        margin-top: 10px;
+                                        margin-bottom: 12px;
+                                        flex-wrap: wrap;
+                                    "
+                                >
+                                    <button
+                                        type="button"
+                                        class="btn-tab-day active"
+                                        id="btnTabDayWeekday"
+                                        onclick="switchShiftConfigDayTab('weekday')"
+                                        style="
+                                            padding: 6px 14px;
+                                            border-radius: 8px;
+                                            font-size: 0.82rem;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            border: 1px solid var(--border-color, #cbd5e1);
+                                            background: #3b82f6;
+                                            color: #ffffff;
+                                            transition: all 0.2s ease;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                        "
+                                    >
+                                        <i class="fa-solid fa-calendar-days"></i>
+                                        Thứ 2 – Thứ 6 (Trong tuần)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn-tab-day"
+                                        id="btnTabDaySat"
+                                        onclick="switchShiftConfigDayTab('sat')"
+                                        style="
+                                            padding: 6px 14px;
+                                            border-radius: 8px;
+                                            font-size: 0.82rem;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            border: 1px solid var(--border-color, #cbd5e1);
+                                            background: var(--card-bg, #ffffff);
+                                            color: var(--text-color, #334155);
+                                            transition: all 0.2s ease;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                        "
+                                    >
+                                        <i
+                                            class="fa-solid fa-calendar-day"
+                                            style="color: #8b5cf6"
+                                        ></i>
+                                        Thứ 7 (Ca Cuối Tuần)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="btn-tab-day"
+                                        id="btnTabDaySun"
+                                        onclick="switchShiftConfigDayTab('sun')"
+                                        style="
+                                            padding: 6px 14px;
+                                            border-radius: 8px;
+                                            font-size: 0.82rem;
+                                            font-weight: 600;
+                                            cursor: pointer;
+                                            border: 1px solid var(--border-color, #cbd5e1);
+                                            background: var(--card-bg, #ffffff);
+                                            color: var(--text-color, #334155);
+                                            transition: all 0.2s ease;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 6px;
+                                        "
+                                    >
+                                        <i
+                                            class="fa-solid fa-sun"
+                                            style="color: #f59e0b"
+                                        ></i>
+                                        Chủ Nhật (Ca Cuối Tuần)
+                                    </button>
                                 </div>
 
                                 <div
@@ -4670,7 +4773,7 @@
                                         class="fa-solid fa-trophy"
                                         style="color: var(--goldleaf)"
                                     ></i>
-                                    Thi Đua Project F&amp;B
+                                    Thi Đua F&amp;B
                                 </h3>
                                 <p>
                                     Chu kỳ 3 tuần · 5 giải tuần · 3 giải tổng
@@ -5500,7 +5603,7 @@
                             <div>
                                 <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
                                     <i class="fa-solid fa-scale-balanced" style="color: var(--goldleaf);"></i>
-                                    Quản Lý Kỷ Luật & Điểm Uy Tín Nhân Sự
+                                    Cộng Điểm Kỷ Luật &amp; Điểm Uy Tín Nhân Sự
                                 </h3>
                                 <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--ink-dim);">
                                     Mỗi nhân sự bắt đầu với 100 điểm uy tín. Admin có quyền cộng thưởng hoặc trừ phạt điểm theo quy chế làm việc.
@@ -5510,8 +5613,8 @@
                                 <button type="button" class="btn-primary" id="btnOpenAdjustDisciplineModal">
                                     <i class="fa-solid fa-plus-minus"></i> Tinh Chỉnh Điểm Uy Tín
                                 </button>
-                                <button type="button" class="btn-secondary" id="btnRefreshDisciplineData" onclick="loadDisciplineData()">
-                                    <i class="fa-solid fa-rotate"></i> Làm Mới
+                                <button type="button" class="btn-secondary" id="btnRefreshDisciplineData" onclick="refreshAndSyncDisciplineData()" title="Làm mới &amp; đồng bộ dữ liệu kỷ luật với Xử lý ca vắng &amp; Backup">
+                                    <i class="fa-solid fa-arrows-rotate" id="iconRefreshDiscipline"></i> Làm Mới &amp; Đồng Bộ
                                 </button>
                             </div>
                         </div>

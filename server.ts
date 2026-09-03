@@ -391,6 +391,7 @@ let VIETQR_CONFIG = {
 // Optimizer & Shift Configuration Interfaces
 export interface DailyShiftConfig {
     shift_num: number;
+    day_type?: "weekday" | "sat" | "sun" | "all";
     start_time: string;
     end_time: string;
     note: string;
@@ -411,8 +412,10 @@ export interface OptimizerConfig {
 }
 
 const DEFAULT_DAILY_SHIFT_CONFIGS: DailyShiftConfig[] = [
+    // Trong tuần (Thứ 2 - Thứ 6)
     {
         shift_num: 1,
+        day_type: "weekday",
         start_time: "07:00",
         end_time: "09:30",
         note: "Khách đông đột biến vào giờ ra chơi; cần setup phòng trực sớm.",
@@ -422,6 +425,7 @@ const DEFAULT_DAILY_SHIFT_CONFIGS: DailyShiftConfig[] = [
     },
     {
         shift_num: 2,
+        day_type: "weekday",
         start_time: "09:35",
         end_time: "12:00",
         note: "Học sinh tan trường & nghỉ trưa, lượng khách (HS/GV) đông.",
@@ -431,6 +435,7 @@ const DEFAULT_DAILY_SHIFT_CONFIGS: DailyShiftConfig[] = [
     },
     {
         shift_num: 3,
+        day_type: "weekday",
         start_time: "12:05",
         end_time: "14:00",
         note: "Học sinh chuẩn bị vào ca chiều, lượng khách ổn định.",
@@ -440,6 +445,7 @@ const DEFAULT_DAILY_SHIFT_CONFIGS: DailyShiftConfig[] = [
     },
     {
         shift_num: 4,
+        day_type: "weekday",
         start_time: "14:05",
         end_time: "16:05",
         note: "Giờ ra chơi chiều & tan tiết cuối, cần phục vụ nhanh.",
@@ -449,10 +455,113 @@ const DEFAULT_DAILY_SHIFT_CONFIGS: DailyShiftConfig[] = [
     },
     {
         shift_num: 5,
+        day_type: "weekday",
         start_time: "16:10",
         end_time: "18:00",
         note: "Học sinh ra về; cần bán hàng, dọn dẹp, kiểm kê & khóa cửa.",
         chinh_count: 4,
+        dp_count: 1,
+        active: true,
+    },
+    // Ca Thứ 7
+    {
+        shift_num: 1,
+        day_type: "sat",
+        start_time: "07:00",
+        end_time: "09:30",
+        note: "Ca 1 Thứ 7 - Phục vụ sinh hoạt CLB & phong trào cuối tuần.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 2,
+        day_type: "sat",
+        start_time: "09:35",
+        end_time: "12:00",
+        note: "Ca 2 Thứ 7 - Cao điểm học sinh ngoại khóa & giao nhận hàng.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 3,
+        day_type: "sat",
+        start_time: "12:05",
+        end_time: "14:00",
+        note: "Ca 3 Thứ 7 - Trực phòng Thanh Niên & hỗ trợ F&B.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 4,
+        day_type: "sat",
+        start_time: "14:05",
+        end_time: "16:05",
+        note: "Ca 4 Thứ 7 - Phục vụ các sự kiện & tập luyện chiều.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 5,
+        day_type: "sat",
+        start_time: "16:10",
+        end_time: "18:00",
+        note: "Ca 5 Thứ 7 - Bán hàng, tổng vệ sinh & khóa cửa phòng.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    // Ca Chủ Nhật
+    {
+        shift_num: 1,
+        day_type: "sun",
+        start_time: "07:00",
+        end_time: "09:30",
+        note: "Ca 1 Chủ Nhật - Chuẩn bị vật tư & kiểm kê gian hàng.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 2,
+        day_type: "sun",
+        start_time: "09:35",
+        end_time: "12:00",
+        note: "Ca 2 Chủ Nhật - Bán hàng & tổng hợp đơn hàng lẻ.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 3,
+        day_type: "sun",
+        start_time: "12:05",
+        end_time: "14:00",
+        note: "Ca 3 Chủ Nhật - Trực trưa & luân chuyển nhân sự.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 4,
+        day_type: "sun",
+        start_time: "14:05",
+        end_time: "16:05",
+        note: "Ca 4 Chủ Nhật - Phục vụ khách ghé thăm & chuẩn bị bàn giao.",
+        chinh_count: 3,
+        dp_count: 1,
+        active: true,
+    },
+    {
+        shift_num: 5,
+        day_type: "sun",
+        start_time: "16:10",
+        end_time: "18:00",
+        note: "Ca 5 Chủ Nhật - Chốt doanh thu tuần, niêm phong kho & niêm phong.",
+        chinh_count: 3,
         dp_count: 1,
         active: true,
     },
@@ -548,14 +657,42 @@ function applyDailyConfigsToShifts(
     dailyConfigs: DailyShiftConfig[],
 ) {
     if (!dailyConfigs || !dailyConfigs.length) return;
-    const configMap = new Map<number, DailyShiftConfig>();
-    dailyConfigs.forEach((c) => configMap.set(Number(c.shift_num), c));
+
+    const mapWeekday = new Map<number, DailyShiftConfig>();
+    const mapSat = new Map<number, DailyShiftConfig>();
+    const mapSun = new Map<number, DailyShiftConfig>();
+    const mapGlobal = new Map<number, DailyShiftConfig>();
+
+    dailyConfigs.forEach((c) => {
+        const num = Number(c.shift_num);
+        if (c.day_type === "sat") {
+            mapSat.set(num, c);
+        } else if (c.day_type === "sun") {
+            mapSun.set(num, c);
+        } else if (c.day_type === "weekday") {
+            mapWeekday.set(num, c);
+        } else {
+            mapGlobal.set(num, c);
+        }
+    });
 
     for (const s of shifts) {
         if (s.type === "Phong") {
             const num = getShiftNumber(s);
-            if (num && configMap.has(num)) {
-                const conf = configMap.get(num)!;
+            if (!num) continue;
+
+            const dayLower = (s.day || "").toLowerCase().trim();
+            let conf: DailyShiftConfig | undefined;
+
+            if (dayLower.includes("thứ 7") || dayLower.includes("thứ bảy") || dayLower.includes("t7")) {
+                conf = mapSat.get(num) || mapGlobal.get(num);
+            } else if (dayLower.includes("chủ nhật") || dayLower.includes("cn")) {
+                conf = mapSun.get(num) || mapGlobal.get(num);
+            } else {
+                conf = mapWeekday.get(num) || mapGlobal.get(num);
+            }
+
+            if (conf) {
                 if (conf.start_time) s.start_time = conf.start_time;
                 if (conf.end_time) s.end_time = conf.end_time;
                 const stdSlot =
@@ -750,10 +887,13 @@ function bootstrapState() {
                 if (saved.start_date) {
                     START_DATE = saved.start_date;
                 }
-                if (saved.members && saved.members.length > 0) {
+                const loadedExcelMembers = loadMembersData();
+                if (saved.members && saved.members.length > 0 && loadedExcelMembers.length > 0 && saved.members[0]?.name === loadedExcelMembers[0]?.name) {
                     CURRENT_MEMBERS = saved.members;
+                } else if (loadedExcelMembers && loadedExcelMembers.length > 0) {
+                    CURRENT_MEMBERS = loadedExcelMembers;
                 } else {
-                    CURRENT_MEMBERS = loadMembersData();
+                    CURRENT_MEMBERS = saved.members || [];
                 }
                 CUSTOM_CA_NGOAI =
                     saved.custom_ca_ngoai ||
@@ -1381,7 +1521,104 @@ app.post("/api/inventory/restock/delete", requireAdmin, (req, res) => {
 });
 
 // DISCIPLINE / CREDIBILITY MANAGEMENT HELPERS & ENDPOINTS
+function syncDisciplineWithIncidents(): number {
+    let syncedCount = 0;
+    const nowStr = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour12: false,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+    for (const inc of INCIDENT_LOGS) {
+        if (!inc) continue;
+        const incRefKey = `[Inc #${inc.id}]`;
+
+        // 1. Process absent / late member penalty if not synced
+        if (inc.absent_member_id) {
+            const alreadyLoggedAbsent = DISCIPLINE_LOGS.some(
+                (l) => l.member_id === inc.absent_member_id && l.reason && l.reason.includes(incRefKey)
+            );
+            if (!alreadyLoggedAbsent) {
+                const member = CURRENT_MEMBERS.find((m) => m.member_id === inc.absent_member_id);
+                if (member) {
+                    const statusType = inc.status_type || "Sự cố ca";
+                    let penaltyPoints = 10;
+                    if (statusType === "Đi trễ") penaltyPoints = 5;
+                    else if (statusType === "Vắng không phép") penaltyPoints = 20;
+                    else if (statusType === "Vắng đột xuất" || statusType === "Xin nghỉ trước") penaltyPoints = 10;
+                    else if (statusType === "Mất tập trung" || statusType === "Bỏ quầy") penaltyPoints = 10;
+
+                    const oldPoints = MEMBER_DISCIPLINE_SCORES[member.member_id] !== undefined
+                        ? MEMBER_DISCIPLINE_SCORES[member.member_id]
+                        : 100;
+                    const newPoints = Math.max(0, oldPoints - penaltyPoints);
+                    MEMBER_DISCIPLINE_SCORES[member.member_id] = newPoints;
+
+                    const record: DisciplineRecord = {
+                        id: `DISC_INC_ABS_${inc.id}_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+                        timestamp: inc.timestamp || nowStr,
+                        member_id: member.member_id,
+                        member_name: member.name,
+                        type: "Trừ điểm",
+                        points_change: -penaltyPoints,
+                        reason: `${incRefKey} Tự động từ Xử lý ca vắng: Trừ ${penaltyPoints}đ (${statusType} ca ${inc.shift_id || ""})`,
+                        performed_by: "Hệ thống (Ca vắng & Backup)",
+                        old_points: oldPoints,
+                        new_points: newPoints,
+                    };
+                    DISCIPLINE_LOGS.unshift(record);
+                    syncedCount++;
+                }
+            }
+        }
+
+        // 2. Process replacement member bonus (+5 points) if not synced
+        if (inc.replacement_member_id && inc.replacement_member_id !== "Không thay thế") {
+            const alreadyLoggedRep = DISCIPLINE_LOGS.some(
+                (l) => l.member_id === inc.replacement_member_id && l.reason && l.reason.includes(incRefKey) && l.type === "Cộng điểm"
+            );
+            if (!alreadyLoggedRep) {
+                const repMember = CURRENT_MEMBERS.find((m) => m.member_id === inc.replacement_member_id);
+                if (repMember) {
+                    const bonusPoints = 5;
+                    const oldPoints = MEMBER_DISCIPLINE_SCORES[repMember.member_id] !== undefined
+                        ? MEMBER_DISCIPLINE_SCORES[repMember.member_id]
+                        : 100;
+                    const newPoints = Math.max(0, oldPoints + bonusPoints);
+                    MEMBER_DISCIPLINE_SCORES[repMember.member_id] = newPoints;
+
+                    const record: DisciplineRecord = {
+                        id: `DISC_INC_REP_${inc.id}_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`,
+                        timestamp: inc.timestamp || nowStr,
+                        member_id: repMember.member_id,
+                        member_name: repMember.name,
+                        type: "Cộng điểm",
+                        points_change: bonusPoints,
+                        reason: `${incRefKey} Tự động từ Backup: Thưởng +${bonusPoints}đ dự phòng/thay ca ${inc.shift_id || ""} cho ${inc.absent_member || "đồng đội"}`,
+                        performed_by: "Hệ thống (Ca vắng & Backup)",
+                        old_points: oldPoints,
+                        new_points: newPoints,
+                    };
+                    DISCIPLINE_LOGS.unshift(record);
+                    syncedCount++;
+                }
+            }
+        }
+    }
+
+    if (syncedCount > 0) {
+        persist();
+    }
+
+    return syncedCount;
+}
+
 function getDisciplineData() {
+    syncDisciplineWithIncidents();
     const memberStats = CURRENT_MEMBERS.map((m) => {
         const currentPoints = MEMBER_DISCIPLINE_SCORES[m.member_id] !== undefined
             ? MEMBER_DISCIPLINE_SCORES[m.member_id]
@@ -1454,6 +1691,26 @@ app.get("/api/discipline", (req, res) => {
         success: true,
         ...getDisciplineData(),
     });
+});
+
+app.post("/api/discipline/sync-incidents", (req, res) => {
+    try {
+        const syncedCount = syncDisciplineWithIncidents();
+        const data = getDisciplineData();
+        return res.json({
+            success: true,
+            synced_count: syncedCount,
+            message: syncedCount > 0
+                ? `Đã đồng bộ thành công ${syncedCount} ghi nhận kỷ luật/thưởng điểm từ 'Xử lý ca vắng & Backup'!`
+                : "Dữ liệu kỷ luật đã ở trạng thái đồng bộ mới nhất với 'Xử lý ca vắng & Backup'.",
+            ...data,
+        });
+    } catch (err: any) {
+        return res.status(500).json({
+            success: false,
+            message: `Lỗi đồng bộ dữ liệu kỷ luật: ${err.message}`,
+        });
+    }
 });
 
 app.post("/api/discipline/adjust", requireAdmin, (req, res) => {

@@ -325,20 +325,19 @@ function initTabs() {
     const moreBtn = document.getElementById("btnMoreMenu");
 
     const titles = {
-        "tab-schedule": "Lịch Trực Toàn Bộ Các Ngày Trong Tuần",
-        "tab-optimizer":
-            "Tinh Chỉnh Tham Số, Tối Ưu Hóa & Ca Bán Ngoài (OR-Tools)",
-        "tab-inventory": "Kho Hàng & Quản Lý Doanh Thu F&B",
-        "tab-shift-audit": "Kiểm Kê & Đối Chiếu Tồn Kho Hàng Hóa Sau Ca Trực",
-        "tab-ca-ngoai": "Quản Lý & Phân Bổ Ca Bán Ngoài",
-        "tab-analytics": "Báo Cáo Thống Kê Phân Bổ Nhân Sự",
-        "tab-kpi": "Chạy KPI Lấy Hàng & Quản Lý Doanh Thu",
-        "tab-competition": "Bảng Vàng Thi Đua Cá Nhân & Nhóm",
-        "tab-audit": "Kiểm Tra Tính Hợp Lệ & Thẩm Định Quy Chuẩn",
-        "tab-contingency": "Quản Lý Ca Vắng, Đi Trễ & Nhân Sự Dự Phòng",
-        "tab-protocols":
-            "Quy Trình Quản Trị Nhân Sự & Dự Trù Rủi Ro (Nhiệm Vụ 2)",
-        "tab-live-shift": "Ca-Live & POS Bán Hàng Realtime",
+        "tab-analytics": "Tổng hợp lịch rảnh",
+        "tab-schedule": "Phân công ca trực",
+        "tab-optimizer": "Cơ cấu ca trực",
+        "tab-contingency": "Điều phối ca vắng, vi phạm nhân sự",
+        "tab-discipline": "Cộng điểm kỷ luật",
+        "tab-live-shift": "Thu ngân",
+        "tab-shift-audit": "Kiểm kê ca trực",
+        "tab-inventory": "Kho hàng, doanh thu",
+        "tab-kpi": "Best seller",
+        "tab-competition": "Thi đua F&B",
+        "tab-ca-ngoai": "Cơ cấu ca trực",
+        "tab-audit": "Kiểm kê ca trực",
+        "tab-protocols": "Điều phối ca vắng, vi phạm nhân sự",
     };
 
     navItems.forEach((item) => {
@@ -1411,51 +1410,125 @@ const solveUI = {
 };
 
 // Optimizer Config Data Helpers
-function getDailyShiftConfigsFromUI() {
-    const configs = [];
+let currentShiftConfigDayTab = "weekday";
+
+let shiftConfigsByDay = {
+    weekday: [
+        { shift_num: 1, start_time: "07:00", end_time: "09:30", note: "Khách đông đột biến vào giờ ra chơi; cần setup phòng trực sớm.", chinh_count: 4, dp_count: 1, active: true },
+        { shift_num: 2, start_time: "09:35", end_time: "12:00", note: "Học sinh tan trường & nghỉ trưa, lượng khách (HS/GV) đông.", chinh_count: 4, dp_count: 1, active: true },
+        { shift_num: 3, start_time: "12:05", end_time: "14:00", note: "Học sinh chuẩn bị vào ca chiều, lượng khách ổn định.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 4, start_time: "14:05", end_time: "16:05", note: "Giờ ra chơi chiều & tan tiết cuối, cần phục vụ nhanh.", chinh_count: 4, dp_count: 1, active: true },
+        { shift_num: 5, start_time: "16:10", end_time: "18:00", note: "Học sinh ra về; cần bán hàng, dọn dẹp, kiểm kê & khóa cửa.", chinh_count: 4, dp_count: 1, active: true },
+    ],
+    sat: [
+        { shift_num: 1, start_time: "07:00", end_time: "09:30", note: "Ca 1 Thứ 7 - Phục vụ sinh hoạt CLB & phong trào cuối tuần.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 2, start_time: "09:35", end_time: "12:00", note: "Ca 2 Thứ 7 - Cao điểm học sinh ngoại khóa & giao nhận hàng.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 3, start_time: "12:05", end_time: "14:00", note: "Ca 3 Thứ 7 - Trực phòng Thanh Niên & hỗ trợ F&B.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 4, start_time: "14:05", end_time: "16:05", note: "Ca 4 Thứ 7 - Phục vụ các sự kiện & tập luyện chiều.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 5, start_time: "16:10", end_time: "18:00", note: "Ca 5 Thứ 7 - Bán hàng, tổng vệ sinh & khóa cửa phòng.", chinh_count: 3, dp_count: 1, active: true },
+    ],
+    sun: [
+        { shift_num: 1, start_time: "07:00", end_time: "09:30", note: "Ca 1 Chủ Nhật - Chuẩn bị vật tư & kiểm kê gian hàng.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 2, start_time: "09:35", end_time: "12:00", note: "Ca 2 Chủ Nhật - Bán hàng & tổng hợp đơn hàng lẻ.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 3, start_time: "12:05", end_time: "14:00", note: "Ca 3 Chủ Nhật - Trực trưa & luân chuyển nhân sự.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 4, start_time: "14:05", end_time: "16:05", note: "Ca 4 Chủ Nhật - Phục vụ khách ghé thăm & chuẩn bị bàn giao.", chinh_count: 3, dp_count: 1, active: true },
+        { shift_num: 5, start_time: "16:10", end_time: "18:00", note: "Ca 5 Chủ Nhật - Chốt doanh thu tuần, niêm phong kho & niêm phong.", chinh_count: 3, dp_count: 1, active: true },
+    ]
+};
+
+function saveCurrentShiftConfigInputsToState() {
+    const list = [];
     for (let i = 1; i <= 5; i++) {
-        const start =
-            document.getElementById(`shift${i}Start`)?.value || "07:00";
+        const start = document.getElementById(`shift${i}Start`)?.value || "07:00";
         const end = document.getElementById(`shift${i}End`)?.value || "09:30";
         const note = document.getElementById(`shift${i}Note`)?.value || "";
-        const chinh = parseInt(
-            document.getElementById(`shift${i}Chinh`)?.value || "4",
-            10,
-        );
-        const dp = parseInt(
-            document.getElementById(`shift${i}DP`)?.value || "1",
-            10,
-        );
-        configs.push({
+        const chinh = parseInt(document.getElementById(`shift${i}Chinh`)?.value || "4", 10);
+        const dp = parseInt(document.getElementById(`shift${i}DP`)?.value || "1", 10);
+        list.push({
             shift_num: i,
+            day_type: currentShiftConfigDayTab,
             start_time: start,
             end_time: end,
             note: note,
             chinh_count: chinh,
             dp_count: dp,
-            active: true,
+            active: true
         });
     }
-    return configs;
+    shiftConfigsByDay[currentShiftConfigDayTab] = list;
+}
+
+function loadShiftConfigInputsFromState(dayType) {
+    const configs = shiftConfigsByDay[dayType] || [];
+    for (let i = 1; i <= 5; i++) {
+        const c = configs.find(x => x.shift_num === i) || configs[i - 1];
+        if (!c) continue;
+        const startInput = document.getElementById(`shift${i}Start`);
+        const endInput = document.getElementById(`shift${i}End`);
+        const noteInput = document.getElementById(`shift${i}Note`);
+        const chinhInput = document.getElementById(`shift${i}Chinh`);
+        const dpInput = document.getElementById(`shift${i}DP`);
+
+        if (startInput) startInput.value = c.start_time;
+        if (endInput) endInput.value = c.end_time;
+        if (noteInput) noteInput.value = c.note || "";
+        if (chinhInput) chinhInput.value = c.chinh_count !== undefined ? c.chinh_count : 4;
+        if (dpInput) dpInput.value = c.dp_count !== undefined ? c.dp_count : 1;
+    }
+}
+
+function switchShiftConfigDayTab(dayType) {
+    saveCurrentShiftConfigInputsToState();
+    currentShiftConfigDayTab = dayType;
+
+    const btnW = document.getElementById("btnTabDayWeekday");
+    const btnS = document.getElementById("btnTabDaySat");
+    const btnU = document.getElementById("btnTabDaySun");
+
+    if (btnW) {
+        btnW.style.background = dayType === "weekday" ? "#3b82f6" : "var(--card-bg, #ffffff)";
+        btnW.style.color = dayType === "weekday" ? "#ffffff" : "var(--text-color, #334155)";
+    }
+    if (btnS) {
+        btnS.style.background = dayType === "sat" ? "#8b5cf6" : "var(--card-bg, #ffffff)";
+        btnS.style.color = dayType === "sat" ? "#ffffff" : "var(--text-color, #334155)";
+    }
+    if (btnU) {
+        btnU.style.background = dayType === "sun" ? "#f59e0b" : "var(--card-bg, #ffffff)";
+        btnU.style.color = dayType === "sun" ? "#ffffff" : "var(--text-color, #334155)";
+    }
+
+    loadShiftConfigInputsFromState(dayType);
+}
+
+function getDailyShiftConfigsFromUI() {
+    saveCurrentShiftConfigInputsToState();
+    const result = [];
+    ["weekday", "sat", "sun"].forEach(dt => {
+        (shiftConfigsByDay[dt] || []).forEach(c => {
+            result.push({ ...c, day_type: dt });
+        });
+    });
+    return result;
 }
 
 function applyDailyShiftConfigsToUI(configs) {
     if (!Array.isArray(configs) || !configs.length) return;
-    configs.forEach((c) => {
-        const num = c.shift_num;
-        const startInput = document.getElementById(`shift${num}Start`);
-        const endInput = document.getElementById(`shift${num}End`);
-        const noteInput = document.getElementById(`shift${num}Note`);
-        const chinhInput = document.getElementById(`shift${num}Chinh`);
-        const dpInput = document.getElementById(`shift${num}DP`);
+    const weekdayList = [];
+    const satList = [];
+    const sunList = [];
 
-        if (startInput && c.start_time) startInput.value = c.start_time;
-        if (endInput && c.end_time) endInput.value = c.end_time;
-        if (noteInput && c.note !== undefined) noteInput.value = c.note;
-        if (chinhInput && c.chinh_count !== undefined)
-            chinhInput.value = c.chinh_count;
-        if (dpInput && c.dp_count !== undefined) dpInput.value = c.dp_count;
+    configs.forEach(c => {
+        if (c.day_type === "sat") satList.push(c);
+        else if (c.day_type === "sun") sunList.push(c);
+        else weekdayList.push(c);
     });
+
+    if (weekdayList.length) shiftConfigsByDay.weekday = weekdayList;
+    if (satList.length) shiftConfigsByDay.sat = satList;
+    if (sunList.length) shiftConfigsByDay.sun = sunList;
+
+    loadShiftConfigInputsFromState(currentShiftConfigDayTab);
 }
 
 function getOptimizerFullConfigFromUI() {
@@ -13172,6 +13245,53 @@ function safeEscHtml(str) {
         .replace(/'/g, "&#039;");
 }
 
+async function refreshAndSyncDisciplineData() {
+    const btn = document.getElementById("btnRefreshDisciplineData");
+    const icon = document.getElementById("iconRefreshDiscipline") || (btn ? btn.querySelector("i") : null);
+
+    if (icon) icon.classList.add("fa-spin");
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await authFetch("/api/discipline/sync-incidents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            rawDisciplineData = data;
+            renderDisciplineModule();
+            populateDisciplineMemberDropdown();
+
+            if (typeof loadIncidentLogs === "function") {
+                await loadIncidentLogs();
+            }
+
+            if (typeof showToast === "function") {
+                const msg = data.synced_count > 0
+                    ? `Đã làm mới & đồng bộ ${data.synced_count} ghi nhận kỷ luật/thưởng điểm từ "Xử lý ca vắng & Backup"!`
+                    : `Đã làm mới! Dữ liệu kỷ luật đã đồng bộ mới nhất với "Xử lý ca vắng & Backup".`;
+                showToast(msg, "success");
+            }
+        } else {
+            await loadDisciplineData();
+            if (typeof showToast === "function") {
+                showToast("Đã làm mới danh sách kỷ luật.", "info");
+            }
+        }
+    } catch (err) {
+        console.error("Lỗi làm mới & đồng bộ kỷ luật:", err);
+        await loadDisciplineData();
+        if (typeof showToast === "function") {
+            showToast("Đã làm mới dữ liệu kỷ luật.", "info");
+        }
+    } finally {
+        if (icon) icon.classList.remove("fa-spin");
+        if (btn) btn.disabled = false;
+    }
+}
+
 async function loadDisciplineData() {
     try {
         const res = await fetch("/api/discipline");
@@ -13397,11 +13517,10 @@ async function resetMemberDisciplineScore(memberId, memberName) {
     }
 
     try {
-        const res = await fetch("/api/discipline/reset-member", {
+        const res = await authFetch("/api/discipline/reset-member", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${adminAuthToken || ""}`,
             },
             body: JSON.stringify({ member_id: memberId }),
         });
@@ -13432,11 +13551,10 @@ async function deleteDisciplineLog(logId) {
     }
 
     try {
-        const res = await fetch("/api/discipline/delete-log", {
+        const res = await authFetch("/api/discipline/delete-log", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${adminAuthToken || ""}`,
             },
             body: JSON.stringify({ log_id: logId }),
         });
@@ -13519,11 +13637,10 @@ function initDisciplineEventListeners() {
             }
 
             try {
-                const res = await fetch("/api/discipline/adjust", {
+                const res = await authFetch("/api/discipline/adjust", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        Authorization: `Bearer ${adminAuthToken || ""}`,
                     },
                     body: JSON.stringify({
                         member_id: memberId,
