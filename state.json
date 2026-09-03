@@ -38843,7 +38843,7 @@
       "unit": "Ly",
       "price": 20000,
       "initial_stock": 100,
-      "sold_count": 2,
+      "sold_count": 4,
       "note": ""
     },
     {
@@ -38852,7 +38852,7 @@
       "unit": "Ly",
       "price": 20000,
       "initial_stock": 100,
-      "sold_count": 2,
+      "sold_count": 4,
       "note": ""
     },
     {
@@ -38861,7 +38861,7 @@
       "unit": "Ly",
       "price": 20000,
       "initial_stock": 100,
-      "sold_count": 2,
+      "sold_count": 4,
       "note": ""
     },
     {
@@ -45662,6 +45662,128 @@
     }
   ],
   "online_orders": [],
+  "pickup_requests": [
+    {
+      "id": "REQ_20260903_UY5C4A",
+      "member_id": "TV001",
+      "member_name": "Nguyễn Vân Anh",
+      "items": [
+        {
+          "product_id": "SP01",
+          "product_name": "Glutamic Acid",
+          "quantity": 1,
+          "unit_price": 20000,
+          "total_price": 20000
+        },
+        {
+          "product_id": "SP02",
+          "product_name": "Lysine",
+          "quantity": 1,
+          "unit_price": 20000,
+          "total_price": 20000
+        },
+        {
+          "product_id": "SP03",
+          "product_name": "[CU(NH3)4](OH)2",
+          "quantity": 1,
+          "unit_price": 20000,
+          "total_price": 20000
+        }
+      ],
+      "total_amount": 60000,
+      "payment_method": "Tiền mặt",
+      "payment_status": "Chờ thanh toán",
+      "status": "Chờ Admin duyệt",
+      "qr_url": "https://img.vietqr.io/image/970422-0000000000-compact2.png?amount=60000&addInfo=REQ_20260903_UY5C4A&accountName=HUNG%20VUONG%20FB",
+      "created_at": "12:28:13 3/9/2026"
+    },
+    {
+      "id": "REQ_20260903_KBSQQM",
+      "member_id": "TV001",
+      "member_name": "Nguyễn Vân Anh",
+      "items": [
+        {
+          "product_id": "SP01",
+          "product_name": "Glutamic Acid",
+          "quantity": 1,
+          "unit_price": 20000,
+          "total_price": 20000
+        },
+        {
+          "product_id": "SP02",
+          "product_name": "Lysine",
+          "quantity": 1,
+          "unit_price": 20000,
+          "total_price": 20000
+        },
+        {
+          "product_id": "SP03",
+          "product_name": "[CU(NH3)4](OH)2",
+          "quantity": 1,
+          "unit_price": 20000,
+          "total_price": 20000
+        }
+      ],
+      "total_amount": 60000,
+      "payment_method": "VietQR",
+      "payment_status": "Đã xác nhận chuyển khoản",
+      "status": "Chờ Admin duyệt",
+      "qr_url": "https://img.vietqr.io/image/970422-0000000000-compact2.png?amount=60000&addInfo=REQ_20260903_KBSQQM&accountName=HUNG%20VUONG%20FB",
+      "created_at": "12:27:50 3/9/2026"
+    }
+  ],
+  "member_passwords": {
+    "TV001": "HV@TV001",
+    "TV002": "HV@TV002",
+    "TV003": "HV@TV003",
+    "TV004": "HV@TV004",
+    "TV005": "HV@TV005",
+    "TV006": "HV@TV006",
+    "TV007": "HV@TV007",
+    "TV008": "HV@TV008",
+    "TV009": "HV@TV009",
+    "TV010": "HV@TV010",
+    "TV011": "HV@TV011",
+    "TV012": "HV@TV012",
+    "TV013": "HV@TV013",
+    "TV014": "HV@TV014",
+    "TV015": "HV@TV015",
+    "TV016": "HV@TV016",
+    "TV017": "HV@TV017",
+    "TV018": "HV@TV018",
+    "TV019": "HV@TV019",
+    "TV020": "HV@TV020",
+    "TV021": "HV@TV021",
+    "TV022": "HV@TV022",
+    "TV023": "HV@TV023",
+    "TV024": "HV@TV024",
+    "TV025": "HV@TV025",
+    "TV026": "HV@TV026",
+    "TV027": "HV@TV027",
+    "TV028": "HV@TV028",
+    "TV029": "HV@TV029",
+    "TV030": "HV@TV030",
+    "TV031": "HV@TV031",
+    "TV032": "HV@TV032",
+    "TV033": "HV@TV033",
+    "TV034": "HV@TV034",
+    "TV035": "HV@TV035",
+    "TV036": "HV@TV036",
+    "TV037": "HV@TV037",
+    "TV038": "HV@TV038",
+    "TV039": "HV@TV039",
+    "TV040": "HV@TV040",
+    "TV041": "HV@TV041",
+    "TV042": "HV@TV042",
+    "TV043": "HV@TV043",
+    "TV044": "HV@TV044",
+    "TV045": "HV@TV045",
+    "TV046": "HV@TV046",
+    "TV047": "HV@TV047",
+    "TV048": "HV@TV048",
+    "TV049": "HV@TV049",
+    "TV050": "HV@TV050"
+  },
   "competition_config": {
     "active_week": "Tuần 1",
     "weeks": [

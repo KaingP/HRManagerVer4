@@ -104,6 +104,25 @@ export interface OnlineOrder {
     created_at: string;
 }
 
+interface PickupRequestItem extends OnlineOrderItem {}
+
+interface PickupRequest {
+    id: string;
+    member_id: string;
+    member_name: string;
+    items: PickupRequestItem[];
+    total_amount: number;
+    payment_method: "VietQR" | "Tiền mặt";
+    payment_status:
+        | "Chờ thanh toán"
+        | "Đã xác nhận chuyển khoản"
+        | "Đã thanh toán"
+        | "Từ chối";
+    status: "Chờ Admin duyệt" | "Đã duyệt" | "Từ chối";
+    qr_url: string;
+    created_at: string;
+}
+
 export interface SaleTransaction {
     id: string;
     timestamp: string;
@@ -146,6 +165,7 @@ export interface ShiftAudit {
 // Global State & Auth
 let ADMIN_PASSWORD: string = getAdminPassword();
 const ACTIVE_ADMIN_TOKENS: Set<string> = new Set();
+const ACTIVE_MEMBER_TOKENS = new Map<string, string>();
 
 let START_DATE: string = "2026-08-24";
 let CURRENT_SHIFTS: Shift[] = [];
@@ -296,6 +316,8 @@ let SALES_LOGS: SaleTransaction[] = [];
 let KPI_ATTENDANCE: any[] = [];
 let SHIFT_AUDITS: ShiftAudit[] = [];
 let ONLINE_ORDERS: OnlineOrder[] = [];
+let PICKUP_REQUESTS: PickupRequest[] = [];
+let MEMBER_PASSWORDS: Record<string, string> = {};
 
 // Optimizer & Shift Configuration Interfaces
 export interface DailyShiftConfig {
@@ -532,6 +554,27 @@ export function requireAdmin(
     });
 }
 
+function getMemberId(req: express.Request): string | null {
+    const token = req.headers["x-member-token"];
+    return typeof token === "string"
+        ? ACTIVE_MEMBER_TOKENS.get(token) || null
+        : null;
+}
+
+function requireMember(
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+) {
+    if (getMemberId(req)) return next();
+    return res
+        .status(401)
+        .json({
+            success: false,
+            message: "Vui lòng đăng nhập tài khoản thành viên.",
+        });
+}
+
 // Helpers
 function persist() {
     const payload = {
@@ -549,6 +592,8 @@ function persist() {
         kpi_attendance: KPI_ATTENDANCE,
         shift_audits: SHIFT_AUDITS,
         online_orders: ONLINE_ORDERS,
+        pickup_requests: PICKUP_REQUESTS,
+        member_passwords: MEMBER_PASSWORDS,
         competition_config: COMPETITION_CONFIG,
     };
     try {
@@ -652,6 +697,14 @@ function bootstrapState() {
                 KPI_ATTENDANCE = saved.kpi_attendance || [];
                 SHIFT_AUDITS = saved.shift_audits || [];
                 ONLINE_ORDERS = saved.online_orders || [];
+                PICKUP_REQUESTS = saved.pickup_requests || [];
+                MEMBER_PASSWORDS = saved.member_passwords || {};
+                CURRENT_MEMBERS.forEach((member: any) => {
+                    if (!MEMBER_PASSWORDS[member.member_id]) {
+                        MEMBER_PASSWORDS[member.member_id] =
+                            `HV@${member.member_id}`;
+                    }
+                });
                 COMPETITION_CONFIG = normalizeCompetitionConfig(
                     saved.competition_config,
                     COMPETITION_CONFIG.sheet.token,
@@ -747,6 +800,40 @@ app.post("/api/auth/login", (req, res) => {
     return res.status(401).json({
         success: false,
         message: "Mật khẩu Quản trị viên không chính xác!",
+    });
+});
+
+app.post("/api/member-auth/login", (req, res) => {
+    const memberId = String(req.body?.member_id || "").trim();
+    const password = String(req.body?.password || "");
+    const member = CURRENT_MEMBERS.find(
+        (item: any) => item.member_id === memberId,
+    );
+    if (!member || MEMBER_PASSWORDS[memberId] !== password) {
+        return res
+            .status(401)
+            .json({
+                success: false,
+                message: "Mã thành viên hoặc mật khẩu không đúng.",
+            });
+    }
+    const token = crypto.randomBytes(24).toString("hex");
+    ACTIVE_MEMBER_TOKENS.set(token, memberId);
+    return res.json({
+        success: true,
+        token,
+        member: { member_id: member.member_id, name: member.name },
+    });
+});
+
+app.get("/api/member-auth/accounts", requireAdmin, (_req, res) => {
+    res.json({
+        success: true,
+        accounts: CURRENT_MEMBERS.map((member: any) => ({
+            member_id: member.member_id,
+            name: member.name,
+            password: MEMBER_PASSWORDS[member.member_id],
+        })),
     });
 });
 
@@ -1767,12 +1854,10 @@ app.post(
     (req: any, res: any) => {
         try {
             if (!req.file) {
-                return res
-                    .status(400)
-                    .json({
-                        success: false,
-                        message: "Vui lòng chọn file Excel để tải lên!",
-                    });
+                return res.status(400).json({
+                    success: false,
+                    message: "Vui lòng chọn file Excel để tải lên!",
+                });
             }
             let fileBuffer: Buffer | null = req.file.buffer || null;
             if (!fileBuffer && req.file.path && fs.existsSync(req.file.path)) {
@@ -1782,12 +1867,10 @@ app.post(
                 } catch (e) {}
             }
             if (!fileBuffer) {
-                return res
-                    .status(400)
-                    .json({
-                        success: false,
-                        message: "Không thể đọc nội dung file Excel tải lên!",
-                    });
+                return res.status(400).json({
+                    success: false,
+                    message: "Không thể đọc nội dung file Excel tải lên!",
+                });
             }
             const parsed = parseOnlineOrdersExcel(
                 fileBuffer,
@@ -1795,13 +1878,11 @@ app.post(
                 INVENTORY_PRODUCTS,
             );
             if (parsed.length === 0) {
-                return res
-                    .status(400)
-                    .json({
-                        success: false,
-                        message:
-                            "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel! Vui lòng tải file mẫu để xem định dạng đúng.",
-                    });
+                return res.status(400).json({
+                    success: false,
+                    message:
+                        "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel! Vui lòng tải file mẫu để xem định dạng đúng.",
+                });
             }
             ONLINE_ORDERS = [...ONLINE_ORDERS, ...parsed];
             persist();
@@ -1837,13 +1918,11 @@ app.post("/api/online-orders/create", (req, res) => {
             !Array.isArray(items) ||
             items.length === 0
         ) {
-            return res
-                .status(400)
-                .json({
-                    success: false,
-                    message:
-                        "Vui lòng nhập đầy đủ thông tin khách hàng, ngày lấy, khung giờ và ít nhất 1 sản phẩm!",
-                });
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Vui lòng nhập đầy đủ thông tin khách hàng, ngày lấy, khung giờ và ít nhất 1 sản phẩm!",
+            });
         }
 
         const orderItems: OnlineOrderItem[] = items.map((it: any) => {
@@ -1950,25 +2029,211 @@ app.post("/api/online-orders/create", (req, res) => {
     }
 });
 
-app.post("/api/online-orders/update-status", requireAdmin, (req, res) => {
-    try {
-        const { order_id, payment_status } = req.body || {};
-        if (!order_id || !payment_status) {
+function pickupQrUrl(amount: number, requestId: string) {
+    const bankId = process.env.VIETQR_BANK_ID || "970422";
+    const accountNo = process.env.VIETQR_ACCOUNT_NO || "0000000000";
+    const accountName = encodeURIComponent(
+        process.env.VIETQR_ACCOUNT_NAME || "HUNG VUONG FB",
+    );
+    const description = encodeURIComponent(requestId);
+    return `https://img.vietqr.io/image/${bankId}-${accountNo}-compact2.png?amount=${amount}&addInfo=${description}&accountName=${accountName}`;
+}
+
+function addPickupSales(request: PickupRequest) {
+    const now = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+    });
+    request.items.forEach((item) =>
+        SALES_LOGS.push({
+            id: `SALE_REQ_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            timestamp: now,
+            product_id: item.product_id || "ONLINE",
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_amount: item.total_price,
+            channel: "Member Pickup",
+            seller: request.member_name,
+            customer_name: request.member_name,
+            payment_method: request.payment_method,
+            note: `Request ${request.id}`,
+            refunded: false,
+            week: currentWeekTag(),
+        }),
+    );
+}
+
+app.post("/api/pickup-requests", requireMember, (req, res) => {
+    const memberId = getMemberId(req)!;
+    const member: any = CURRENT_MEMBERS.find(
+        (item: any) => item.member_id === memberId,
+    );
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length)
+        return res
+            .status(400)
+            .json({
+                success: false,
+                message: "Đơn hàng phải có ít nhất một sản phẩm.",
+            });
+    const requestItems: PickupRequestItem[] = [];
+    for (const raw of items) {
+        const product = INVENTORY_PRODUCTS.find(
+            (item) => item.id === raw.product_id,
+        );
+        const quantity = Number(raw.quantity);
+        if (!product || !Number.isInteger(quantity) || quantity < 1)
             return res
                 .status(400)
                 .json({
                     success: false,
-                    message: "Thiếu order_id hoặc payment_status!",
+                    message: "Sản phẩm hoặc số lượng không hợp lệ.",
                 });
+        const available =
+            (product.initial_stock || 0) - (product.sold_count || 0);
+        if (quantity > available)
+            return res
+                .status(409)
+                .json({
+                    success: false,
+                    message: `${product.name} không đủ tồn kho.`,
+                });
+        requestItems.push({
+            product_id: product.id,
+            product_name: product.name,
+            quantity,
+            unit_price: product.price,
+            total_price: product.price * quantity,
+        });
+    }
+    const id = `REQ_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    const total = requestItems.reduce((sum, item) => sum + item.total_price, 0);
+    requestItems.forEach((item) => {
+        INVENTORY_PRODUCTS.find(
+            (product) => product.id === item.product_id,
+        )!.sold_count += item.quantity;
+    });
+    const request: PickupRequest = {
+        id,
+        member_id: memberId,
+        member_name: member.name,
+        items: requestItems,
+        total_amount: total,
+        payment_method:
+            req.body.payment_method === "Tiền mặt" ? "Tiền mặt" : "VietQR",
+        payment_status: "Chờ thanh toán",
+        status: "Chờ Admin duyệt",
+        qr_url: pickupQrUrl(total, id),
+        created_at: new Date().toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+        }),
+    };
+    PICKUP_REQUESTS.unshift(request);
+    persist();
+    res.json({ success: true, request });
+});
+
+app.get("/api/pickup-requests", requireMember, (req, res) => {
+    const memberId = getMemberId(req)!;
+    res.json({
+        success: true,
+        requests: PICKUP_REQUESTS.filter(
+            (request) => request.member_id === memberId,
+        ),
+    });
+});
+
+app.post(
+    "/api/pickup-requests/:id/payment-confirmation",
+    requireMember,
+    (req, res) => {
+        const request = PICKUP_REQUESTS.find(
+            (item) =>
+                item.id === req.params.id &&
+                item.member_id === getMemberId(req),
+        );
+        if (!request)
+            return res
+                .status(404)
+                .json({ success: false, message: "Không tìm thấy request." });
+        if (request.status !== "Chờ Admin duyệt")
+            return res
+                .status(409)
+                .json({
+                    success: false,
+                    message: "Request này đã được xử lý.",
+                });
+        request.payment_status =
+            req.body?.payment_method === "Tiền mặt"
+                ? "Chờ thanh toán"
+                : "Đã xác nhận chuyển khoản";
+        request.payment_method =
+            req.body?.payment_method === "Tiền mặt" ? "Tiền mặt" : "VietQR";
+        persist();
+        res.json({ success: true, request });
+    },
+);
+
+app.get("/api/admin/pickup-requests", requireAdmin, (_req, res) =>
+    res.json({ success: true, requests: PICKUP_REQUESTS }),
+);
+
+app.post(
+    "/api/admin/pickup-requests/:id/decision",
+    requireAdmin,
+    (req, res) => {
+        const request = PICKUP_REQUESTS.find(
+            (item) => item.id === req.params.id,
+        );
+        if (!request)
+            return res
+                .status(404)
+                .json({ success: false, message: "Không tìm thấy request." });
+        if (request.status !== "Chờ Admin duyệt")
+            return res
+                .status(409)
+                .json({
+                    success: false,
+                    message: "Request này đã được xử lý.",
+                });
+        if (req.body?.decision === "approve") {
+            request.status = "Đã duyệt";
+            request.payment_status = "Đã thanh toán";
+            addPickupSales(request);
+        } else {
+            request.status = "Từ chối";
+            request.payment_status = "Từ chối";
+            request.items.forEach((item) => {
+                const product = INVENTORY_PRODUCTS.find(
+                    (entry) => entry.id === item.product_id,
+                );
+                if (product)
+                    product.sold_count = Math.max(
+                        0,
+                        product.sold_count - item.quantity,
+                    );
+            });
+        }
+        persist();
+        res.json({ success: true, request });
+    },
+);
+
+app.post("/api/online-orders/update-status", requireAdmin, (req, res) => {
+    try {
+        const { order_id, payment_status } = req.body || {};
+        if (!order_id || !payment_status) {
+            return res.status(400).json({
+                success: false,
+                message: "Thiếu order_id hoặc payment_status!",
+            });
         }
         const orderIndex = ONLINE_ORDERS.findIndex((o) => o.id === order_id);
         if (orderIndex === -1) {
-            return res
-                .status(404)
-                .json({
-                    success: false,
-                    message: "Không tìm thấy đơn hàng online!",
-                });
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy đơn hàng online!",
+            });
         }
         const order = ONLINE_ORDERS[orderIndex];
         const oldStatus = order.payment_status;
@@ -2141,6 +2406,11 @@ app.post("/api/online-orders/delete", requireAdmin, (req, res) => {
         const { order_id, clear_all } = req.body || {};
         if (clear_all) {
             ONLINE_ORDERS = [];
+            PICKUP_REQUESTS = [];
+            MEMBER_PASSWORDS = {};
+            CURRENT_MEMBERS.forEach((member: any) => {
+                MEMBER_PASSWORDS[member.member_id] = `HV@${member.member_id}`;
+            });
         } else if (order_id) {
             ONLINE_ORDERS = ONLINE_ORDERS.filter((o) => o.id !== order_id);
         }
@@ -2461,24 +2731,20 @@ app.post("/api/inventory/checkout", (req, res) => {
                     .toUpperCase() === product_id,
         );
         if (!product) {
-            return res
-                .status(404)
-                .json({
-                    success: false,
-                    message: `Không tìm thấy sản phẩm ${item.product_id}`,
-                });
+            return res.status(404).json({
+                success: false,
+                message: `Không tìm thấy sản phẩm ${item.product_id}`,
+            });
         }
         const currentStock = Math.max(
             0,
             product.initial_stock - (product.sold_count || 0),
         );
         if (quantity > currentStock) {
-            return res
-                .status(400)
-                .json({
-                    success: false,
-                    message: `Sản phẩm ${product.name} chỉ còn ${currentStock} trong kho.`,
-                });
+            return res.status(400).json({
+                success: false,
+                message: `Sản phẩm ${product.name} chỉ còn ${currentStock} trong kho.`,
+            });
         }
 
         newTransactions.push({
@@ -3213,12 +3479,10 @@ app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
     const set_as_leader = Boolean(data.set_as_leader);
 
     if (!shift_id || !member_id) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Thiếu thông tin ca trực hoặc nhân sự",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Thiếu thông tin ca trực hoặc nhân sự",
+        });
     }
 
     const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
@@ -3232,12 +3496,10 @@ app.post("/api/shift/add-member", requireAdmin, async (req, res) => {
 
     const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
     if (!member) {
-        return res
-            .status(404)
-            .json({
-                success: false,
-                message: `Không tìm thấy nhân sự mã ${member_id}`,
-            });
+        return res.status(404).json({
+            success: false,
+            message: `Không tìm thấy nhân sự mã ${member_id}`,
+        });
     }
 
     target_shift.assigned_members = target_shift.assigned_members || [];
@@ -3754,12 +4016,10 @@ app.post(
         }
 
         if (!target_incident) {
-            return res
-                .status(404)
-                .json({
-                    success: false,
-                    message: "Không tìm thấy bản ghi sự cố cần chỉnh sửa",
-                });
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy bản ghi sự cố cần chỉnh sửa",
+            });
         }
 
         const targetShiftId = target_incident.shift_id;
@@ -3778,12 +4038,10 @@ app.post(
                 (m) => m.member_id === replacement_member_id,
             );
             if (!new_rep) {
-                return res
-                    .status(404)
-                    .json({
-                        success: false,
-                        message: "Không tìm thấy nhân sự thay thế được chọn",
-                    });
+                return res.status(404).json({
+                    success: false,
+                    message: "Không tìm thấy nhân sự thay thế được chọn",
+                });
             }
 
             target_incident.replacement_member = new_rep.name;
@@ -5119,12 +5377,10 @@ function requireSheetToken(
 ) {
     if (isValidAdmin(req)) return next();
     if (!sheetTokenOk(req)) {
-        return res
-            .status(401)
-            .json({
-                success: false,
-                message: "Token đồng bộ Sheet không hợp lệ.",
-            });
+        return res.status(401).json({
+            success: false,
+            message: "Token đồng bộ Sheet không hợp lệ.",
+        });
     }
     // Công tắc "Bật đồng bộ Google Sheet" phải thực sự đóng cửa: khi HR tắt nó,
     // token cũng không đọc/ghi được số liệu nữa (chỉ Admin đăng nhập mới xem).
