@@ -62,11 +62,6 @@
                         <span class="nav-full">Ca-Live &amp; POS Bán Hàng</span>
                         <span class="nav-short">Ca-Live POS</span>
                     </button>
-                    <button class="nav-item" data-tab="tab-orders">
-                        <i class="fa-solid fa-receipt"></i>
-                        <span class="nav-full">Tổng Hợp Đơn Hàng Ca</span>
-                        <span class="nav-short">Đơn hàng ca</span>
-                    </button>
                     <button class="nav-item" data-tab="tab-contingency">
                         <i class="fa-solid fa-user-clock"></i>
                         <span class="nav-full">Xử Lý Ca Vắng &amp; Backup</span>
@@ -168,10 +163,6 @@
                     <button class="nav-item" data-tab="tab-live-shift">
                         <i class="fa-solid fa-tower-broadcast"></i>
                         <span class="nav-full">Ca-Live &amp; POS Bán Hàng</span>
-                    </button>
-                    <button class="nav-item" data-tab="tab-orders">
-                        <i class="fa-solid fa-receipt"></i>
-                        <span class="nav-full">Tổng Hợp Đơn Hàng Ca</span>
                     </button>
                     <button class="nav-item" data-tab="tab-contingency">
                         <i class="fa-solid fa-user-clock"></i>
@@ -1095,20 +1086,32 @@
                                     lượng đã bán và tồn kho thực tế
                                 </p>
                             </div>
-                            <div class="header-actions-group">
+                            <div class="header-actions-group" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <a
+                                    href="/api/inventory/template-excel"
+                                    class="btn-action-sm"
+                                    style="background: rgba(255,255,255,0.08); color: var(--ink-hi); border: 1px solid var(--rule); padding: 6px 12px; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;"
+                                    title="Tải file mẫu Excel danh mục hàng hóa"
+                                >
+                                    <i class="fa-solid fa-download"></i> File Mẫu SP
+                                </a>
                                 <button
                                     class="btn-export admin-only-elem"
                                     id="btnUploadInventoryExcel"
                                     type="button"
                                     style="
-                                        background: #2d6a4f;
-                                        border-color: #2d6a4f;
+                                        background: #15803d;
+                                        border-color: #16a34a;
                                         padding: 6px 14px;
                                         font-size: 13px;
+                                        font-weight: 600;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 6px;
                                     "
+                                    title="Tải lên file Excel để thêm/cập nhật danh mục sản phẩm &amp; tồn kho"
                                 >
-                                    <i class="fa-solid fa-file-excel"></i> Nhập
-                                    SP Từ Excel
+                                    <i class="fa-solid fa-file-excel"></i> Nhập SP &amp; Tồn Kho Excel
                                 </button>
                                 <input
                                     type="file"
@@ -1124,7 +1127,7 @@
                                     Ghi Nhận Bán Hàng
                                 </button>
                                 <button
-                                    class="btn-add-green admin-only-elem"
+                                    class="btn-add-green"
                                     id="btnOpenAddProductModal"
                                 >
                                     <i class="fa-solid fa-plus"></i> + Thêm SP
@@ -1165,10 +1168,15 @@
                                     Danh sách các đơn đặt online nhập từ Excel hoặc thêm thủ công, hệ thống tự động phân ca trực trả hàng tương ứng
                                 </p>
                             </div>
-                            <div class="header-actions-group" style="display: flex; align-items: center; gap: 8px;">
-                                <button class="btn-add-green" id="btnOpenAddOnlineOrderModal" style="padding: 6px 12px; font-size: 12.5px;">
-                                    <i class="fa-solid fa-plus"></i> + Thêm đơn thủ công
-                                </button>
+                            <div class="header-actions-group" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <a
+                                    href="/api/online-orders/template-excel"
+                                    class="btn-action-sm"
+                                    style="background: rgba(255,255,255,0.08); color: var(--ink-hi); border: 1px solid var(--rule); padding: 6px 12px; font-size: 12px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;"
+                                    title="Tải file mẫu Excel đơn hàng online"
+                                >
+                                    <i class="fa-solid fa-download"></i> File Mẫu Đơn
+                                </a>
                                 <button
                                     class="btn-export admin-only-elem"
                                     id="btnUploadOnlineOrdersExcel"
@@ -1176,11 +1184,16 @@
                                     style="
                                         background: #0284c7;
                                         border-color: #0284c7;
-                                        padding: 6px 12px;
+                                        padding: 6px 14px;
                                         font-size: 12.5px;
+                                        font-weight: 600;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 6px;
                                     "
+                                    title="Tải lên file Excel để nhập danh sách đơn hàng online đặt trước"
                                 >
-                                    <i class="fa-solid fa-cloud-arrow-up"></i> Nhập Đơn Online Excel
+                                    <i class="fa-solid fa-file-excel"></i> Nhập Đơn Online Excel
                                 </button>
                                 <input
                                     type="file"
@@ -1188,6 +1201,9 @@
                                     accept=".xlsx,.xls,.csv"
                                     style="display: none"
                                 />
+                                <button class="btn-add-green" id="btnOpenAddOnlineOrderModal" style="padding: 6px 12px; font-size: 12.5px;">
+                                    <i class="fa-solid fa-plus"></i> + Thêm đơn thủ công
+                                </button>
                                 <button class="btn-action-sm" id="btnRefreshOnlineOrders" style="background: rgba(255,255,255,0.08); color: var(--ink-hi);">
                                     <i class="fa-solid fa-rotate"></i> Làm mới
                                 </button>
@@ -1238,36 +1254,102 @@
                         </div>
                     </div>
 
-                    <!-- Sales Logs Table -->
+                    <!-- Sales Logs Table (Redesigned matching "Sổ Đơn Hàng & Chi Tiết Bán Hàng Tất Cả Các Ca", condensed and streamlined) -->
                     <div class="glass-card" style="margin-top: 1.5rem">
-                        <div class="card-header">
-                            <h3>
-                                <i class="fa-solid fa-receipt"></i> Nhật Ký Giao
-                                Dịch Bán Hàng Gần Đây
-                            </h3>
-                            <p>
-                                Theo dõi luồng doanh thu theo từng ca trực và
-                                điểm bán ngoài
-                            </p>
+                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                            <div>
+                                <h3 style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                    <i class="fa-solid fa-receipt" style="color: var(--goldleaf);"></i>
+                                    Nhật Ký Giao Dịch Bán Hàng Gần Đây
+                                </h3>
+                                <p style="margin: 0; color: var(--ink-dim); font-size: 12.5px;">
+                                    Sổ chi tiết các giao dịch bán hàng theo ca trực &amp; điểm bán ngoài, tự động gộp theo đơn với phân loại mặt hàng trực quan
+                                </p>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                <button type="button" class="btn-action-primary" id="btnExportInvSalesExcel" style="font-size: 12px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px; background: #10b981; color: #ffffff; border: none;">
+                                    <i class="fa-solid fa-file-excel"></i> Xuất Báo Cáo Excel
+                                </button>
+                                <button type="button" class="btn-action-secondary" id="btnRefreshInvSales" style="font-size: 12px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
+                                    <i class="fa-solid fa-arrows-rotate"></i> Làm Mới Dữ Liệu
+                                </button>
+                            </div>
                         </div>
-                        <div class="table-responsive">
+
+                        <!-- Streamlined & Intuitive Filter Controls Bar -->
+                        <div style="margin-top: 1rem; padding: 10px 14px; background: var(--lacquer-2); border-radius: var(--radius-sm); border: 1px solid var(--rule);">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 180px;">
+                                    <label for="invSalesFilterShift" style="font-size: 11.5px; font-weight: 700; color: var(--goldleaf); white-space: nowrap;">
+                                        <i class="fa-solid fa-filter"></i> Lọc Ca:
+                                    </label>
+                                    <select id="invSalesFilterShift" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
+                                        <option value="ALL">-- Tất cả các ca --</option>
+                                    </select>
+                                </div>
+
+                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 130px;">
+                                    <label for="invSalesFilterTime" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
+                                        <i class="fa-solid fa-clock"></i> Thời gian:
+                                    </label>
+                                    <select id="invSalesFilterTime" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
+                                        <option value="ALL">Mọi thời điểm</option>
+                                        <option value="TODAY">Hôm nay</option>
+                                        <option value="YESTERDAY">Hôm qua</option>
+                                        <option value="LAST7DAYS">7 ngày gần nhất</option>
+                                    </select>
+                                </div>
+
+                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 130px;">
+                                    <label for="invSalesFilterPayment" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
+                                        <i class="fa-solid fa-wallet"></i> HTTT:
+                                    </label>
+                                    <select id="invSalesFilterPayment" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
+                                        <option value="ALL">Tất cả hình thức</option>
+                                        <option value="Tiền mặt">💵 Tiền mặt</option>
+                                        <option value="Chuyển khoản">💳 Chuyển khoản</option>
+                                    </select>
+                                </div>
+
+                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 140px;">
+                                    <label for="invSalesFilterStatus" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
+                                        <i class="fa-solid fa-shield-check"></i> Trạng Thái:
+                                    </label>
+                                    <select id="invSalesFilterStatus" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
+                                        <option value="ALL">Tất cả đơn</option>
+                                        <option value="VALID">✅ Thành công (Chưa hủy)</option>
+                                        <option value="REFUNDED">↩️ Đã hủy / Hoàn tiền</option>
+                                    </select>
+                                </div>
+
+                                <div style="display: flex; align-items: center; gap: 6px; flex: 2 1 220px;">
+                                    <label for="invSalesSearchInput" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
+                                        <i class="fa-solid fa-magnifying-glass"></i> Tìm kiếm:
+                                    </label>
+                                    <input type="text" id="invSalesSearchInput" class="custom-input" placeholder="Mã đơn, Tên SP, Khách hàng, SĐT, Thu ngân..." style="font-size: 12px; padding: 5px 8px; width: 100%;" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Main Orders Table in Inventory Tab -->
+                        <div class="table-responsive" style="margin-top: 1rem; max-height: 520px; overflow-y: auto;">
                             <table class="data-table" id="salesLogsTable">
                                 <thead>
                                     <tr>
-                                        <th>MÃ GD</th>
-                                        <th>THỜI GIAN</th>
-                                        <th>SẢN PHẨM</th>
-                                        <th>SỐ LƯỢNG</th>
-                                        <th>ĐƠN GIÁ</th>
-                                        <th>THÀNH TIỀN</th>
-                                        <th>KÊNH / ĐIỂM BÁN</th>
-                                        <th>NGƯỜI BÁN</th>
+                                        <th style="width: 85px;" class="cell-center">MÃ ĐƠN</th>
+                                        <th style="width: 120px;" class="cell-center">THỜI GIAN</th>
+                                        <th style="width: 95px;">CA TRỰC</th>
+                                        <th style="min-width: 250px;">SẢN PHẨM TRONG ĐƠN (GỘP)</th>
+                                        <th style="width: 75px;" class="cell-center">SỐ LƯỢNG</th>
+                                        <th style="width: 110px;" class="cell-right">TỔNG ĐƠN</th>
+                                        <th style="width: 150px;">KHÁCH HÀNG &amp; HTTT</th>
+                                        <th style="width: 110px;">THU NGÂN</th>
                                         <th>GHI CHÚ</th>
-                                        <th>HÀNH ĐỘNG</th>
+                                        <th style="width: 110px;" class="cell-center">HÀNH ĐỘNG</th>
                                     </tr>
                                 </thead>
                                 <tbody id="salesLogsTableBody">
-                                    <!-- Populated dynamically -->
+                                    <!-- Dynamic rows populated from JS -->
                                 </tbody>
                             </table>
                         </div>
@@ -2234,38 +2316,40 @@
 
                     <!-- Shift Sales Transactions -->
                     <div class="glass-card" style="margin-top: 1.25rem;">
-                        <div class="card-header flex-between">
+                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px; align-items: center;">
                             <div>
-                                <h3 style="display: flex; align-items: center; gap: 8px;">
+                                <h3 style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                                     <i class="fa-solid fa-receipt" style="color: var(--goldleaf);"></i> Nhật Ký Giao Dịch Bán Hàng Ca Này
                                 </h3>
-                                <p>Chi tiết các đơn hàng thanh toán riêng cho ca trực đang chọn</p>
+                                <p style="margin: 0; color: var(--ink-dim); font-size: 12.5px;">Chi tiết các đơn hàng thanh toán riêng cho ca trực đang chọn, tự động gộp theo đơn với phân loại mặt hàng trực quan</p>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                                <span id="liveShiftRevSummary" style="font-size: 12.5px; font-weight: 700; color: var(--goldleaf); background: rgba(234, 179, 8, 0.12); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(234, 179, 8, 0.25);">0 ₫</span>
                             </div>
                         </div>
                         <div
                             class="table-responsive"
                             style="
                                 margin-top: 1rem;
-                                max-height: 400px;
+                                max-height: 480px;
                                 overflow-y: auto;
                             "
                         >
                             <table
-                                class="data-table data-table-compact"
+                                class="data-table"
                                 id="liveShiftSalesTable"
                             >
                                 <thead>
                                     <tr>
-                                        <th>MÃ GD</th>
-                                        <th>THỜI GIAN</th>
-                                        <th>SẢN PHẨM</th>
-                                        <th>SL</th>
-                                        <th>ĐƠN GIÁ</th>
-                                        <th>THÀNH TIỀN</th>
-                                        <th>KHÁCH HÀNG &amp; HTTT</th>
-                                        <th>THU NGÂN</th>
+                                        <th style="width: 85px;" class="cell-center">MÃ ĐƠN</th>
+                                        <th style="width: 120px;" class="cell-center">THỜI GIAN</th>
+                                        <th style="min-width: 250px;">SẢN PHẨM TRONG ĐƠN (GỘP)</th>
+                                        <th style="width: 75px;" class="cell-center">SỐ LƯỢNG</th>
+                                        <th style="width: 110px;" class="cell-right">TỔNG ĐƠN</th>
+                                        <th style="width: 150px;">KHÁCH HÀNG &amp; HTTT</th>
+                                        <th style="width: 110px;">THU NGÂN</th>
                                         <th>GHI CHÚ</th>
-                                        <th>HÀNH ĐỘNG</th>
+                                        <th style="width: 110px;" class="cell-center">HÀNH ĐỘNG</th>
                                     </tr>
                                 </thead>
                                 <tbody id="liveShiftSalesTableBody">
@@ -2318,200 +2402,6 @@
                                 </thead>
                                 <tbody id="shiftAuditTableBody">
                                     <!-- Dynamic rows loaded from inventory -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- TAB MỚI: TỔNG HỢP ĐƠN HÀNG CÁC CA -->
-                <section id="tab-orders" class="tab-content">
-                    <div class="glass-card" style="margin-bottom: 1.25rem;">
-                        <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px; align-items: center;">
-                            <div>
-                                <h3 style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                    <i class="fa-solid fa-receipt" style="color: var(--goldleaf);"></i>
-                                    Sổ Đơn Hàng &amp; Chi Tiết Bán Hàng Tất Cả Các Ca
-                                </h3>
-                                <p style="margin: 0; color: var(--ink-dim); font-size: 12.5px;">Tổng hợp toàn bộ lịch sử đơn hàng từ tất cả các ca trực, hỗ trợ lọc ca, lọc phương thức thanh toán, thống kê sản phẩm bán chạy và xuất báo cáo Excel.</p>
-                            </div>
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                                <button type="button" class="btn-action-secondary" id="btnToggleOrdersAnalytics" style="font-size: 12px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; background: rgba(234, 179, 8, 0.1); color: var(--goldleaf); border: 1px solid rgba(234, 179, 8, 0.25);">
-                                    <i class="fa-solid fa-chart-pie"></i> <span id="lblToggleAnalytics">Top Món Bán Chạy</span>
-                                </button>
-                                <button type="button" class="btn-action-primary" id="btnExportOrdersExcel" style="font-size: 12px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px; background: #10b981; color: #ffffff; border: none;">
-                                    <i class="fa-solid fa-file-excel"></i> Xuất Báo Cáo Excel
-                                </button>
-                                <button type="button" class="btn-action-secondary" id="btnRefreshOrdersTab" style="font-size: 12px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
-                                    <i class="fa-solid fa-arrows-rotate"></i> Làm Mới Dữ Liệu
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Summary KPI Cards for Orders -->
-                        <div class="order-kpi-grid">
-                            <div class="order-stat-card">
-                                <div class="order-stat-header">
-                                    <span class="order-stat-label"><i class="fa-solid fa-basket-shopping" style="color: var(--goldleaf);"></i> Tổng Đơn Hàng</span>
-                                    <span class="badge badge-amber" style="font-size: 10px; padding: 2px 6px;">Tất cả</span>
-                                </div>
-                                <div class="order-stat-value" id="ordersTabTotalCount">0</div>
-                                <div class="order-stat-sub" id="ordersTabSubCount">0 đơn thành công</div>
-                            </div>
-                            <div class="order-stat-card" style="border-left: 2px solid var(--goldleaf);">
-                                <div class="order-stat-header">
-                                    <span class="order-stat-label"><i class="fa-solid fa-sack-dollar" style="color: var(--goldleaf);"></i> Tổng Doanh Thu</span>
-                                    <span class="badge badge-amber" style="font-size: 10px; padding: 2px 6px;">Thực thu</span>
-                                </div>
-                                <div class="order-stat-value" id="ordersTabTotalRev" style="color: var(--goldleaf);">0 ₫</div>
-                                <div class="order-stat-sub" id="ordersTabAovSub">Trung bình: 0 ₫/đơn</div>
-                            </div>
-                            <div class="order-stat-card" style="border-left: 2px solid #10b981;">
-                                <div class="order-stat-header">
-                                    <span class="order-stat-label"><i class="fa-solid fa-money-bill-wave" style="color: #10b981;"></i> Tiền Mặt</span>
-                                    <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 10px; padding: 2px 6px;">💵 Cash</span>
-                                </div>
-                                <div class="order-stat-value" id="ordersTabCashRev" style="color: #10b981;">0 ₫</div>
-                                <div class="order-stat-sub" id="ordersTabCashSub">0 đơn tiền mặt</div>
-                            </div>
-                            <div class="order-stat-card" style="border-left: 2px solid #3b82f6;">
-                                <div class="order-stat-header">
-                                    <span class="order-stat-label"><i class="fa-solid fa-credit-card" style="color: #3b82f6;"></i> Chuyển Khoản</span>
-                                    <span class="badge" style="background: rgba(59,130,246,0.15); color: #3b82f6; font-size: 10px; padding: 2px 6px;">💳 Bank</span>
-                                </div>
-                                <div class="order-stat-value" id="ordersTabTransferRev" style="color: #3b82f6;">0 ₫</div>
-                                <div class="order-stat-sub" id="ordersTabTransferSub">0 đơn chuyển khoản</div>
-                            </div>
-                            <div class="order-stat-card" style="border-left: 2px solid #ef4444;">
-                                <div class="order-stat-header">
-                                    <span class="order-stat-label"><i class="fa-solid fa-ban" style="color: #ef4444;"></i> Đã Hoàn Tiền</span>
-                                    <span class="badge" style="background: rgba(239,68,68,0.15); color: #ef4444; font-size: 10px; padding: 2px 6px;">↩️ Refund</span>
-                                </div>
-                                <div class="order-stat-value" id="ordersTabRefundedCount" style="color: #ef4444;">0</div>
-                                <div class="order-stat-sub" id="ordersTabRefundedVal">0 ₫</div>
-                            </div>
-                        </div>
-
-                        <!-- Analytics / Top Selling Products Panel (Collapsible) -->
-                        <div id="ordersAnalyticsCard" style="display: none; margin-top: 1rem; padding: 14px 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--rule); border-radius: var(--radius-md);">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                <h4 style="font-size: 13.5px; font-weight: 700; color: var(--goldleaf); margin: 0; display: flex; align-items: center; gap: 6px;">
-                                    <i class="fa-solid fa-fire" style="color: #f59e0b;"></i> Top Sản Phẩm Bán Chạy &amp; Tỷ Lệ Thanh Toán
-                                </h4>
-                                <span style="font-size: 11px; color: var(--ink-dim);">Cập nhật theo bộ lọc hiện tại</span>
-                            </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
-                                <!-- Top Selling Items Table -->
-                                <div>
-                                    <div style="font-size: 12px; font-weight: 700; color: var(--ink-hi); margin-bottom: 6px;">🏆 Top 5 Sản Phẩm Bán Chạy Nhất:</div>
-                                    <table class="data-table" style="font-size: 11.5px;">
-                                        <thead>
-                                            <tr>
-                                                <th>SẢN PHẨM</th>
-                                                <th class="cell-center" style="width: 60px;">ĐÃ BÁN</th>
-                                                <th class="cell-right" style="width: 100px;">DOANH THU</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="ordersTopSellingBody">
-                                            <!-- Dynamic top products -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <!-- Payment Ratio & Statistics -->
-                                <div>
-                                    <div style="font-size: 12px; font-weight: 700; color: var(--ink-hi); margin-bottom: 6px;">📊 Tỷ Lệ Hình Thức Thanh Toán:</div>
-                                    <div style="background: var(--lacquer-2); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--rule);">
-                                        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 6px;">
-                                            <span style="color: #10b981;"><i class="fa-solid fa-money-bill-wave"></i> Tiền Mặt: <strong id="ratioCashPct">0%</strong></span>
-                                            <span style="color: #3b82f6;"><i class="fa-solid fa-credit-card"></i> Chuyển Khoản: <strong id="ratioTransferPct">0%</strong></span>
-                                        </div>
-                                        <div style="height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; display: flex;">
-                                            <div id="ratioCashBar" style="width: 0%; background: #10b981; height: 100%; transition: width 0.3s;"></div>
-                                            <div id="ratioTransferBar" style="width: 0%; background: #3b82f6; height: 100%; transition: width 0.3s;"></div>
-                                        </div>
-                                        <div style="margin-top: 10px; font-size: 11.5px; color: var(--ink-dim); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
-                                            <span>Tổng lượng hàng đã xuất: <strong id="totalUnitsSold" style="color: var(--ink-hi);">0 món</strong></span>
-                                            <span>Số ca có phát sinh đơn: <strong id="activeShiftsCount" style="color: var(--ink-hi);">0 ca</strong></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Filter Controls Bar -->
-                        <div class="glass-card" style="margin-top: 1.25rem; padding: 12px 16px; background: var(--lacquer-2);">
-                            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 200px;">
-                                    <label for="ordersFilterShift" style="font-size: 11.5px; font-weight: 700; color: var(--goldleaf); white-space: nowrap;">
-                                        <i class="fa-solid fa-filter"></i> Lọc Ca:
-                                    </label>
-                                    <select id="ordersFilterShift" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
-                                        <option value="ALL">-- Tất cả các ca --</option>
-                                    </select>
-                                </div>
-
-                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 150px;">
-                                    <label for="ordersFilterTime" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
-                                        <i class="fa-solid fa-clock"></i> Thời gian:
-                                    </label>
-                                    <select id="ordersFilterTime" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
-                                        <option value="ALL">Mọi thời điểm</option>
-                                        <option value="TODAY">Hôm nay</option>
-                                        <option value="YESTERDAY">Hôm qua</option>
-                                        <option value="LAST7DAYS">7 ngày gần nhất</option>
-                                    </select>
-                                </div>
-
-                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 150px;">
-                                    <label for="ordersFilterPayment" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
-                                        <i class="fa-solid fa-wallet"></i> HTTT:
-                                    </label>
-                                    <select id="ordersFilterPayment" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
-                                        <option value="ALL">Tất cả hình thức</option>
-                                        <option value="Tiền mặt">💵 Tiền mặt</option>
-                                        <option value="Chuyển khoản">💳 Chuyển khoản</option>
-                                    </select>
-                                </div>
-
-                                <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 150px;">
-                                    <label for="ordersFilterStatus" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
-                                        <i class="fa-solid fa-shield-check"></i> Trạng Thái:
-                                    </label>
-                                    <select id="ordersFilterStatus" class="custom-select" style="font-size: 12px; padding: 5px 8px; width: 100%;">
-                                        <option value="ALL">Tất cả đơn</option>
-                                        <option value="VALID">✅ Thành công (Chưa hủy)</option>
-                                        <option value="REFUNDED">↩️ Đã hủy / Hoàn tiền</option>
-                                    </select>
-                                </div>
-
-                                <div style="display: flex; align-items: center; gap: 6px; flex: 2 1 240px;">
-                                    <label for="ordersSearchInput" style="font-size: 11.5px; font-weight: 700; color: var(--ink-hi); white-space: nowrap;">
-                                        <i class="fa-solid fa-magnifying-glass"></i> Tìm kiếm:
-                                    </label>
-                                    <input type="text" id="ordersSearchInput" class="custom-input" placeholder="Mã đơn, Tên SP, Khách hàng, SĐT, Thu ngân..." style="font-size: 12px; padding: 5px 8px; width: 100%;" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Main Orders Table -->
-                        <div class="table-responsive" style="margin-top: 1rem; max-height: 520px; overflow-y: auto;">
-                            <table class="data-table" id="allShiftOrdersTable">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 85px;" class="cell-center">MÃ ĐƠN</th>
-                                        <th style="width: 120px;" class="cell-center">THỜI GIAN</th>
-                                        <th style="width: 95px;">CA TRỰC</th>
-                                        <th style="min-width: 250px;">SẢN PHẨM TRONG ĐƠN (GỘP)</th>
-                                        <th style="width: 75px;" class="cell-center">SỐ LƯỢNG</th>
-                                        <th style="width: 110px;" class="cell-right">TỔNG ĐƠN</th>
-                                        <th style="width: 150px;">KHÁCH HÀNG &amp; HTTT</th>
-                                        <th style="width: 110px;">THU NGÂN</th>
-                                        <th>GHI CHÚ</th>
-                                        <th style="width: 110px;" class="cell-center">HÀNH ĐỘNG</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="allShiftOrdersTableBody">
-                                    <!-- Dynamic rows populated from JS -->
                                 </tbody>
                             </table>
                         </div>

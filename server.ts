@@ -24,17 +24,17 @@ import { exportScheduleToExcel } from "./src/exporter";
 import { TASK_2_DETAILS } from "./src/risk_and_hr_protocols";
 
 const app = express();
-const PORT = getRuntimePort();
+const PORT = 3000;
 const STATE_FILE = process.env.STATE_FILE || "state.json";
 const REPORT_PATH = "reports/Lich_Truc_Toi_Uu_Hung_Vuong_Concert.xlsx";
 
 function resolveAppRoot(): string {
-    for (const candidate of [__dirname, path.join(__dirname, "..")]) {
+    for (const candidate of [__dirname, path.join(__dirname, ".."), process.cwd()]) {
         if (fs.existsSync(path.join(candidate, "templates", "index.html"))) {
             return candidate;
         }
     }
-    return __dirname;
+    return process.cwd();
 }
 
 const APP_ROOT = resolveAppRoot();
@@ -607,6 +607,10 @@ app.get("/", (req, res) => {
     res.sendFile(path.join(APP_ROOT, "templates", "index.html"));
 });
 
+app.get("/index.html", (req, res) => {
+    res.sendFile(path.join(APP_ROOT, "templates", "index.html"));
+});
+
 // AUTHENTICATION ROUTES
 app.post("/api/auth/login", (req, res) => {
     const { password } = req.body || {};
@@ -1131,45 +1135,134 @@ app.get("/api/inventory/template-excel", (req, res) => {
 });
 
 // Helper: Match Online Order Date & Slot to System Shift
+function normalizeDateStr(d: string): string {
+    if (!d) return "";
+    const clean = String(d).trim();
+    if (clean.includes("/")) {
+        const parts = clean.split("/");
+        if (parts.length === 3) {
+            if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        }
+    }
+    if (clean.includes("-")) {
+        const parts = clean.split("-");
+        if (parts.length === 3) {
+            if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+            if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+    }
+    return clean;
+}
+
+function stripAccents(str: string): string {
+    return (str || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+}
+
+function parseExcelDate(val: any): string {
+    if (!val) return "";
+    if (val instanceof Date) {
+        const y = val.getFullYear();
+        const m = String(val.getMonth() + 1).padStart(2, '0');
+        const d = String(val.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    if (typeof val === "number" && val > 20000 && val < 60000) {
+        const jsDate = new Date(Math.round((val - 25569) * 86400 * 1000));
+        const y = jsDate.getFullYear();
+        const m = String(jsDate.getMonth() + 1).padStart(2, '0');
+        const d = String(jsDate.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    return normalizeDateStr(String(val || ""));
+}
+
 function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts: Shift[]): Shift | null {
     if (!shifts || shifts.length === 0) return null;
 
     const normSlot = (slotStr || "").toLowerCase();
     
-    // Determine slot index (0 to 4) if possible
+    let caNumber = -1;
+    const caMatch = normSlot.match(/ca\s*(\d+)/i);
+    if (caMatch) {
+        caNumber = parseInt(caMatch[1]);
+    }
+
     let slotIndex = -1;
-    if (normSlot.includes("1") || normSlot.includes("7h") || normSlot.includes("07h")) slotIndex = 0;
-    else if (normSlot.includes("2") || normSlot.includes("9h") || normSlot.includes("09h")) slotIndex = 1;
-    else if (normSlot.includes("3") || normSlot.includes("12h") || normSlot.includes("11h")) slotIndex = 2;
-    else if (normSlot.includes("4") || normSlot.includes("14h") || normSlot.includes("13h")) slotIndex = 3;
-    else if (normSlot.includes("5") || normSlot.includes("16h") || normSlot.includes("15h")) slotIndex = 4;
+    if (caNumber > 0) slotIndex = caNumber - 1;
+    else if (normSlot.includes("7h") || normSlot.includes("07h") || normSlot.includes("07:00")) slotIndex = 0;
+    else if (normSlot.includes("9h") || normSlot.includes("09h") || normSlot.includes("09:35")) slotIndex = 1;
+    else if (normSlot.includes("12h") || normSlot.includes("11h") || normSlot.includes("12:05")) slotIndex = 2;
+    else if (normSlot.includes("14h") || normSlot.includes("13h") || normSlot.includes("14:05")) slotIndex = 3;
+    else if (normSlot.includes("16h") || normSlot.includes("15h") || normSlot.includes("16:10")) slotIndex = 4;
 
-    // 1. Try exact match on shift.date === pickupDateStr
-    const exactDateShifts = shifts.filter(s => s.date === pickupDateStr);
-    if (exactDateShifts.length > 0) {
-        if (slotIndex >= 0 && exactDateShifts[slotIndex]) {
-            return exactDateShifts[slotIndex];
+    const targetDateNorm = normalizeDateStr(pickupDateStr);
+
+    // 1. Try matching by normalized date
+    if (targetDateNorm) {
+        const dateShifts = shifts.filter(s => normalizeDateStr(s.date) === targetDateNorm);
+        if (dateShifts.length > 0) {
+            if (caNumber > 0) {
+                const matchCa = dateShifts.find(s => 
+                    (s.slot && new RegExp(`ca\\s*${caNumber}\\b`, 'i').test(s.slot)) ||
+                    (s.shift_id && new RegExp(`(?:ca|s)?0*${caNumber}$`, 'i').test(s.shift_id))
+                );
+                if (matchCa) return matchCa;
+            }
+            if (slotIndex >= 0 && dateShifts[slotIndex]) {
+                return dateShifts[slotIndex];
+            }
+            const matchSlot = dateShifts.find(s => 
+                (s.slot && s.slot.toLowerCase().includes(normSlot)) ||
+                (s.start_time && normSlot.includes(s.start_time.toLowerCase()))
+            );
+            if (matchSlot) return matchSlot;
+            return dateShifts[0];
         }
-        const matchBySlot = exactDateShifts.find(s => 
-            (s.slot && s.slot.toLowerCase().includes(normSlot)) ||
-            (s.start_time && s.start_time.includes(normSlot)) ||
-            (s.shift_id && s.shift_id.toLowerCase().includes(normSlot))
+    }
+
+    // 2. Try match by day name (e.g. "Thứ 2", "Thứ Hai")
+    let dayOfWeekStr = "";
+    if (targetDateNorm && targetDateNorm.includes("-")) {
+        const d = new Date(targetDateNorm);
+        if (!isNaN(d.getTime())) {
+            const days = ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
+            dayOfWeekStr = days[d.getDay()];
+        }
+    }
+
+    const dayShifts = shifts.filter(s => 
+        (s.day && (s.day.toLowerCase().includes(pickupDateStr.toLowerCase()) || (dayOfWeekStr && s.day.toLowerCase().includes(dayOfWeekStr.toLowerCase()))))
+    );
+    if (dayShifts.length > 0) {
+        if (caNumber > 0) {
+            const matchCa = dayShifts.find(s => 
+                (s.slot && new RegExp(`ca\\s*${caNumber}\\b`, 'i').test(s.slot)) ||
+                (s.shift_id && new RegExp(`(?:ca|s)?0*${caNumber}$`, 'i').test(s.shift_id))
+            );
+            if (matchCa) return matchCa;
+        }
+        if (slotIndex >= 0 && dayShifts[slotIndex]) {
+            return dayShifts[slotIndex];
+        }
+        return dayShifts[0];
+    }
+
+    // 3. Fallback: match by ca number across shifts
+    if (caNumber > 0) {
+        const matchCa = shifts.find(s => 
+            (s.slot && new RegExp(`ca\\s*${caNumber}\\b`, 'i').test(s.slot)) ||
+            (s.shift_id && new RegExp(`(?:ca|s)?0*${caNumber}$`, 'i').test(s.shift_id))
         );
-        if (matchBySlot) return matchBySlot;
-        return exactDateShifts[0];
+        if (matchCa) return matchCa;
     }
 
-    // 2. Try match by day name (e.g., pickupDateStr might be "Thứ 2" or "t2")
-    const normDateStr = (pickupDateStr || "").toLowerCase();
-    const dayNameShifts = shifts.filter(s => s.day && s.day.toLowerCase().includes(normDateStr));
-    if (dayNameShifts.length > 0) {
-        if (slotIndex >= 0 && dayNameShifts[slotIndex]) {
-            return dayNameShifts[slotIndex];
-        }
-        return dayNameShifts[0];
-    }
-
-    // 3. Fallback: match any shift by slotIndex or slotStr
     if (slotIndex >= 0 && shifts[slotIndex]) {
         return shifts[slotIndex];
     }
@@ -1177,154 +1270,182 @@ function matchShiftForOnlineOrder(pickupDateStr: string, slotStr: string, shifts
     return shifts[0] || null;
 }
 
-// Helper: Parse Online Orders from Excel File
+// Helper: Parse Online Orders from Excel File (Supports Matrix Columns as well as Pair Columns)
 function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Product[]): OnlineOrder[] {
     const workbook = xlsx.read(buffer, { type: "buffer", cellDates: true });
     const firstSheetName = workbook.SheetNames[0];
     if (!firstSheetName) return [];
     const worksheet = workbook.Sheets[firstSheetName];
-    const rawData: any[] = xlsx.utils.sheet_to_json(worksheet, { defval: "" });
+    
+    // Read as 2D array to accurately identify the header row
+    const rawRows: any[][] = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    if (!rawRows || rawRows.length === 0) return [];
+
+    // Find the header row (index where "họ và tên" or "khách hàng" or "họ tên" or "lớp" is present)
+    let headerRowIdx = -1;
+    for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+        const row = rawRows[r];
+        const rowStrs = row.map(c => stripAccents(String(c)));
+        if (rowStrs.some(s => s.includes("hovaten") || s.includes("hoten") || s.includes("khachhang") || (s.includes("ten") && rowStrs.some(s2 => s2.includes("lop"))))) {
+            headerRowIdx = r;
+            break;
+        }
+    }
+
+    // Fallback: if not found, assume row 0
+    if (headerRowIdx === -1) headerRowIdx = 0;
+
+    const headerRow = rawRows[headerRowIdx] || [];
+    const colMap: {
+        nameCol: number;
+        classCol: number;
+        dateCol: number;
+        slotCol: number;
+        productCols: { colIdx: number; headerText: string; matchedProduct?: Product }[];
+    } = {
+        nameCol: -1,
+        classCol: -1,
+        dateCol: -1,
+        slotCol: -1,
+        productCols: []
+    };
+
+    headerRow.forEach((colVal, colIdx) => {
+        const txt = String(colVal || "").trim();
+        if (!txt) return;
+        const norm = stripAccents(txt);
+
+        if (colMap.nameCol === -1 && (norm.includes("hovaten") || norm.includes("hoten") || norm.includes("khachhang") || norm === "ten" || norm === "name")) {
+            colMap.nameCol = colIdx;
+        } else if (colMap.classCol === -1 && (norm.includes("lop") || norm.includes("class") || norm.includes("donvi"))) {
+            colMap.classCol = colIdx;
+        } else if (colMap.dateCol === -1 && (norm.includes("ngaydukienlay") || norm.includes("ngaylay") || norm.includes("ngaydukien") || norm.includes("ngay") || norm.includes("date"))) {
+            colMap.dateCol = colIdx;
+        } else if (colMap.slotCol === -1 && (norm.includes("khunggiolayca") || norm.includes("khunggiolay") || norm.includes("khunggio") || norm.includes("calay") || norm === "ca" || norm === "slot" || norm.includes("timeslot"))) {
+            colMap.slotCol = colIdx;
+        } else {
+            // Check if this column is a product column
+            let matched = products.find(p => 
+                p.name.trim().toLowerCase() === txt.toLowerCase() || 
+                p.id.trim().toLowerCase() === txt.toLowerCase() ||
+                stripAccents(p.name) === norm ||
+                stripAccents(p.id) === norm
+            );
+            if (!matched) {
+                matched = products.find(p => 
+                    norm.includes(stripAccents(p.name)) || 
+                    stripAccents(p.name).includes(norm)
+                );
+            }
+            colMap.productCols.push({
+                colIdx,
+                headerText: txt,
+                matchedProduct: matched
+            });
+        }
+    });
 
     const newOrders: OnlineOrder[] = [];
 
-    rawData.forEach((row, idx) => {
-        const keys = Object.keys(row);
-        const findVal = (patterns: string[]) => {
-            const key = keys.find(k => patterns.some(p => k.toLowerCase().replace(/[\s\_\-]/g, "").includes(p.toLowerCase().replace(/[\s\_\-]/g, ""))));
-            return key ? row[key] : "";
-        };
+    // Parse data rows starting after headerRowIdx
+    for (let r = headerRowIdx + 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0) continue;
 
-        const customerName = String(findVal(["hoten", "hovaten", "tenkhach", "khachhang", "name", "ten"]) || "").trim();
-        const className = String(findVal(["lop", "class"]) || "").trim();
-        let dateVal = findVal(["ngaylay", "ngaydukien", "ngaydukienthanhtoan", "ngay", "date", "pickupdate"]);
-        let slotVal = String(findVal(["khunggio", "calay", "ca", "slot", "khunggiolay", "timeslot"]) || "").trim();
+        const customerName = colMap.nameCol >= 0 ? String(row[colMap.nameCol] || "").trim() : "";
+        const className = colMap.classCol >= 0 ? String(row[colMap.classCol] || "").trim() : "";
+        const rawDate = colMap.dateCol >= 0 ? row[colMap.dateCol] : "";
+        const slotVal = colMap.slotCol >= 0 ? String(row[colMap.slotCol] || "").trim() : "";
 
-        if (!customerName && !className && !dateVal) {
-            return; // skip empty rows
+        if (!customerName && !className && !rawDate && !slotVal) {
+            continue; // skip empty rows
         }
 
-        // Format pickup_date
-        let pickupDate = "";
-        if (dateVal instanceof Date) {
-            const y = dateVal.getFullYear();
-            const m = String(dateVal.getMonth() + 1).padStart(2, '0');
-            const d = String(dateVal.getDate()).padStart(2, '0');
-            pickupDate = `${y}-${m}-${d}`;
-        } else if (typeof dateVal === "number") {
-            const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
-            const y = jsDate.getFullYear();
-            const m = String(jsDate.getMonth() + 1).padStart(2, '0');
-            const d = String(jsDate.getDate()).padStart(2, '0');
-            pickupDate = `${y}-${m}-${d}`;
-        } else {
-            let strDate = String(dateVal || "").trim();
-            if (strDate.includes("/")) {
-                const parts = strDate.split("/");
-                if (parts.length === 3) {
-                    if (parts[2].length === 4) {
-                        pickupDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                    } else if (parts[0].length === 4) {
-                        pickupDate = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-                    }
-                } else {
-                    pickupDate = strDate;
-                }
-            } else if (strDate.includes("-")) {
-                const parts = strDate.split("-");
-                if (parts.length === 3) {
-                    if (parts[0].length === 4) {
-                        pickupDate = strDate;
-                    } else if (parts[2].length === 4) {
-                        pickupDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-                    }
-                } else {
-                    pickupDate = strDate;
-                }
-            } else {
-                pickupDate = strDate;
-            }
-        }
-
+        const pickupDate = parseExcelDate(rawDate);
         const orderItems: OnlineOrderItem[] = [];
 
-        // Pattern 1: Pair columns "Mặt hàng 1", "Số lượng 1", "Mặt hàng 2", "Số lượng 2"...
-        let foundPair = false;
-        for (let i = 1; i <= 10; i++) {
-            const itemKey = keys.find(k => {
-                const lk = k.toLowerCase().replace(/[\s\_\-]/g, "");
-                return lk === `mathang${i}` || lk === `tenhang${i}` || lk === `sanpham${i}`;
-            });
-            const qtyKey = keys.find(k => {
-                const lk = k.toLowerCase().replace(/[\s\_\-]/g, "");
-                return lk === `soluong${i}` || lk === `sl${i}`;
-            });
+        // 1. Matrix/column-per-product format (Matches user's uploaded image)
+        colMap.productCols.forEach(pCol => {
+            const cellVal = row[pCol.colIdx];
+            if (cellVal === "" || cellVal === null || cellVal === undefined) return;
+            const qty = parseFloat(String(cellVal).replace(/[^0-9\.]/g, "")) || 0;
+            if (qty > 0) {
+                let prod = pCol.matchedProduct;
+                const prodName = prod ? prod.name : pCol.headerText;
+                let prodId = prod ? prod.id : `SP_${stripAccents(pCol.headerText).substring(0, 8).toUpperCase()}`;
+                const unitPrice = prod ? prod.price : 20000;
 
-            if (itemKey && row[itemKey]) {
-                foundPair = true;
-                const pName = String(row[itemKey]).trim();
-                const pQty = parseFloat(qtyKey ? row[qtyKey] : 1) || 1;
-                
-                const matchedProd = products.find(p => p.name.toLowerCase() === pName.toLowerCase() || p.id.toLowerCase() === pName.toLowerCase() || p.name.toLowerCase().includes(pName.toLowerCase()));
-                const unitPrice = matchedProd ? matchedProd.price : 0;
+                // Auto-register missing product in INVENTORY_PRODUCTS if needed
+                if (!prod) {
+                    const existing = INVENTORY_PRODUCTS.find(p => p.id === prodId || stripAccents(p.name) === stripAccents(prodName));
+                    if (!existing) {
+                        const newProd: Product = {
+                            id: prodId,
+                            name: prodName,
+                            unit: "Ly",
+                            price: unitPrice,
+                            initial_stock: 100,
+                            sold_count: 0,
+                            note: "Tạo từ Excel đơn online"
+                        };
+                        INVENTORY_PRODUCTS.push(newProd);
+                        pCol.matchedProduct = newProd;
+                    } else {
+                        prodId = existing.id;
+                    }
+                }
+
                 orderItems.push({
-                    product_id: matchedProd ? matchedProd.id : "",
-                    product_name: matchedProd ? matchedProd.name : pName,
-                    quantity: pQty,
+                    product_id: prodId,
+                    product_name: prodName,
+                    quantity: qty,
                     unit_price: unitPrice,
-                    total_price: pQty * unitPrice
+                    total_price: qty * unitPrice
                 });
             }
-        }
+        });
 
-        // Pattern 2: Columns matching inventory product names/ids
-        if (!foundPair) {
-            products.forEach(p => {
-                const colKey = keys.find(k => k.trim().toLowerCase() === p.name.trim().toLowerCase() || k.trim().toLowerCase() === p.id.trim().toLowerCase());
-                if (colKey && row[colKey] !== "" && row[colKey] !== null && row[colKey] !== undefined) {
-                    const qty = parseFloat(row[colKey]) || 0;
-                    if (qty > 0) {
+        // 2. Pair columns fallback ("Mặt hàng 1", "Số lượng 1")
+        if (orderItems.length === 0) {
+            for (let i = 0; i < headerRow.length; i++) {
+                const hNorm = stripAccents(String(headerRow[i] || ""));
+                if (hNorm.includes("mathang") || hNorm.includes("tenhang") || hNorm.includes("sanpham")) {
+                    const itemName = String(row[i] || "").trim();
+                    if (itemName) {
+                        let qty = 1;
+                        if (i + 1 < row.length) {
+                            const nextHNorm = stripAccents(String(headerRow[i + 1] || ""));
+                            if (nextHNorm.includes("soluong") || nextHNorm.includes("sl")) {
+                                qty = parseFloat(String(row[i + 1]).replace(/[^0-9\.]/g, "")) || 1;
+                            }
+                        }
+                        const matched = products.find(p => p.name.toLowerCase() === itemName.toLowerCase() || p.id.toLowerCase() === itemName.toLowerCase());
                         orderItems.push({
-                            product_id: p.id,
-                            product_name: p.name,
+                            product_id: matched ? matched.id : "",
+                            product_name: matched ? matched.name : itemName,
                             quantity: qty,
-                            unit_price: p.price,
-                            total_price: qty * p.price
+                            unit_price: matched ? matched.price : 20000,
+                            total_price: qty * (matched ? matched.price : 20000)
                         });
                     }
                 }
-            });
-        }
-
-        // Pattern 3: Single column "Mặt hàng" & "Số lượng"
-        if (orderItems.length === 0) {
-            const singleItemName = String(findVal(["mathang", "tenhang", "sanpham"]) || "").trim();
-            const singleQty = parseFloat(findVal(["soluong", "sl"]) || 1) || 1;
-            if (singleItemName) {
-                const matchedProd = products.find(p => p.name.toLowerCase() === singleItemName.toLowerCase() || p.id.toLowerCase() === singleItemName.toLowerCase());
-                const unitPrice = matchedProd ? matchedProd.price : 0;
-                orderItems.push({
-                    product_id: matchedProd ? matchedProd.id : "",
-                    product_name: matchedProd ? matchedProd.name : singleItemName,
-                    quantity: singleQty,
-                    unit_price: unitPrice,
-                    total_price: singleQty * unitPrice
-                });
             }
         }
 
         const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0);
-
-        // Map shift
         const mappedShift = matchShiftForOnlineOrder(pickupDate, slotVal, shifts);
 
+        const caMatch = (slotVal || "").match(/ca\s*(\d+)/i);
+        const caNumStr = caMatch ? `Ca ${caMatch[1]}` : (slotVal || "Ca 1");
+
         const newOrder: OnlineOrder = {
-            id: `ORD_ONLINE_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${idx}`,
+            id: `ORD_ONLINE_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${r}`,
             customer_name: customerName || "Khách Hàng Online",
             class_name: className || "K.XĐ",
             pickup_date: pickupDate || "Chưa xác định",
-            pickup_time_slot: slotVal || "Ca 1",
-            shift_id: mappedShift ? mappedShift.shift_id : (shifts.length > 0 ? shifts[0].shift_id : "UNKNOWN"),
-            shift_label: mappedShift ? `${mappedShift.day} (${mappedShift.date || ""}) - ${mappedShift.slot || mappedShift.start_time}` : (slotVal ? `${pickupDate} - ${slotVal}` : "Ca Lấy"),
+            pickup_time_slot: slotVal || caNumStr,
+            shift_id: mappedShift ? mappedShift.shift_id : (caMatch ? `CA00${caMatch[1]}` : (shifts[0]?.shift_id || "CA001")),
+            shift_label: mappedShift ? `${mappedShift.day} (${mappedShift.date || pickupDate}) - ${mappedShift.slot || slotVal}` : (slotVal ? `${pickupDate} - ${slotVal}` : "Ca Lấy"),
             items: orderItems,
             total_amount: totalAmount,
             payment_status: "Chưa thanh toán",
@@ -1332,7 +1453,7 @@ function parseOnlineOrdersExcel(buffer: Buffer, shifts: Shift[], products: Produ
         };
 
         newOrders.push(newOrder);
-    });
+    }
 
     return newOrders;
 }
@@ -1350,14 +1471,26 @@ app.get("/api/online-orders", (req, res) => {
     });
 });
 
-app.post("/api/online-orders/upload-excel", upload.single("file") as any, (req: any, res: any) => {
+app.post(
+    "/api/online-orders/upload-excel",
+    requireAdmin,
+    upload.single("file") as any,
+    (req: any, res: any) => {
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, message: "Vui lòng chọn file Excel để tải lên!" });
         }
-        const parsed = parseOnlineOrdersExcel(req.file.buffer, CURRENT_SHIFTS, INVENTORY_PRODUCTS);
+        let fileBuffer: Buffer | null = req.file.buffer || null;
+        if (!fileBuffer && req.file.path && fs.existsSync(req.file.path)) {
+            fileBuffer = fs.readFileSync(req.file.path);
+            try { fs.unlinkSync(req.file.path); } catch (e) {}
+        }
+        if (!fileBuffer) {
+            return res.status(400).json({ success: false, message: "Không thể đọc nội dung file Excel tải lên!" });
+        }
+        const parsed = parseOnlineOrdersExcel(fileBuffer, CURRENT_SHIFTS, INVENTORY_PRODUCTS);
         if (parsed.length === 0) {
-            return res.status(400).json({ success: false, message: "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel!" });
+            return res.status(400).json({ success: false, message: "Không tìm thấy dữ liệu đơn hàng hợp lệ trong file Excel! Vui lòng tải file mẫu để xem định dạng đúng." });
         }
         ONLINE_ORDERS = [...ONLINE_ORDERS, ...parsed];
         persist();
@@ -1519,24 +1652,34 @@ app.post("/api/online-orders/update-status", (req, res) => {
 app.get("/api/online-orders/template-excel", (req, res) => {
     try {
         const wb = xlsx.utils.book_new();
-        const wsData = [
-            ["DANH SÁCH ĐƠN HÀNG ONLINE ĐẶT TRƯỚC", "", "", "", "", "", "", ""],
-            ["Họ và tên", "Lớp", "Ngày dự kiến lấy", "Khung giờ lấy (Ca)", "Mặt hàng 1", "Số lượng 1", "Mặt hàng 2", "Số lượng 2"],
-            ["Nguyễn Văn A", "12A1", "2026-08-25", "Ca 1: 07h00 - 09h30", "Cà phê sữa", 2, "Bánh mì", 1],
-            ["Trần Thị B", "11B2", "2026-08-25", "Ca 2: 09h35 - 12h00", "Trà sữa", 1, "Nước suối", 2],
-            ["Lê Văn C", "10C3", "2026-08-26", "Ca 3: 12h05 - 14h00", "Bánh mì", 3, "", ""],
+        // Product list: prioritize active products from inventory, or default chemistry drinks
+        const productList = INVENTORY_PRODUCTS.length > 0
+            ? INVENTORY_PRODUCTS.map(p => p.name)
+            : ["Glutamic Acid", "[CU(NH3)4](OH)2", "Lysine", "(C17H35COO)C3H5"];
+
+        const headerRow = [
+            "Họ và tên",
+            "Lớp",
+            "Ngày dự kiến lấy",
+            "Khung giờ lấy (Ca)",
+            ...productList,
         ];
+
+        const wsData: any[][] = [
+            headerRow,
+            ["Nguyễn Văn A", "12A1", "2026-08-25", "Ca 1: 07h00 - 09h30", 2, 1, 1, 0],
+            ["Trần Thị B", "11T2", "2026-08-25", "Ca 2: 09h35 - 12h00", 1, 2, 2, 0],
+            ["Lê Văn C", "10T1", "2026-08-26", "Ca 3: 12h05 - 14h00", 3, 0, 0, 0],
+            ["Phạm Minh D", "12H1", "2026-08-26", "Ca 4: 14h05 - 16h30", 0, 2, 0, 1],
+        ];
+
         const ws = xlsx.utils.aoa_to_sheet(wsData);
-        ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
         ws["!cols"] = [
-            { wch: 22 }, // Họ tên
+            { wch: 22 }, // Họ và tên
             { wch: 10 }, // Lớp
-            { wch: 18 }, // Ngày lấy
-            { wch: 22 }, // Khung giờ
-            { wch: 20 }, // MH 1
-            { wch: 12 }, // SL 1
-            { wch: 20 }, // MH 2
-            { wch: 12 }, // SL 2
+            { wch: 18 }, // Ngày dự kiến lấy
+            { wch: 24 }, // Khung giờ lấy (Ca)
+            ...productList.map(() => ({ wch: 18 })),
         ];
         xlsx.utils.book_append_sheet(wb, ws, "DON_HANG_ONLINE");
         const buf = xlsx.write(wb, { type: "buffer", bookType: "xlsx" });
@@ -4102,8 +4245,6 @@ app.get("/api/competition/stats", (req, res) => {
         shift_groups: [...sGroups].filter((sg:any) => sg.members.length > 0 && sg.total_sales > 0).sort((a: any,b: any) => b.total_score - a.total_score).slice(0, 10),
     });
 });
-// App Start
-app.listen(PORT, "0.0.0.0", () => {
 app.post("/api/competition/seed", (req, res) => {
     // Xóa dữ liệu mẫu cũ (nếu có)
     for (let i = SALES_LOGS.length - 1; i >= 0; i--) {
@@ -4179,6 +4320,9 @@ app.post("/api/competition/seed", (req, res) => {
     persist();
     res.json({ success: true, message: "Đã tạo dữ liệu giao dịch bán hàng và vi phạm thực tế cho các ca trực." });
 });
+
+// App Start
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
     // Run bootstrap
     bootstrapState();

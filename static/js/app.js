@@ -325,7 +325,6 @@ function initTabs() {
         "tab-protocols":
             "Quy Trình Quản Trị Nhân Sự & Dự Trù Rủi Ro (Nhiệm Vụ 2)",
         "tab-live-shift": "Ca-Live & POS Bán Hàng Realtime",
-        "tab-orders": "Sổ Đơn Hàng & Chi Tiết Bán Hàng Tất Cả Các Ca",
     };
 
     navItems.forEach((item) => {
@@ -358,7 +357,7 @@ function initTabs() {
                     MORE_TABS.includes(targetTab),
                 );
 
-            if (targetTab === "tab-inventory" || targetTab === "tab-orders") {
+            if (targetTab === "tab-inventory") {
                 loadInventoryData();
             } else if (targetTab === "tab-kpi") {
                 loadKpiData();
@@ -3351,7 +3350,6 @@ async function loadInventoryData() {
                 renderLiveShiftSalesTable(currentSelectedLiveShiftId);
                 loadLiveShiftOnlineOrders(currentSelectedLiveShiftId);
             }
-            renderAllShiftOrdersTab();
             loadOnlineOrders();
         }
     } catch (e) {
@@ -3441,44 +3439,214 @@ function renderInventoryTable(products) {
     tbody.innerHTML = html;
 }
 
+let globalCachedSalesLogs = [];
+
 function renderSalesLogsTable(logs) {
     const tbody = document.getElementById("salesLogsTableBody");
     if (!tbody) return;
 
-    if (!logs.length) {
-        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Chưa có giao dịch bán hàng nào được ghi nhận.</td></tr>`;
+    if (logs && Array.isArray(logs)) {
+        globalCachedSalesLogs = logs;
+    } else if (globalInventoryData?.sales_logs) {
+        globalCachedSalesLogs = globalInventoryData.sales_logs;
+    }
+
+    const allSales = globalCachedSalesLogs || [];
+    const shifts = globalScheduleData?.assigned_shifts || [];
+
+    // Group all sales logs by Order ID (id)
+    const orderMap = new Map();
+    allSales.forEach((item) => {
+        const orderId = item.id || "TX_UNKNOWN";
+        if (!orderMap.has(orderId)) {
+            orderMap.set(orderId, {
+                id: orderId,
+                timestamp: item.timestamp || "",
+                channel: item.channel || "Phòng Thanh Niên",
+                seller: item.seller || "Thu ngân",
+                customer_name: item.customer_name || "",
+                customer_phone: item.customer_phone || "",
+                payment_method: item.payment_method || "Tiền mặt",
+                note: item.note || "",
+                refunded: item.refunded === true,
+                items: [],
+                totalAmount: 0,
+                totalQuantity: 0,
+            });
+        }
+        const grp = orderMap.get(orderId);
+        grp.items.push(item);
+        grp.totalAmount += item.total_amount || 0;
+        grp.totalQuantity += item.quantity || 0;
+        if (item.refunded) grp.refunded = true;
+    });
+
+    const allOrderGroups = Array.from(orderMap.values());
+
+    // Populate shift filter dropdown in Inventory tab
+    const filterShiftEl = document.getElementById("invSalesFilterShift");
+    if (filterShiftEl) {
+        const currentVal = filterShiftEl.value || "ALL";
+        const shiftSet = new Set();
+        shifts.forEach((s) => shiftSet.add(`Ca ${s.shift_id}`));
+        allOrderGroups.forEach((g) => {
+            if (g.channel) shiftSet.add(g.channel);
+        });
+        const shiftList = Array.from(shiftSet).sort();
+
+        let optHtml = `<option value="ALL">-- Tất cả các ca (${allOrderGroups.length} đơn) --</option>`;
+        shiftList.forEach((ch) => {
+            const count = allOrderGroups.filter((g) => g.channel === ch).length;
+            optHtml += `<option value="${esc(ch)}">${esc(ch)} (${count} đơn)</option>`;
+        });
+        filterShiftEl.innerHTML = optHtml;
+        if (Array.from(filterShiftEl.options).some((o) => o.value === currentVal)) {
+            filterShiftEl.value = currentVal;
+        }
+    }
+
+    // Get current filter states
+    const selectedShift = filterShiftEl?.value || "ALL";
+    const selectedTime = document.getElementById("invSalesFilterTime")?.value || "ALL";
+    const selectedPay = document.getElementById("invSalesFilterPayment")?.value || "ALL";
+    const selectedStatus = document.getElementById("invSalesFilterStatus")?.value || "ALL";
+    const searchKeyword = (document.getElementById("invSalesSearchInput")?.value || "").toLowerCase().trim();
+
+    // Date calculations for time filter
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    const yestStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, "0")}-${String(yest.getDate()).padStart(2, "0")}`;
+
+    const d7 = new Date(now);
+    d7.setDate(d7.getDate() - 7);
+
+    // Filter order groups
+    const filteredOrders = allOrderGroups.filter((grp) => {
+        if (selectedShift !== "ALL" && grp.channel !== selectedShift) return false;
+
+        if (selectedTime !== "ALL" && grp.timestamp) {
+            const timePart = grp.timestamp.split(" ")[0] || "";
+            if (selectedTime === "TODAY" && !timePart.startsWith(todayStr)) return false;
+            if (selectedTime === "YESTERDAY" && !timePart.startsWith(yestStr)) return false;
+            if (selectedTime === "LAST7DAYS") {
+                const logDate = new Date(timePart);
+                if (isNaN(logDate.getTime()) || logDate < d7) return false;
+            }
+        }
+
+        if (selectedPay !== "ALL") {
+            const pay = grp.payment_method || "Tiền mặt";
+            if (pay !== selectedPay) return false;
+        }
+
+        if (selectedStatus === "VALID" && grp.refunded) return false;
+        if (selectedStatus === "REFUNDED" && !grp.refunded) return false;
+
+        if (searchKeyword) {
+            const matchId = (grp.id || "").toLowerCase().includes(searchKeyword);
+            const matchCustName = (grp.customer_name || "").toLowerCase().includes(searchKeyword);
+            const matchCustPhone = (grp.customer_phone || "").toLowerCase().includes(searchKeyword);
+            const matchSeller = (grp.seller || "").toLowerCase().includes(searchKeyword);
+            const matchNote = (grp.note || "").toLowerCase().includes(searchKeyword);
+            const matchChannel = (grp.channel || "").toLowerCase().includes(searchKeyword);
+            const matchItems = grp.items.some(
+                (item) =>
+                    (item.product_name || "").toLowerCase().includes(searchKeyword) ||
+                    (item.product_id || "").toLowerCase().includes(searchKeyword),
+            );
+
+            if (!matchId && !matchCustName && !matchCustPhone && !matchSeller && !matchNote && !matchChannel && !matchItems) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    if (filteredOrders.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Không tìm thấy đơn hàng / giao dịch nào phù hợp với bộ lọc.</td></tr>`;
         return;
     }
 
     let html = "";
-    logs.forEach((l) => {
-        const unitPrice = l.unit_price !== undefined ? l.unit_price : l.price;
-        const isRefunded = l.refunded === true;
-        const refundBadge = isRefunded
-            ? `<span class="status-badge badge-danger" style="background-color: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); margin-left: 6px; font-size: 10px; padding: 1px 4px;">Đã hủy</span>`
-            : "";
+    filteredOrders.forEach((grp) => {
+        const isRefunded = grp.refunded === true;
         const rowStyle = isRefunded
-            ? 'style="opacity: 0.6; text-decoration: line-through;"'
+            ? 'style="background: rgba(239, 68, 68, 0.05); opacity: 0.8;"'
             : "";
+        const refundStatus = isRefunded
+            ? `<div style="font-size:10.5px; color:#ef4444; font-weight:700; margin-top:2px;"><i class="fa-solid fa-ban"></i> Đã hủy</div>`
+            : `<div style="font-size:10.5px; color:#10b981; font-weight:600; margin-top:2px;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</div>`;
+
         const actionBtn = isRefunded
-            ? `<span style="color: var(--ink-dim); font-size: 12px;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`
+            ? `<span style="color: #ef4444; font-size:11px; font-weight:600;"><i class="fa-solid fa-ban"></i> Đã hoàn</span>`
             : `
-            <button type="button" class="btn-action-sm btn-action-delete" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 3px 8px;" onclick="refundTransaction('${l.id}')" title="Hủy đơn hàng">
-                <i class="fa-solid fa-rotate-left"></i> Hủy
-            </button>
+            <div style="display:flex; gap:4px; justify-content:center;">
+                <button type="button" class="btn-action-sm btn-action-secondary" style="padding: 3px 6px; font-size: 11px;" onclick="viewOrderReceipt('${grp.id}')" title="Xem chi tiết & in hóa đơn">
+                    <i class="fa-solid fa-receipt"></i> Xem
+                </button>
+                <button type="button" class="btn-action-sm btn-action-delete" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 3px 6px; font-size: 11px;" onclick="refundTransaction('${grp.id}')" title="Hủy đơn hàng &amp; hoàn kho">
+                    <i class="fa-solid fa-rotate-left"></i> Hủy
+                </button>
+            </div>
         `;
+
+        const custName = grp.customer_name || "";
+        const custPhone = grp.customer_phone || "";
+        const payMethod = grp.payment_method || "Tiền mặt";
+
+        const payBadge =
+            payMethod === "Chuyển khoản"
+                ? `<span class="tag-payment-transfer"><i class="fa-solid fa-credit-card"></i> CK</span>`
+                : `<span class="tag-payment-cash"><i class="fa-solid fa-money-bill-wave"></i> Tiền mặt</span>`;
+
+        const custInfo =
+            custName || custPhone
+                ? `<div><strong>${esc(custName || "Vãng lai")}</strong>${custPhone ? `<div style="font-size:11px; color:var(--ink-dim);">${esc(custPhone)}</div>` : ""}<div style="margin-top:2px;">${payBadge}</div></div>`
+                : `<div><span style="color:var(--ink-dim); font-size:12px;">Vãng lai</span><div style="margin-top:2px;">${payBadge}</div></div>`;
+
+        // Build list of grouped items inside the order
+        let itemsListHtml = `<div style="display: flex; flex-direction: column; gap: 4px;">`;
+        grp.items.forEach((item, idx) => {
+            const itemPrice = item.unit_price !== undefined ? item.unit_price : item.price;
+            itemsListHtml += `
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 2px 0; ${idx > 0 ? "border-top: 1px dashed var(--rule);" : ""}">
+                    <div style="overflow: hidden; text-overflow: ellipsis;">
+                        <strong style="color: var(--ink-hi);">${esc(item.product_name)}</strong>
+                        <span style="font-size: 11px; color: var(--ink-dim);">(${esc(item.product_id)})</span>
+                    </div>
+                    <div style="text-align: right; white-space: nowrap; margin-left: 8px;">
+                        <span style="background: rgba(202, 138, 4, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 11px; color: var(--goldleaf);">x${item.quantity}</span>
+                        <span style="font-size: 11px; color: var(--ink-dim); margin-left: 4px;">@ ${formatVND(itemPrice)}</span>
+                        <strong style="font-size: 11.5px; color: var(--ink-hi); margin-left: 6px;">${formatVND(item.total_amount)}</strong>
+                    </div>
+                </div>
+            `;
+        });
+        itemsListHtml += `</div>`;
 
         html += `
             <tr ${rowStyle}>
-                <td class="cell-center"><strong>${esc(l.id)}</strong>${refundBadge}</td>
-                <td class="cell-center mk-num">${esc(l.timestamp || "")}</td>
-                <td><strong>${esc(l.product_name)}</strong> <small>(${esc(l.product_id)})</small></td>
-                <td class="cell-center mk-lead"><b>${l.quantity}</b> ${esc(l.unit || "SP")}</td>
-                <td class="cell-center mk-num">${formatVND(unitPrice)}</td>
-                <td class="cell-center mk-num" style="color: ${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight: 600;">${formatVND(l.total_amount)}</td>
-                <td class="cell-center"><span class="shift-id-tag">${esc(l.channel || "Phòng Thanh Niên")}</span></td>
-                <td>${esc(l.seller || "Ban Quản Trị")}</td>
-                <td><small>${esc(l.note || "")}</small></td>
+                <td class="cell-center mk-num">
+                    <strong style="font-size: 13px; color: var(--goldleaf);">${esc(grp.id)}</strong>
+                    ${refundStatus}
+                </td>
+                <td class="cell-center" style="font-size: 11.5px; color: var(--ink-dim);">${esc(grp.timestamp)}</td>
+                <td><span class="shift-id-tag" style="font-size:11.5px;">${esc(grp.channel || "N/A")}</span></td>
+                <td>${itemsListHtml}</td>
+                <td class="cell-center">
+                    <b style="font-size: 13px;">${grp.totalQuantity}</b>
+                    <div style="font-size: 10px; color: var(--ink-dim);">(${grp.items.length} SP)</div>
+                </td>
+                <td class="cell-right mk-num" style="color:${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight:800; font-size: 13.5px; ${isRefunded ? "text-decoration:line-through;" : ""}">
+                    ${formatVND(grp.totalAmount)}
+                </td>
+                <td>${custInfo}</td>
+                <td><span class="mk-lead">${esc(grp.seller || "Thu ngân")}</span></td>
+                <td style="color:var(--ink-dim); font-size:12px;">${esc(grp.note || "-")}</td>
                 <td class="cell-center">${actionBtn}</td>
             </tr>
         `;
@@ -6021,61 +6189,124 @@ function renderLiveShiftSalesTable(shiftId) {
 
     const allSales = globalInventoryData?.sales_logs || [];
     const shiftSales = allSales.filter((l) =>
-        (l.channel || "").includes(shiftId),
+        (l.channel || "").includes(shiftId) || l.shift_id === shiftId,
     );
 
-    const totalRev = shiftSales.reduce(
-        (acc, l) => acc + (l.refunded ? 0 : l.total_amount || 0),
-        0,
-    );
-    if (summaryEl)
-        summaryEl.textContent = `${formatVND(totalRev)} ca ${shiftId}`;
+    // Group sales logs by Order ID (id)
+    const orderMap = new Map();
+    shiftSales.forEach((item) => {
+        const orderId = item.id || "TX_UNKNOWN";
+        if (!orderMap.has(orderId)) {
+            orderMap.set(orderId, {
+                id: orderId,
+                timestamp: item.timestamp || "",
+                channel: item.channel || `Ca ${shiftId}`,
+                seller: item.seller || "Thu ngân",
+                customer_name: item.customer_name || "",
+                customer_phone: item.customer_phone || "",
+                payment_method: item.payment_method || "Tiền mặt",
+                note: item.note || "",
+                refunded: item.refunded === true,
+                items: [],
+                totalAmount: 0,
+                totalQuantity: 0,
+            });
+        }
+        const grp = orderMap.get(orderId);
+        grp.items.push(item);
+        grp.totalAmount += item.total_amount || 0;
+        grp.totalQuantity += item.quantity || 0;
+        if (item.refunded) grp.refunded = true;
+    });
 
-    if (shiftSales.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Chưa có giao dịch bán hàng nào trong ca ${shiftId}.</td></tr>`;
+    const orderGroups = Array.from(orderMap.values());
+    const validOrders = orderGroups.filter((g) => !g.refunded);
+    const totalRev = validOrders.reduce((acc, g) => acc + g.totalAmount, 0);
+
+    if (summaryEl) {
+        summaryEl.textContent = `${formatVND(totalRev)} (Ca ${shiftId} • ${validOrders.length} đơn)`;
+    }
+
+    if (orderGroups.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="table-empty">Chưa có giao dịch bán hàng nào trong ca ${shiftId}.</td></tr>`;
         return;
     }
 
     let html = "";
-    shiftSales.forEach((l) => {
-        const isRefunded = l.refunded === true;
+    orderGroups.forEach((grp) => {
+        const isRefunded = grp.refunded === true;
         const rowStyle = isRefunded
-            ? 'style="opacity: 0.5; text-decoration: line-through;"'
+            ? 'style="background: rgba(239, 68, 68, 0.05); opacity: 0.8;"'
             : "";
         const refundStatus = isRefunded
-            ? `<div style="color: #ef4444; font-size: 10px; font-weight: 600; margin-top:2px;"><i class="fa-solid fa-ban"></i> Đã hủy</div>`
-            : "";
+            ? `<div style="font-size:10.5px; color:#ef4444; font-weight:700; margin-top:2px;"><i class="fa-solid fa-ban"></i> Đã hủy</div>`
+            : `<div style="font-size:10.5px; color:#10b981; font-weight:600; margin-top:2px;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</div>`;
+
         const actionBtn = isRefunded
-            ? `<span style="color: var(--ink-dim); font-size: 11px;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`
+            ? `<span style="color: #ef4444; font-size:11px; font-weight:600;"><i class="fa-solid fa-ban"></i> Đã hoàn</span>`
             : `
-            <button type="button" class="btn-action-sm btn-action-delete" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 3px 8px; font-size: 11px;" onclick="refundTransaction('${l.id}')" title="Hủy giao dịch">
-                <i class="fa-solid fa-rotate-left"></i> Hủy
-            </button>
+            <div style="display:flex; gap:4px; justify-content:center;">
+                <button type="button" class="btn-action-sm btn-action-secondary" style="padding: 3px 6px; font-size: 11px;" onclick="viewOrderReceipt('${grp.id}')" title="Xem chi tiết & in hóa đơn">
+                    <i class="fa-solid fa-receipt"></i> Xem
+                </button>
+                <button type="button" class="btn-action-sm btn-action-delete" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 3px 6px; font-size: 11px;" onclick="refundTransaction('${grp.id}')" title="Hủy đơn hàng &amp; hoàn kho">
+                    <i class="fa-solid fa-rotate-left"></i> Hủy
+                </button>
+            </div>
         `;
 
-        const custName = l.customer_name || "";
-        const custPhone = l.customer_phone || "";
-        const payMethod = l.payment_method || "Tiền mặt";
+        const custName = grp.customer_name || "";
+        const custPhone = grp.customer_phone || "";
+        const payMethod = grp.payment_method || "Tiền mặt";
 
-        const payBadge = payMethod === "Chuyển khoản"
-            ? `<span class="tag-payment-transfer"><i class="fa-solid fa-credit-card"></i> CK</span>`
-            : `<span class="tag-payment-cash"><i class="fa-solid fa-money-bill-wave"></i> Tiền mặt</span>`;
+        const payBadge =
+            payMethod === "Chuyển khoản"
+                ? `<span class="tag-payment-transfer"><i class="fa-solid fa-credit-card"></i> CK</span>`
+                : `<span class="tag-payment-cash"><i class="fa-solid fa-money-bill-wave"></i> Tiền mặt</span>`;
 
-        const custInfo = (custName || custPhone)
-            ? `<div><strong>${esc(custName || "Vãng lai")}</strong>${custPhone ? `<div style="font-size:11px; color:var(--ink-dim);">${esc(custPhone)}</div>` : ''}<div style="margin-top:2px;">${payBadge}</div></div>`
-            : `<div><span style="color:var(--ink-dim); font-size:12px;">Vãng lai</span><div style="margin-top:2px;">${payBadge}</div></div>`;
+        const custInfo =
+            custName || custPhone
+                ? `<div><strong>${esc(custName || "Vãng lai")}</strong>${custPhone ? `<div style="font-size:11px; color:var(--ink-dim);">${esc(custPhone)}</div>` : ""}<div style="margin-top:2px;">${payBadge}</div></div>`
+                : `<div><span style="color:var(--ink-dim); font-size:12px;">Vãng lai</span><div style="margin-top:2px;">${payBadge}</div></div>`;
+
+        // Build list of grouped items inside the order
+        let itemsListHtml = `<div style="display: flex; flex-direction: column; gap: 4px;">`;
+        grp.items.forEach((item, idx) => {
+            const itemPrice = item.unit_price !== undefined ? item.unit_price : item.price;
+            itemsListHtml += `
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 2px 0; ${idx > 0 ? "border-top: 1px dashed var(--rule);" : ""}">
+                    <div style="overflow: hidden; text-overflow: ellipsis;">
+                        <strong style="color: var(--ink-hi);">${esc(item.product_name)}</strong>
+                        <span style="font-size: 11px; color: var(--ink-dim);">(${esc(item.product_id)})</span>
+                    </div>
+                    <div style="text-align: right; white-space: nowrap; margin-left: 8px;">
+                        <span style="background: rgba(202, 138, 4, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 11px; color: var(--goldleaf);">x${item.quantity}</span>
+                        <span style="font-size: 11px; color: var(--ink-dim); margin-left: 4px;">@ ${formatVND(itemPrice)}</span>
+                        <strong style="font-size: 11.5px; color: var(--ink-hi); margin-left: 6px;">${formatVND(item.total_amount)}</strong>
+                    </div>
+                </div>
+            `;
+        });
+        itemsListHtml += `</div>`;
 
         html += `
             <tr ${rowStyle}>
-                <td class="cell-center mk-num"><strong>${l.id}</strong>${refundStatus}</td>
-                <td class="cell-center mk-num">${l.timestamp}</td>
-                <td><strong>${l.product_name}</strong></td>
-                <td class="cell-center mk-num"><b>${l.quantity}</b> ${l.unit || "món"}</td>
-                <td class="cell-right mk-num">${formatVND(l.unit_price)}</td>
-                <td class="cell-right mk-num" style="color:${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight:700;">${formatVND(l.total_amount)}</td>
+                <td class="cell-center mk-num">
+                    <strong style="font-size: 13px; color: var(--goldleaf);">${esc(grp.id)}</strong>
+                    ${refundStatus}
+                </td>
+                <td class="cell-center" style="font-size: 11.5px; color: var(--ink-dim);">${esc(grp.timestamp)}</td>
+                <td>${itemsListHtml}</td>
+                <td class="cell-center">
+                    <b style="font-size: 13px;">${grp.totalQuantity}</b>
+                    <div style="font-size: 10px; color: var(--ink-dim);">(${grp.items.length} SP)</div>
+                </td>
+                <td class="cell-right mk-num" style="color:${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight:800; font-size: 13.5px; ${isRefunded ? "text-decoration:line-through;" : ""}">
+                    ${formatVND(grp.totalAmount)}
+                </td>
                 <td>${custInfo}</td>
-                <td><span class="mk-lead">${l.seller}</span></td>
-                <td style="color:var(--ink-dim); font-size:12px;">${l.note || "-"}</td>
+                <td><span class="mk-lead">${esc(grp.seller || "Thu ngân")}</span></td>
+                <td style="color:var(--ink-dim); font-size:12px;">${esc(grp.note || "-")}</td>
                 <td class="cell-center">${actionBtn}</td>
             </tr>
         `;
@@ -6504,6 +6735,10 @@ function initOnlineOrdersExcelHandlers() {
 
     if (btnUpload && fileInput) {
         btnUpload.addEventListener("click", () => {
+            if (currentUserRole !== "admin") {
+                openAdminLoginModal("Chức năng nhập đơn hàng bằng Excel chỉ có Quản trị viên (Admin) mới thực hiện được. Vui lòng đăng nhập Admin.");
+                return;
+            }
             fileInput.value = "";
             fileInput.click();
         });
@@ -6516,7 +6751,7 @@ function initOnlineOrdersExcelHandlers() {
 
             try {
                 showToast("Đang xử lý tải lên file Excel đơn hàng online...", "info");
-                const res = await fetch("/api/online-orders/upload-excel", {
+                const res = await authFetch("/api/online-orders/upload-excel", {
                     method: "POST",
                     body: formData,
                 }).then((r) => r.json());
@@ -6963,7 +7198,6 @@ async function handleConfirmUploadInventoryExcel() {
             // Refresh all related views
             loadInventoryData();
             loadLiveShiftPosData();
-            renderAllShiftOrdersTab();
         } else {
             if (msg) {
                 msg.style.display = "block";
@@ -7729,316 +7963,6 @@ function exportKpiReportCSV() {
     document.body.removeChild(link);
 }
 
-function renderAllShiftOrdersTab() {
-    const tbody = document.getElementById("allShiftOrdersTableBody");
-    if (!tbody) return;
-
-    const allSales = globalInventoryData?.sales_logs || [];
-    const shifts = globalScheduleData?.assigned_shifts || [];
-
-    // Group all sales logs by Order ID (id)
-    const orderMap = new Map();
-    allSales.forEach(item => {
-        const orderId = item.id || "TX_UNKNOWN";
-        if (!orderMap.has(orderId)) {
-            orderMap.set(orderId, {
-                id: orderId,
-                timestamp: item.timestamp || "",
-                channel: item.channel || "Phòng Thanh Niên",
-                seller: item.seller || "Thu ngân",
-                customer_name: item.customer_name || "",
-                customer_phone: item.customer_phone || "",
-                payment_method: item.payment_method || "Tiền mặt",
-                note: item.note || "",
-                refunded: item.refunded === true,
-                items: [],
-                totalAmount: 0,
-                totalQuantity: 0
-            });
-        }
-        const grp = orderMap.get(orderId);
-        grp.items.push(item);
-        grp.totalAmount += (item.total_amount || 0);
-        grp.totalQuantity += (item.quantity || 0);
-        if (item.refunded) grp.refunded = true;
-    });
-
-    const allOrderGroups = Array.from(orderMap.values());
-
-    // Populate shift filter dropdown
-    const filterShiftEl = document.getElementById("ordersFilterShift");
-    if (filterShiftEl) {
-        const currentVal = filterShiftEl.value || "ALL";
-        const shiftSet = new Set();
-        shifts.forEach(s => shiftSet.add(`Ca ${s.shift_id}`));
-        allOrderGroups.forEach(g => {
-            if (g.channel) shiftSet.add(g.channel);
-        });
-        const shiftList = Array.from(shiftSet).sort();
-
-        let optHtml = `<option value="ALL">-- Tất cả các ca (${allOrderGroups.length} đơn) --</option>`;
-        shiftList.forEach(ch => {
-            const count = allOrderGroups.filter(g => g.channel === ch).length;
-            optHtml += `<option value="${esc(ch)}">${esc(ch)} (${count} đơn)</option>`;
-        });
-        filterShiftEl.innerHTML = optHtml;
-        if (Array.from(filterShiftEl.options).some(o => o.value === currentVal)) {
-            filterShiftEl.value = currentVal;
-        }
-    }
-
-    // Get current filter states
-    const selectedShift = filterShiftEl?.value || "ALL";
-    const selectedTime = document.getElementById("ordersFilterTime")?.value || "ALL";
-    const selectedPay = document.getElementById("ordersFilterPayment")?.value || "ALL";
-    const selectedStatus = document.getElementById("ordersFilterStatus")?.value || "ALL";
-    const searchKeyword = (document.getElementById("ordersSearchInput")?.value || "").toLowerCase().trim();
-
-    // Date calculations for time filter
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    
-    const yest = new Date(now);
-    yest.setDate(yest.getDate() - 1);
-    const yestStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`;
-    
-    const d7 = new Date(now);
-    d7.setDate(d7.getDate() - 7);
-
-    // Filter order groups
-    const filteredOrders = allOrderGroups.filter(grp => {
-        if (selectedShift !== "ALL" && grp.channel !== selectedShift) return false;
-
-        if (selectedTime !== "ALL" && grp.timestamp) {
-            const timePart = grp.timestamp.split(" ")[0] || "";
-            if (selectedTime === "TODAY" && !timePart.startsWith(todayStr)) return false;
-            if (selectedTime === "YESTERDAY" && !timePart.startsWith(yestStr)) return false;
-            if (selectedTime === "LAST7DAYS") {
-                const logDate = new Date(timePart);
-                if (isNaN(logDate.getTime()) || logDate < d7) return false;
-            }
-        }
-
-        if (selectedPay !== "ALL") {
-            const pay = grp.payment_method || "Tiền mặt";
-            if (pay !== selectedPay) return false;
-        }
-
-        if (selectedStatus === "VALID" && grp.refunded) return false;
-        if (selectedStatus === "REFUNDED" && !grp.refunded) return false;
-
-        if (searchKeyword) {
-            const matchId = (grp.id || "").toLowerCase().includes(searchKeyword);
-            const matchCustName = (grp.customer_name || "").toLowerCase().includes(searchKeyword);
-            const matchCustPhone = (grp.customer_phone || "").toLowerCase().includes(searchKeyword);
-            const matchSeller = (grp.seller || "").toLowerCase().includes(searchKeyword);
-            const matchNote = (grp.note || "").toLowerCase().includes(searchKeyword);
-            const matchChannel = (grp.channel || "").toLowerCase().includes(searchKeyword);
-            const matchItems = grp.items.some(item => 
-                (item.product_name || "").toLowerCase().includes(searchKeyword) ||
-                (item.product_id || "").toLowerCase().includes(searchKeyword)
-            );
-
-            if (!matchId && !matchCustName && !matchCustPhone && !matchSeller && !matchNote && !matchChannel && !matchItems) {
-                return false;
-            }
-        }
-
-        return true;
-    });
-
-    // Calculate metrics based on order groups
-    const validOrders = filteredOrders.filter(g => !g.refunded);
-    const refundedOrders = filteredOrders.filter(g => g.refunded);
-
-    const totalRev = validOrders.reduce((acc, g) => acc + g.totalAmount, 0);
-    const cashOrders = validOrders.filter(g => (g.payment_method || "Tiền mặt") === "Tiền mặt");
-    const cashRev = cashOrders.reduce((acc, g) => acc + g.totalAmount, 0);
-    const transferOrders = validOrders.filter(g => g.payment_method === "Chuyển khoản");
-    const transferRev = transferOrders.reduce((acc, g) => acc + g.totalAmount, 0);
-    const refundedVal = refundedOrders.reduce((acc, g) => acc + g.totalAmount, 0);
-
-    const totalValidItemsQty = validOrders.reduce((acc, g) => acc + g.totalQuantity, 0);
-    const aov = validOrders.length > 0 ? Math.round(totalRev / validOrders.length) : 0;
-
-    const countEl = document.getElementById("ordersTabTotalCount");
-    const subCountEl = document.getElementById("ordersTabSubCount");
-    const revEl = document.getElementById("ordersTabTotalRev");
-    const aovSubEl = document.getElementById("ordersTabAovSub");
-    const cashRevEl = document.getElementById("ordersTabCashRev");
-    const cashSubEl = document.getElementById("ordersTabCashSub");
-    const transRevEl = document.getElementById("ordersTabTransferRev");
-    const transSubEl = document.getElementById("ordersTabTransferSub");
-    const refCountEl = document.getElementById("ordersTabRefundedCount");
-    const refValEl = document.getElementById("ordersTabRefundedVal");
-
-    if (countEl) countEl.textContent = filteredOrders.length;
-    if (subCountEl) subCountEl.textContent = `${validOrders.length} đơn (${totalValidItemsQty} SP)`;
-    if (revEl) revEl.textContent = formatVND(totalRev);
-    if (aovSubEl) aovSubEl.textContent = `Trung bình: ${formatVND(aov)}/đơn`;
-    if (cashRevEl) cashRevEl.textContent = formatVND(cashRev);
-    if (cashSubEl) cashSubEl.textContent = `${cashOrders.length} đơn tiền mặt`;
-    if (transRevEl) transRevEl.textContent = formatVND(transferRev);
-    if (transSubEl) transSubEl.textContent = `${transferOrders.length} đơn chuyển khoản`;
-    if (refCountEl) refCountEl.textContent = refundedOrders.length;
-    if (refValEl) refValEl.textContent = formatVND(refundedVal);
-
-    // Update Analytics Section (Top Selling + Payment Ratios)
-    const validSalesItems = validOrders.flatMap(g => g.items);
-    const allFilteredItems = filteredOrders.flatMap(g => g.items);
-    renderOrdersAnalytics(validSalesItems, allFilteredItems);
-
-    if (filteredOrders.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="table-empty">Không tìm thấy đơn hàng nào phù hợp với bộ lọc.</td></tr>`;
-        return;
-    }
-
-    let html = "";
-    filteredOrders.forEach(grp => {
-        const isRefunded = grp.refunded === true;
-        const rowStyle = isRefunded
-            ? 'style="background: rgba(239, 68, 68, 0.05); opacity: 0.8;"'
-            : "";
-        const refundStatus = isRefunded
-            ? `<div style="font-size:10.5px; color:#ef4444; font-weight:700; margin-top:2px;"><i class="fa-solid fa-ban"></i> Đã hủy</div>`
-            : `<div style="font-size:10.5px; color:#10b981; font-weight:600; margin-top:2px;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</div>`;
-
-        const actionBtn = isRefunded
-            ? `<span style="color: #ef4444; font-size:11px; font-weight:600;"><i class="fa-solid fa-ban"></i> Đã hoàn</span>`
-            : `
-            <div style="display:flex; gap:4px; justify-content:center;">
-                <button type="button" class="btn-action-sm btn-action-secondary" style="padding: 3px 6px; font-size: 11px;" onclick="viewOrderReceipt('${grp.id}')" title="Xem chi tiết & in hóa đơn">
-                    <i class="fa-solid fa-receipt"></i> Xem
-                </button>
-                <button type="button" class="btn-action-sm btn-action-delete" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); padding: 3px 6px; font-size: 11px;" onclick="refundTransaction('${grp.id}')" title="Hủy đơn hàng &amp; hoàn kho">
-                    <i class="fa-solid fa-rotate-left"></i> Hủy
-                </button>
-            </div>
-        `;
-
-        const custName = grp.customer_name || "";
-        const custPhone = grp.customer_phone || "";
-        const payMethod = grp.payment_method || "Tiền mặt";
-
-        const payBadge = payMethod === "Chuyển khoản"
-            ? `<span class="tag-payment-transfer"><i class="fa-solid fa-credit-card"></i> CK</span>`
-            : `<span class="tag-payment-cash"><i class="fa-solid fa-money-bill-wave"></i> Tiền mặt</span>`;
-
-        const custInfo = (custName || custPhone)
-            ? `<div><strong>${esc(custName || "Vãng lai")}</strong>${custPhone ? `<div style="font-size:11px; color:var(--ink-dim);">${esc(custPhone)}</div>` : ''}<div style="margin-top:2px;">${payBadge}</div></div>`
-            : `<div><span style="color:var(--ink-dim); font-size:12px;">Vãng lai</span><div style="margin-top:2px;">${payBadge}</div></div>`;
-
-        // Build list of grouped items inside the order
-        let itemsListHtml = `<div style="display: flex; flex-direction: column; gap: 4px;">`;
-        grp.items.forEach((item, idx) => {
-            const itemPrice = item.unit_price !== undefined ? item.unit_price : item.price;
-            itemsListHtml += `
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 2px 0; ${idx > 0 ? 'border-top: 1px dashed var(--rule);' : ''}">
-                    <div style="overflow: hidden; text-overflow: ellipsis;">
-                        <strong style="color: var(--ink-hi);">${esc(item.product_name)}</strong>
-                        <span style="font-size: 11px; color: var(--ink-dim);">(${esc(item.product_id)})</span>
-                    </div>
-                    <div style="text-align: right; white-space: nowrap; margin-left: 8px;">
-                        <span style="background: rgba(202, 138, 4, 0.12); padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 11px; color: var(--goldleaf);">x${item.quantity}</span>
-                        <span style="font-size: 11px; color: var(--ink-dim); margin-left: 4px;">@ ${formatVND(itemPrice)}</span>
-                        <strong style="font-size: 11.5px; color: var(--ink-hi); margin-left: 6px;">${formatVND(item.total_amount)}</strong>
-                    </div>
-                </div>
-            `;
-        });
-        itemsListHtml += `</div>`;
-
-        html += `
-            <tr ${rowStyle}>
-                <td class="cell-center mk-num">
-                    <strong style="font-size: 13px; color: var(--goldleaf);">${esc(grp.id)}</strong>
-                    ${refundStatus}
-                </td>
-                <td class="cell-center" style="font-size: 11.5px; color: var(--ink-dim);">${esc(grp.timestamp)}</td>
-                <td><span class="shift-id-tag" style="font-size:11.5px;">${esc(grp.channel || "N/A")}</span></td>
-                <td>${itemsListHtml}</td>
-                <td class="cell-center">
-                    <b style="font-size: 13px;">${grp.totalQuantity}</b>
-                    <div style="font-size: 10px; color: var(--ink-dim);">(${grp.items.length} SP)</div>
-                </td>
-                <td class="cell-right mk-num" style="color:${isRefunded ? "var(--ink-dim)" : "var(--goldleaf)"}; font-weight:800; font-size: 13.5px; ${isRefunded ? 'text-decoration:line-through;' : ''}">
-                    ${formatVND(grp.totalAmount)}
-                </td>
-                <td>${custInfo}</td>
-                <td><span class="mk-lead">${esc(grp.seller || "Thu ngân")}</span></td>
-                <td style="color:var(--ink-dim); font-size:12px;">${esc(grp.note || "-")}</td>
-                <td class="cell-center">${actionBtn}</td>
-            </tr>
-        `;
-    });
-
-    tbody.innerHTML = html;
-}
-
-function renderOrdersAnalytics(validSales, allFilteredSales) {
-    const topBody = document.getElementById("ordersTopSellingBody");
-    const cashPctEl = document.getElementById("ratioCashPct");
-    const transPctEl = document.getElementById("ratioTransferPct");
-    const cashBar = document.getElementById("ratioCashBar");
-    const transBar = document.getElementById("ratioTransferBar");
-    const totalUnitsEl = document.getElementById("totalUnitsSold");
-    const activeShiftsEl = document.getElementById("activeShiftsCount");
-
-    // Top selling products map
-    const prodMap = {};
-    let totalQty = 0;
-    const shiftSet = new Set();
-
-    validSales.forEach(l => {
-        totalQty += (l.quantity || 0);
-        if (l.channel) shiftSet.add(l.channel);
-
-        const key = l.product_name || l.product_id || "Khác";
-        if (!prodMap[key]) {
-            prodMap[key] = { name: key, qty: 0, revenue: 0 };
-        }
-        prodMap[key].qty += (l.quantity || 0);
-        prodMap[key].revenue += (l.total_amount || 0);
-    });
-
-    if (totalUnitsEl) totalUnitsEl.textContent = `${totalQty} món`;
-    if (activeShiftsEl) activeShiftsEl.textContent = `${shiftSet.size} ca`;
-
-    // Render top 5 selling items
-    if (topBody) {
-        const sortedProds = Object.values(prodMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
-        if (sortedProds.length === 0) {
-            topBody.innerHTML = `<tr><td colspan="3" class="table-empty">Chưa có dữ liệu sản phẩm</td></tr>`;
-        } else {
-            let html = "";
-            sortedProds.forEach((p, idx) => {
-                const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : `${idx + 1}.`;
-                html += `
-                    <tr>
-                        <td><strong>${medal} ${esc(p.name)}</strong></td>
-                        <td class="cell-center mk-num"><b>${p.qty}</b></td>
-                        <td class="cell-right mk-num" style="color:var(--goldleaf); font-weight:700;">${formatVND(p.revenue)}</td>
-                    </tr>
-                `;
-            });
-            topBody.innerHTML = html;
-        }
-    }
-
-    // Payment method ratios
-    const cashCount = validSales.filter(l => (l.payment_method || "Tiền mặt") === "Tiền mặt").length;
-    const transCount = validSales.filter(l => l.payment_method === "Chuyển khoản").length;
-    const totalValid = validSales.length;
-
-    const cashPct = totalValid > 0 ? Math.round((cashCount / totalValid) * 100) : 0;
-    const transPct = totalValid > 0 ? (100 - cashPct) : 0;
-
-    if (cashPctEl) cashPctEl.textContent = `${cashPct}%`;
-    if (transPctEl) transPctEl.textContent = `${transPct}%`;
-    if (cashBar) cashBar.style.width = `${cashPct}%`;
-    if (transBar) transBar.style.width = `${transPct}%`;
-}
-
 // Receipt detail modal
 window.viewOrderReceipt = function(txId) {
     const allSales = globalInventoryData?.sales_logs || [];
@@ -8192,44 +8116,9 @@ function exportOrdersToExcel() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    const filterShift = document.getElementById("ordersFilterShift");
-    const filterTime = document.getElementById("ordersFilterTime");
-    const filterPay = document.getElementById("ordersFilterPayment");
-    const filterStatus = document.getElementById("ordersFilterStatus");
-    const searchInp = document.getElementById("ordersSearchInput");
-    const btnRefresh = document.getElementById("btnRefreshOrdersTab");
-    const btnExport = document.getElementById("btnExportOrdersExcel");
-    const btnToggleAnalytics = document.getElementById("btnToggleOrdersAnalytics");
-    const analyticsCard = document.getElementById("ordersAnalyticsCard");
     const btnCloseReceipt = document.getElementById("btnCloseReceiptModal");
     const btnCloseReceiptFooter = document.getElementById("btnCloseReceiptModalFooter");
     const btnPrintReceipt = document.getElementById("btnPrintReceiptBtn");
-
-    if (filterShift) filterShift.addEventListener("change", renderAllShiftOrdersTab);
-    if (filterTime) filterTime.addEventListener("change", renderAllShiftOrdersTab);
-    if (filterPay) filterPay.addEventListener("change", renderAllShiftOrdersTab);
-    if (filterStatus) filterStatus.addEventListener("change", renderAllShiftOrdersTab);
-    if (searchInp) searchInp.addEventListener("input", renderAllShiftOrdersTab);
-    
-    if (btnRefresh) {
-        btnRefresh.addEventListener("click", () => {
-            loadInventoryData();
-            renderAllShiftOrdersTab();
-        });
-    }
-
-    if (btnExport) {
-        btnExport.addEventListener("click", exportOrdersToExcel);
-    }
-
-    if (btnToggleAnalytics && analyticsCard) {
-        btnToggleAnalytics.addEventListener("click", () => {
-            const isHidden = analyticsCard.style.display === "none";
-            analyticsCard.style.display = isHidden ? "block" : "none";
-            const lbl = document.getElementById("lblToggleAnalytics");
-            if (lbl) lbl.textContent = isHidden ? "Ẩn Phân Tích" : "Top Món Bán Chạy";
-        });
-    }
 
     if (btnCloseReceipt) btnCloseReceipt.addEventListener("click", () => document.getElementById("orderReceiptModal")?.classList.remove("active"));
     if (btnCloseReceiptFooter) btnCloseReceiptFooter.addEventListener("click", () => document.getElementById("orderReceiptModal")?.classList.remove("active"));
@@ -8237,6 +8126,32 @@ document.addEventListener("DOMContentLoaded", () => {
         btnPrintReceipt.addEventListener("click", () => {
             window.print();
         });
+    }
+
+    // Inventory Tab Sales Logs Filters & Actions
+    const invSalesFilterShift = document.getElementById("invSalesFilterShift");
+    const invSalesFilterTime = document.getElementById("invSalesFilterTime");
+    const invSalesFilterPayment = document.getElementById("invSalesFilterPayment");
+    const invSalesFilterStatus = document.getElementById("invSalesFilterStatus");
+    const invSalesSearchInput = document.getElementById("invSalesSearchInput");
+    const btnRefreshInvSales = document.getElementById("btnRefreshInvSales");
+    const btnExportInvSales = document.getElementById("btnExportInvSalesExcel");
+
+    if (invSalesFilterShift) invSalesFilterShift.addEventListener("change", () => renderSalesLogsTable());
+    if (invSalesFilterTime) invSalesFilterTime.addEventListener("change", () => renderSalesLogsTable());
+    if (invSalesFilterPayment) invSalesFilterPayment.addEventListener("change", () => renderSalesLogsTable());
+    if (invSalesFilterStatus) invSalesFilterStatus.addEventListener("change", () => renderSalesLogsTable());
+    if (invSalesSearchInput) invSalesSearchInput.addEventListener("input", () => renderSalesLogsTable());
+
+    if (btnRefreshInvSales) {
+        btnRefreshInvSales.addEventListener("click", async () => {
+            await loadInventoryData();
+            showToast("Đã làm mới nhật ký giao dịch kho F&B!", "info");
+        });
+    }
+
+    if (btnExportInvSales) {
+        btnExportInvSales.addEventListener("click", exportOrdersToExcel);
     }
 });
 
