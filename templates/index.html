@@ -2772,21 +2772,9 @@
                 <!-- TAB 4.5: CHẠY KPI LẤY HÀNG & DOANH THU -->
                 <section id="tab-kpi" class="tab-content">
                     <div id="kpiRootContainer">
-                        <!-- Top Header & Account Status Bar -->
-                        <div class="glass-card mb-4">
-                            <div class="card-header flex-between flex-wrap gap-3" style="border-bottom: 1px solid rgba(212, 168, 83, 0.2); padding-bottom: 0.85rem;">
-                                <div>
-                                    <h2 class="card-title text-gold" style="font-size: 1.35rem; display: flex; align-items: center; gap: 0.6rem;">
-                                        <i class="fa-solid fa-boxes-packing"></i> Chạy KPI Lấy Hàng &amp; Quản Lý Doanh Thu
-                                    </h2>
-                                    <p class="text-muted" style="margin-top: 0.35rem; font-size: 0.9rem;">
-                                        Thành viên lấy hàng trừ kho tự động, tạo mã VietQR thanh toán chuẩn xác và theo dõi trạng thái duyệt đơn.
-                                    </p>
-                                </div>
-                                <div id="kpiAccountBar" class="d-flex align-items-center gap-2 flex-wrap">
-                                    <!-- Dynamic Account Controls populated by app.js -->
-                                </div>
-                            </div>
+                        <!-- Account Status Bar (Compact Top Right) -->
+                        <div class="d-flex align-items-center justify-content-end mb-3" id="kpiAccountBar" style="min-height: 40px;">
+                            <!-- Dynamic Account Controls populated by app.js -->
                         </div>
 
                         <!-- Panel Đăng Nhập Thành Viên (Hiện khi chưa đăng nhập) -->
@@ -2847,65 +2835,24 @@
 
                         <!-- Khối Làm Việc Dành Cho Thành Viên Đã Đăng Nhập -->
                         <div id="kpiMemberWorkSection" style="display: none;">
-                            <!-- 4 Thống Kê Nhanh Cá Nhân -->
-                            <div class="kpi-grid" style="margin-bottom: 1.5rem">
-                                <div class="kpi-card">
-                                    <div class="kpi-icon blue">
-                                        <i class="fa-solid fa-cart-shopping"></i>
-                                    </div>
-                                    <div class="kpi-data">
-                                        <h3 id="kpiUserStatOrders">0</h3>
-                                        <p>Đơn Hàng Đã Lấy</p>
-                                    </div>
-                                </div>
-                                <div class="kpi-card">
-                                    <div class="kpi-icon green">
-                                        <i class="fa-solid fa-coins"></i>
-                                    </div>
-                                    <div class="kpi-data">
-                                        <h3 id="kpiUserStatTotalAmount">0 ₫</h3>
-                                        <p>Tổng Giá Trị Hàng Lấy</p>
-                                    </div>
-                                </div>
-                                <div class="kpi-card">
-                                    <div class="kpi-icon amber">
-                                        <i class="fa-solid fa-hourglass-half"></i>
-                                    </div>
-                                    <div class="kpi-data">
-                                        <h3 id="kpiUserStatPendingAmount">0 ₫</h3>
-                                        <p>Chờ Duyệt / Chưa TT</p>
-                                    </div>
-                                </div>
-                                <div class="kpi-card">
-                                    <div class="kpi-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.12);">
-                                        <i class="fa-solid fa-circle-check"></i>
-                                    </div>
-                                    <div class="kpi-data">
-                                        <h3 id="kpiUserStatPaidAmount">0 ₫</h3>
-                                        <p>Đã Hoàn Tất Quyết Toán</p>
-                                    </div>
-                                </div>
-                            </div>
-
                             <!-- Khung Tạo Đơn Lấy Hàng (Trừ Tồn Kho) -->
-                            <div class="glass-card mb-4" style="max-width: 880px; margin-left: auto; margin-right: auto; border: 1px solid rgba(212, 168, 83, 0.25);">
+                            <div class="glass-card mb-4" style="max-width: 880px; margin-left: auto; margin-right: auto; border: 1px solid rgba(212, 168, 83, 0.4); box-shadow: 0 8px 32px var(--shadow-color, rgba(0,0,0,0.15));">
                                 <div class="card-header flex-between" style="border-bottom: 1px solid rgba(212, 168, 83, 0.2); padding-bottom: 0.75rem;">
-                                    <h3 class="card-title text-gold" style="font-size: 1.15rem; font-weight: 700;">
-                                        <i class="fa-solid fa-cart-plus"></i> Tạo Request Lấy Hàng Chạy KPI
-                                    </h3>
-                                    <span class="badge badge-gold"><i class="fa-solid fa-warehouse"></i> Trừ Tồn Kho Tức Thì</span>
+                                    <div>
+                                        <h3 class="card-title text-gold" style="font-size: 1.25rem; font-weight: 700;">
+                                            <i class="fa-solid fa-cart-plus"></i> Tạo Đơn Lấy Hàng (Trừ Kho Tự Động)
+                                        </h3>
+                                        <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.25rem;">Thành viên lấy hàng chạy KPI &amp; thanh toán linh hoạt</p>
+                                    </div>
+                                    <span class="badge badge-gold" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;"><i class="fa-solid fa-warehouse"></i> Trừ Tồn Kho Tức Thì</span>
                                 </div>
                                 <div class="card-body" style="padding-top: 1.25rem;">
-                                    <p class="text-muted" style="font-size: 0.88rem; margin-bottom: 1.25rem;">
-                                        Chọn các món cần lấy để bán chạy KPI. Mỗi đơn tạo thành công sẽ tự động trừ số lượng tồn kho tương ứng.
-                                    </p>
-
                                     <!-- Container Danh Sách Món -->
                                     <div id="kpiOrderItemsContainer" class="d-flex flex-column gap-2 mb-3">
                                         <!-- Dynamically populated item rows -->
                                     </div>
 
-                                    <div class="flex-between align-items-center mb-4 flex-wrap gap-2" style="background: rgba(0,0,0,0.2); padding: 0.75rem 1rem; border-radius: 8px;">
+                                    <div class="flex-between align-items-center mb-4 flex-wrap gap-2" style="background: var(--surface-hover); padding: 0.75rem 1rem; border-radius: 8px;">
                                         <button type="button" id="btnKpiAddOrderItem" class="btn-secondary btn-sm" style="font-size: 0.85rem;">
                                             <i class="fa-solid fa-plus"></i> Thêm Món Khác
                                         </button>
@@ -2947,7 +2894,7 @@
                                             </div>
 
                                             <!-- Option 2: VietQR Chuyển Khoản Sau -->
-                                            <div class="kpi-payment-tile" id="tile_qr_later" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.25); transition: all 0.2s ease;">
+                                            <div class="kpi-payment-tile" id="tile_qr_later" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--border-color); background: var(--bg-card-alt); transition: all 0.2s ease;">
                                                 <div class="d-flex align-items-center gap-3">
                                                     <input type="radio" id="radio_qr_later" name="kpiPaymentOption" value="qr_later" style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
                                                     <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); display: flex; align-items: center; justify-content: center; color: #c084fc; font-size: 1.2rem; flex-shrink: 0;">
@@ -2970,7 +2917,7 @@
                                             </div>
 
                                             <!-- Option 3: Tiền Mặt Trực Tiếp -->
-                                            <div class="kpi-payment-tile" id="tile_cash" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.25); transition: all 0.2s ease;">
+                                            <div class="kpi-payment-tile" id="tile_cash" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--border-color); background: var(--bg-card-alt); transition: all 0.2s ease;">
                                                 <div class="d-flex align-items-center gap-3">
                                                     <input type="radio" id="radio_cash" name="kpiPaymentOption" value="cash" style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
                                                     <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; color: #34d399; font-size: 1.2rem; flex-shrink: 0;">
@@ -3003,12 +2950,12 @@
                                     </div>
 
                                     <button type="button" id="btnKpiSubmitOrder" class="btn-primary w-full" style="padding: 0.9rem; font-size: 1.05rem; font-weight: 700; justify-content: center; box-shadow: 0 4px 15px rgba(212,168,83,0.25);">
-                                        <i class="fa-solid fa-paper-plane"></i> Tạo Request Lấy Hàng (Trừ Kho)
+                                        <i class="fa-solid fa-paper-plane"></i> Tạo Request Lấy Hàng
                                     </button>
                                 </div>
                             </div>
 
-                            <!-- Bảng Chi Tiết Đơn Hàng Đã Lấy & Trạng Thái Thanh Toán Của Thành Viên -->
+
                             <div class="glass-card mb-4">
                                 <div class="card-header flex-between flex-wrap gap-2" style="border-bottom: 1px solid rgba(212, 168, 83, 0.2); padding-bottom: 0.75rem;">
                                     <div>
@@ -3033,6 +2980,47 @@
                                     </div>
                                 </div>
                                 <div class="card-body p-0">
+                                    
+                                    <!-- 4 Thống Kê Nhanh Cá Nhân (Di chuyển vào trong card) -->
+                                    <div class="kpi-grid" style="margin: 1rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem;">
+                                        <div class="kpi-card" style="padding: 1rem; border-radius: 10px; background: var(--bg-card-alt); border: 1px solid var(--border-color);">
+                                            <div class="kpi-icon blue" style="width: 32px; height: 32px; font-size: 0.9rem;">
+                                                <i class="fa-solid fa-cart-shopping"></i>
+                                            </div>
+                                            <div class="kpi-data">
+                                                <h3 id="kpiUserStatOrders" style="font-size: 1.2rem;">0</h3>
+                                                <p style="font-size: 0.75rem;">Đơn Hàng</p>
+                                            </div>
+                                        </div>
+                                        <div class="kpi-card" style="padding: 1rem; border-radius: 10px; background: var(--bg-card-alt); border: 1px solid var(--border-color);">
+                                            <div class="kpi-icon green" style="width: 32px; height: 32px; font-size: 0.9rem;">
+                                                <i class="fa-solid fa-coins"></i>
+                                            </div>
+                                            <div class="kpi-data">
+                                                <h3 id="kpiUserStatTotalAmount" style="font-size: 1.2rem;">0 ₫</h3>
+                                                <p style="font-size: 0.75rem;">Tổng Tiền Lấy</p>
+                                            </div>
+                                        </div>
+                                        <div class="kpi-card" style="padding: 1rem; border-radius: 10px; background: var(--bg-card-alt); border: 1px solid var(--border-color);">
+                                            <div class="kpi-icon amber" style="width: 32px; height: 32px; font-size: 0.9rem;">
+                                                <i class="fa-solid fa-hourglass-half"></i>
+                                            </div>
+                                            <div class="kpi-data">
+                                                <h3 id="kpiUserStatPendingAmount" style="font-size: 1.2rem;">0 ₫</h3>
+                                                <p style="font-size: 0.75rem;">Chờ Thanh Toán</p>
+                                            </div>
+                                        </div>
+                                        <div class="kpi-card" style="padding: 1rem; border-radius: 10px; background: var(--bg-card-alt); border: 1px solid var(--border-color);">
+                                            <div class="kpi-icon" style="color: #10b981; background: rgba(16, 185, 129, 0.12); width: 32px; height: 32px; font-size: 0.9rem;">
+                                                <i class="fa-solid fa-circle-check"></i>
+                                            </div>
+                                            <div class="kpi-data">
+                                                <h3 id="kpiUserStatPaidAmount" style="font-size: 1.2rem;">0 ₫</h3>
+                                                <p style="font-size: 0.75rem;">Đã Quyết Toán</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="table-responsive">
                                         <table class="data-table" id="tableKpiMemberOrders">
                                             <thead>

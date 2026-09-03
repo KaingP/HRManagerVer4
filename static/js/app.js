@@ -8071,8 +8071,9 @@ function updateKpiAccountBar() {
 
     let html = "";
     if (pickupMember) {
+        const memId = pickupMember.member_id || pickupMember.id || "TV";
         html += `<span class="badge badge-gold" style="font-size:0.85rem; padding: 0.4rem 0.75rem;">
-            <i class="fa-solid fa-id-card"></i> ${pickupMember.id} - ${pickupMember.name} (${pickupMember.department || "Thành viên"})
+            <i class="fa-solid fa-id-card"></i> ${memId} - ${pickupMember.name} (${pickupMember.department || "Thành viên"})
         </span>`;
         html += `<button type="button" id="btnKpiChangePwd" class="btn-secondary btn-sm">
             <i class="fa-solid fa-key"></i> Đổi Mật Khẩu
@@ -8111,8 +8112,9 @@ function updateKpiAccountBar() {
     if (btnChangePwd) {
         btnChangePwd.onclick = () => {
             if (!pickupMember) return;
+            const memId = pickupMember.member_id || pickupMember.id || "";
             const spanId = document.getElementById("spanKpiChangePwdMemberId");
-            if (spanId) spanId.textContent = `${pickupMember.id} - ${pickupMember.name}`;
+            if (spanId) spanId.textContent = `${memId} - ${pickupMember.name}`;
             const errBox = document.getElementById("boxKpiChangePwdError");
             if (errBox) errBox.style.display = "none";
             const curInput = document.getElementById("inputKpiCurrentPwd");
@@ -8235,8 +8237,8 @@ function initKpiGlobalListeners() {
             } else {
                 if (tile) {
                     tile.classList.remove("active");
-                    tile.style.border = "1px solid rgba(255, 255, 255, 0.12)";
-                    tile.style.background = "rgba(0, 0, 0, 0.25)";
+                    tile.style.border = "1px solid var(--border-color)";
+                    tile.style.background = "var(--bg-card-alt)";
                 }
             }
         });
@@ -8405,7 +8407,8 @@ async function handleKpiMemberLogin() {
         sessionStorage.setItem("hv_member", JSON.stringify(data.member));
 
         if (errBox) errBox.style.display = "none";
-        showToast(`Chào mừng ${pickupMember.name} (${pickupMember.id})!`, "success");
+        const memId = pickupMember.member_id || pickupMember.id || "";
+        showToast(`Chào mừng ${pickupMember.name} (${memId})!`, "success");
         renderPickupRequestTab();
     } catch (err) {
         if (errBox) {
@@ -8505,8 +8508,8 @@ function addKpiOrderItemRow() {
     }
 
     const row = document.createElement("div");
-    row.className = "kpi-order-row d-flex align-items-center gap-2 mb-2";
-    row.style.cssText = "background: rgba(0,0,0,0.2); padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid rgba(212,168,83,0.15); flex-wrap: wrap;";
+    row.className = "kpi-order-row d-flex align-items-center gap-3 mb-2";
+    row.style.cssText = "background: var(--bg-card-alt); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-color); display: flex; flex-wrap: nowrap; align-items: center;";
 
     let optionsHtml = kpiActiveProducts.map(p => 
         `<option value="${p.id}" data-price="${p.price}" data-unit="${p.unit}" data-stock="${p.stock}">
@@ -8515,20 +8518,21 @@ function addKpiOrderItemRow() {
     ).join("");
 
     row.innerHTML = `
-        <div style="flex: 2; min-width: 180px;">
-            <select class="custom-select w-full kpi-row-prod" style="font-size:0.85rem;">
+        <div style="flex: 1; min-width: 0;">
+            <select class="custom-select w-full kpi-row-prod" style="font-size:0.9rem; font-weight: 600; padding: 0.45rem 0.65rem;">
                 ${optionsHtml}
             </select>
         </div>
-        <div style="flex: 1; min-width: 90px; display: flex; align-items: center; gap: 0.3rem;">
-            <input type="number" class="custom-input w-full kpi-row-qty" min="1" max="${kpiActiveProducts[0].stock}" value="1" style="font-size:0.85rem; padding: 0.35rem 0.5rem;" />
-            <span class="kpi-row-unit text-muted" style="font-size:0.8rem;">${kpiActiveProducts[0].unit}</span>
+        <div class="d-flex align-items-center gap-1 flex-shrink-0" style="background: var(--surface-hover); border: 1px solid var(--border-color); border-radius: 6px; padding: 3px 8px;">
+            <span class="text-muted" style="font-size: 0.8rem; font-weight: 600;">SL:</span>
+            <input type="number" class="kpi-row-qty" min="1" max="${kpiActiveProducts[0].stock}" value="1" style="width: 46px; text-align: center; font-weight: 700; font-size: 0.95rem; background: transparent; border: none; outline: none; color: inherit; padding: 0;" />
+            <span class="kpi-row-unit text-muted" style="font-size: 0.82rem; font-weight: 600; min-width: 24px;">${kpiActiveProducts[0].unit}</span>
         </div>
-        <div style="width: 95px; text-align: right; font-weight: 600;" class="kpi-row-subtotal text-gold">
+        <div style="width: 105px; text-align: right; font-weight: 700; font-size: 1rem;" class="kpi-row-subtotal text-gold flex-shrink-0">
             ${formatVND(kpiActiveProducts[0].price)}
         </div>
-        <div>
-            <button type="button" class="btn-secondary btn-sm kpi-row-remove" style="color: var(--cinnabar); padding: 0.3rem 0.5rem;" title="Xóa món này">
+        <div class="flex-shrink-0">
+            <button type="button" class="btn-secondary btn-sm kpi-row-remove" style="color: var(--cinnabar); width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: rgba(220, 38, 38, 0.08); border: 1px solid rgba(220, 38, 38, 0.2);" title="Xóa món này">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
         </div>

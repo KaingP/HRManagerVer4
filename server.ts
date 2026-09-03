@@ -61,6 +61,11 @@ function resolveAppRoot(): string {
 const APP_ROOT = resolveAppRoot();
 
 // Middleware
+app.use((req, res, next) => {
+    res.removeHeader("X-Frame-Options");
+    res.setHeader("Content-Security-Policy", "frame-ancestors *");
+    next();
+});
 app.use(cors());
 app.use(express.json());
 
@@ -828,7 +833,13 @@ app.post("/api/member-auth/login", (req, res) => {
     return res.json({
         success: true,
         token,
-        member: { member_id: member.member_id, name: member.name },
+        member: {
+            id: member.member_id,
+            member_id: member.member_id,
+            name: member.name,
+            department: member.department || "",
+            phone: member.phone || "",
+        },
     });
 });
 
