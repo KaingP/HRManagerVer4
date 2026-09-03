@@ -38843,7 +38843,7 @@
       "unit": "Ly",
       "price": 20000,
       "initial_stock": 100,
-      "sold_count": 4,
+      "sold_count": 6,
       "note": ""
     },
     {
@@ -45664,6 +45664,26 @@
   "online_orders": [],
   "pickup_requests": [
     {
+      "id": "REQ_20260903_MMU5BV",
+      "member_id": "TV001",
+      "member_name": "Nguyễn Vân Anh",
+      "items": [
+        {
+          "product_id": "SP01",
+          "product_name": "Glutamic Acid",
+          "quantity": 2,
+          "unit_price": 20000,
+          "total_price": 40000
+        }
+      ],
+      "total_amount": 40000,
+      "payment_method": "VietQR",
+      "payment_status": "Đã xác nhận chuyển khoản",
+      "status": "Đã duyệt",
+      "qr_url": "https://img.vietqr.io/image/970422-0000000000-compact2.png?amount=40000&addInfo=REQ_20260903_MMU5BV&accountName=HUNG%20VUONG%20FB",
+      "created_at": "12:49:16 3/9/2026"
+    },
+    {
       "id": "REQ_20260903_UY5C4A",
       "member_id": "TV001",
       "member_name": "Nguyễn Vân Anh",
@@ -45783,6 +45803,11 @@
     "TV048": "HV@TV048",
     "TV049": "HV@TV049",
     "TV050": "HV@TV050"
+  },
+  "vietqr_config": {
+    "bank_id": "970422",
+    "account_no": "0000000000",
+    "account_name": "HUNG VUONG FB"
   },
   "competition_config": {
     "active_week": "Tuần 1",

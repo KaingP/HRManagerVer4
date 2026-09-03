@@ -331,7 +331,7 @@ function initTabs() {
         "tab-inventory": "Kho Hàng & Quản Lý Doanh Thu F&B",
         "tab-ca-ngoai": "Quản Lý & Phân Bổ Ca Bán Ngoài",
         "tab-analytics": "Báo Cáo Thống Kê & Heatmap Thời Gian Rảnh",
-        "tab-kpi": "Theo Dõi & Điểm Danh KPI Chuyên Cần Nhân Sự",
+        "tab-kpi": "Chạy KPI Lấy Hàng & Quản Lý Doanh Thu",
         "tab-competition": "Bảng Vàng Thi Đua Cá Nhân & Nhóm",
         "tab-audit": "Kiểm Tra Tính Hợp Lệ & Thẩm Định Quy Chuẩn",
         "tab-contingency": "Quản Lý Ca Vắng, Đi Trễ & Nhân Sự Dự Phòng",
@@ -7994,168 +7994,1451 @@ function pickupMemberFetch(url, options = {}) {
     });
 }
 
+let kpiActiveProducts = [];
+let kpiCurrentActiveQr = null;
+let kpiAdminAllRequests = [];
+let kpiAdminAllAccounts = [];
+let kpiMemberAllRequests = [];
+
 async function renderPickupRequestTab() {
     const tab = document.getElementById("tab-kpi");
     if (!tab) return;
-    tab.innerHTML = `<div class="glass-card" style="margin-bottom:1.5rem"><div class="card-header"><div><h2 style="margin:0"><i class="fa-solid fa-basket-shopping"></i> Yêu cầu lấy hàng</h2><p style="margin:.35rem 0 0;color:var(--ink-dim)">Tạo request, theo dõi thanh toán và nhận hàng theo tài khoản cá nhân.</p></div><span id="pickupMemberBadge" class="badge">${pickupMember ? pickupMember.name : "Chưa đăng nhập"}</span></div><div id="pickupRequestBody"></div></div>`;
-    const body = document.getElementById("pickupRequestBody");
-    if (!pickupMember && currentUserRole === "admin") {
-        body.innerHTML = `<p style="color:var(--ink-dim)">Admin đang ở chế độ xét duyệt request. Thành viên cần đăng nhập bằng tài khoản riêng để tạo đơn.</p>`;
-        loadAdminPickupRequests();
-        return;
+
+    updateKpiAccountBar();
+    initKpiGlobalListeners();
+    populateKpiQuickMemberSelect();
+
+    if (currentUserRole === "admin") {
+        const adminSec = document.getElementById("kpiAdminSection");
+        if (adminSec) adminSec.style.display = "block";
+        loadAdminKpiDashboard();
+        loadAdminMemberAccounts();
+        loadAdminVietqrConfig();
+    } else {
+        const adminSec = document.getElementById("kpiAdminSection");
+        if (adminSec) adminSec.style.display = "none";
     }
-    if (!pickupMember) {
-        body.innerHTML = `<form id="pickupLoginForm" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:620px"><input id="pickupMemberId" class="form-input" placeholder="ID thành viên" required><input id="pickupMemberPassword" class="form-input" type="password" placeholder="Mật khẩu riêng" required><button class="btn-primary" type="submit"><i class="fa-solid fa-right-to-bracket"></i> Đăng nhập</button><small style="color:var(--ink-dim);align-self:center">Tài khoản và mật khẩu do Admin cấp.</small></form>`;
-        document.getElementById("pickupLoginForm").onsubmit = async (event) => {
-            event.preventDefault();
-            const response = await fetch("/api/member-auth/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    member_id: document.getElementById("pickupMemberId").value,
-                    password: document.getElementById("pickupMemberPassword")
-                        .value,
-                }),
-            });
-            const data = await response.json();
-            if (!data.success) return showToast(data.message, "error");
-            pickupMemberToken = data.token;
-            pickupMember = data.member;
-            sessionStorage.setItem("hv_member_token", data.token);
-            sessionStorage.setItem("hv_member", JSON.stringify(data.member));
+
+    const loginPanel = document.getElementById("kpiMemberLoginPanel");
+    const workSec = document.getElementById("kpiMemberWorkSection");
+
+    if (pickupMember) {
+        if (loginPanel) loginPanel.style.display = "none";
+        if (workSec) workSec.style.display = "block";
+        await loadKpiInventoryProducts();
+        await loadMemberKpiDashboard();
+    } else {
+        // Enforce Login First
+        if (workSec) workSec.style.display = "none";
+        if (loginPanel) loginPanel.style.display = "block";
+    }
+}
+
+async function populateKpiQuickMemberSelect() {
+    const select = document.getElementById("selectKpiQuickMember");
+    if (!select || select.options.length > 1) return;
+
+    try {
+        const res = await fetch("/api/members");
+        const data = await res.json();
+        const members = data.members || [];
+        members.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.id;
+            opt.textContent = `${m.id} - ${m.name} (${m.department || "Thành viên"})`;
+            select.appendChild(opt);
+        });
+
+        select.onchange = () => {
+            const val = select.value;
+            const inputId = document.getElementById("inputKpiMemberId");
+            const inputPwd = document.getElementById("inputKpiPassword");
+            if (inputId) {
+                inputId.value = val;
+            }
+            if (inputPwd && val) {
+                inputPwd.focus();
+            }
+        };
+    } catch (err) {
+        console.warn("Could not load quick member list:", err);
+    }
+}
+
+function updateKpiAccountBar() {
+    const bar = document.getElementById("kpiAccountBar");
+    if (!bar) return;
+
+    let html = "";
+    if (pickupMember) {
+        html += `<span class="badge badge-gold" style="font-size:0.85rem; padding: 0.4rem 0.75rem;">
+            <i class="fa-solid fa-id-card"></i> ${pickupMember.id} - ${pickupMember.name} (${pickupMember.department || "Thành viên"})
+        </span>`;
+        html += `<button type="button" id="btnKpiChangePwd" class="btn-secondary btn-sm">
+            <i class="fa-solid fa-key"></i> Đổi Mật Khẩu
+        </button>`;
+        html += `<button type="button" id="btnKpiLogout" class="btn-secondary btn-sm" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3);">
+            <i class="fa-solid fa-right-from-bracket"></i> Đăng Xuất
+        </button>`;
+    } else {
+        html += `<span class="text-muted" style="font-size:0.85rem;">Chưa đăng nhập TV</span>`;
+        html += `<button type="button" id="btnKpiOpenLogin" class="btn-primary btn-sm">
+            <i class="fa-solid fa-right-to-bracket"></i> Đăng Nhập
+        </button>`;
+    }
+
+    if (currentUserRole === "admin") {
+        html += `<span class="badge" style="background: rgba(212,168,83,0.2); color: var(--goldleaf); border: 1px solid var(--goldleaf); font-size:0.85rem; padding: 0.4rem 0.75rem;">
+            <i class="fa-solid fa-shield-halved"></i> Quản Trị Viên (Admin)
+        </span>`;
+    }
+
+    bar.innerHTML = html;
+
+    const btnLogout = document.getElementById("btnKpiLogout");
+    if (btnLogout) {
+        btnLogout.onclick = () => {
+            sessionStorage.removeItem("hv_member_token");
+            sessionStorage.removeItem("hv_member");
+            pickupMemberToken = null;
+            pickupMember = null;
+            showToast("Đã đăng xuất tài khoản thành viên.", "info");
             renderPickupRequestTab();
         };
+    }
+
+    const btnChangePwd = document.getElementById("btnKpiChangePwd");
+    if (btnChangePwd) {
+        btnChangePwd.onclick = () => {
+            if (!pickupMember) return;
+            const spanId = document.getElementById("spanKpiChangePwdMemberId");
+            if (spanId) spanId.textContent = `${pickupMember.id} - ${pickupMember.name}`;
+            const errBox = document.getElementById("boxKpiChangePwdError");
+            if (errBox) errBox.style.display = "none";
+            const curInput = document.getElementById("inputKpiCurrentPwd");
+            const newInput = document.getElementById("inputKpiNewMemberPwd");
+            const confInput = document.getElementById("inputKpiConfirmNewMemberPwd");
+            if (curInput) curInput.value = "";
+            if (newInput) newInput.value = "";
+            if (confInput) confInput.value = "";
+            const modal = document.getElementById("modalKpiChangeMemberPwd");
+            if (modal) modal.classList.add("active");
+        };
+    }
+
+    const btnOpenLogin = document.getElementById("btnKpiOpenLogin");
+    if (btnOpenLogin) {
+        btnOpenLogin.onclick = () => {
+            const panel = document.getElementById("kpiMemberLoginPanel");
+            if (panel) {
+                panel.style.display = "block";
+                panel.scrollIntoView({ behavior: "smooth" });
+            }
+        };
+    }
+}
+
+let kpiListenersInitialized = false;
+function initKpiGlobalListeners() {
+    if (kpiListenersInitialized) return;
+    kpiListenersInitialized = true;
+
+    // Login Form
+    const btnSubmitLogin = document.getElementById("btnKpiSubmitLogin");
+    if (btnSubmitLogin) {
+        btnSubmitLogin.onclick = handleKpiMemberLogin;
+    }
+    const inputPwd = document.getElementById("inputKpiPassword");
+    if (inputPwd) {
+        inputPwd.onkeydown = (e) => {
+            if (e.key === "Enter") handleKpiMemberLogin();
+        };
+    }
+    const btnTogglePwd = document.getElementById("btnToggleKpiPwd");
+    if (btnTogglePwd && inputPwd) {
+        btnTogglePwd.onclick = () => {
+            if (inputPwd.type === "password") {
+                inputPwd.type = "text";
+                btnTogglePwd.innerHTML = `<i class="fa-regular fa-eye-slash"></i>`;
+            } else {
+                inputPwd.type = "password";
+                btnTogglePwd.innerHTML = `<i class="fa-regular fa-eye"></i>`;
+            }
+        };
+    }
+
+    // Modal Close buttons
+    const btnCloseQrZoom = document.getElementById("btnCloseKpiQrZoom");
+    if (btnCloseQrZoom) {
+        btnCloseQrZoom.onclick = () => {
+            const m = document.getElementById("modalKpiQrZoom");
+            if (m) m.classList.remove("active");
+        };
+    }
+    const btnCloseChangePwd = document.getElementById("btnCloseKpiChangePwdModal");
+    if (btnCloseChangePwd) {
+        btnCloseChangePwd.onclick = () => {
+            const m = document.getElementById("modalKpiChangeMemberPwd");
+            if (m) m.classList.remove("active");
+        };
+    }
+    const btnCloseAdminReset = document.getElementById("btnCloseKpiAdminResetPwdModal");
+    if (btnCloseAdminReset) {
+        btnCloseAdminReset.onclick = () => {
+            const m = document.getElementById("modalKpiAdminResetPwd");
+            if (m) m.classList.remove("active");
+        };
+    }
+
+    // Member Submit Change Password
+    const btnSubmitChangePwd = document.getElementById("btnSubmitKpiMemberChangePwd");
+    if (btnSubmitChangePwd) {
+        btnSubmitChangePwd.onclick = handleMemberSubmitChangePwd;
+    }
+
+    // Admin Reset Password Submit
+    const btnSubmitAdminReset = document.getElementById("btnSubmitKpiAdminResetPwd");
+    if (btnSubmitAdminReset) {
+        btnSubmitAdminReset.onclick = handleAdminSubmitResetPwd;
+    }
+
+    // Admin Fill Default Password
+    const btnFillDefault = document.getElementById("btnKpiFillDefaultPwd");
+    if (btnFillDefault) {
+        btnFillDefault.onclick = () => {
+            const mId = document.getElementById("inputAdminResetMemberId")?.value;
+            const inputNew = document.getElementById("inputAdminResetNewPwd");
+            if (mId && inputNew) {
+                inputNew.value = `HV@${mId}`;
+            }
+        };
+    }
+
+    // Payment Tile Selection Interactions
+    const paymentTilesConfig = [
+        { tileId: "tile_qr_now", radioId: "radio_qr_now", value: "qr_now" },
+        { tileId: "tile_qr_later", radioId: "radio_qr_later", value: "qr_later" },
+        { tileId: "tile_cash", radioId: "radio_cash", value: "cash" }
+    ];
+
+    function selectPaymentTile(val) {
+        paymentTilesConfig.forEach(cfg => {
+            const tile = document.getElementById(cfg.tileId);
+            const radio = document.getElementById(cfg.radioId);
+            if (cfg.value === val) {
+                if (radio) radio.checked = true;
+                if (tile) {
+                    tile.classList.add("active");
+                    tile.style.border = "2px solid var(--goldleaf)";
+                    tile.style.background = "rgba(212, 168, 83, 0.12)";
+                }
+            } else {
+                if (tile) {
+                    tile.classList.remove("active");
+                    tile.style.border = "1px solid rgba(255, 255, 255, 0.12)";
+                    tile.style.background = "rgba(0, 0, 0, 0.25)";
+                }
+            }
+        });
+    }
+
+    paymentTilesConfig.forEach(cfg => {
+        const tile = document.getElementById(cfg.tileId);
+        const radio = document.getElementById(cfg.radioId);
+        if (tile) {
+            tile.onclick = () => selectPaymentTile(cfg.value);
+        }
+        if (radio) {
+            radio.onchange = () => selectPaymentTile(cfg.value);
+        }
+    });
+
+    // Add Order Item Button
+    const btnAddItem = document.getElementById("btnKpiAddOrderItem");
+    if (btnAddItem) {
+        btnAddItem.onclick = () => addKpiOrderItemRow();
+    }
+
+    // Submit Order Button
+    const btnSubmitOrder = document.getElementById("btnKpiSubmitOrder");
+    if (btnSubmitOrder) {
+        btnSubmitOrder.onclick = handleKpiSubmitOrder;
+    }
+
+    // Active QR Box Actions
+    const btnConfirmTrans = document.getElementById("btnKpiConfirmTransferAction");
+    if (btnConfirmTrans) {
+        btnConfirmTrans.onclick = () => {
+            if (kpiCurrentActiveQr) {
+                confirmMemberPayment(kpiCurrentActiveQr.id, "confirm_transfer");
+            }
+        };
+    }
+    const btnPayLater = document.getElementById("btnKpiPayLaterAction");
+    if (btnPayLater) {
+        btnPayLater.onclick = () => {
+            if (kpiCurrentActiveQr) {
+                confirmMemberPayment(kpiCurrentActiveQr.id, "pay_later");
+            }
+        };
+    }
+    const btnPayCash = document.getElementById("btnKpiPayCashAction");
+    if (btnPayCash) {
+        btnPayCash.onclick = () => {
+            if (kpiCurrentActiveQr) {
+                confirmMemberPayment(kpiCurrentActiveQr.id, "paid_cash");
+            }
+        };
+    }
+
+    // Modal QR Zoom Buttons
+    const btnModalClose = document.getElementById("btnModalKpiClose");
+    if (btnModalClose) {
+        btnModalClose.onclick = () => document.getElementById("modalKpiQrZoom")?.classList.remove("active");
+    }
+    const btnModalConfirm = document.getElementById("btnModalKpiConfirmTransfer");
+    if (btnModalConfirm) {
+        btnModalConfirm.onclick = () => {
+            if (kpiCurrentActiveQr) {
+                autoConfirmMemberRequest(kpiCurrentActiveQr.id);
+            }
+        };
+    }
+
+    // Refresh member orders
+    const btnRefreshMember = document.getElementById("btnRefreshKpiMemberOrders");
+    if (btnRefreshMember) {
+        btnRefreshMember.onclick = () => loadMemberKpiDashboard();
+    }
+    const filterMemberStatus = document.getElementById("selectKpiFilterMemberStatus");
+    if (filterMemberStatus) {
+        filterMemberStatus.onchange = () => renderMemberKpiOrders(kpiMemberAllRequests);
+    }
+
+    // Admin subtabs
+    document.querySelectorAll(".kpi-admin-subtab").forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll(".kpi-admin-subtab").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const target = btn.dataset.subtab;
+            document.querySelectorAll(".kpi-subtab-content").forEach(c => c.style.display = "none");
+            if (target === "kpi-subtab-requests") {
+                document.getElementById("kpiSubtabRequests").style.display = "block";
+            } else if (target === "kpi-subtab-accounts") {
+                document.getElementById("kpiSubtabAccounts").style.display = "block";
+            } else if (target === "kpi-subtab-vietqr") {
+                document.getElementById("kpiSubtabVietqr").style.display = "block";
+            }
+        };
+    });
+
+    // Admin requests filters & sorting
+    const adminSearch = document.getElementById("inputKpiAdminSearch");
+    if (adminSearch) {
+        adminSearch.oninput = () => filterAndRenderAdminRequests();
+    }
+    const adminFilterApprove = document.getElementById("selectKpiAdminFilterApproval");
+    if (adminFilterApprove) {
+        adminFilterApprove.onchange = () => filterAndRenderAdminRequests();
+    }
+    const adminFilterPayment = document.getElementById("selectKpiAdminFilterPayment");
+    if (adminFilterPayment) {
+        adminFilterPayment.onchange = () => filterAndRenderAdminRequests();
+    }
+    const adminSort = document.getElementById("selectKpiAdminSort");
+    if (adminSort) {
+        adminSort.onchange = () => filterAndRenderAdminRequests();
+    }
+    const btnRefreshAdmin = document.getElementById("btnRefreshAdminRequests");
+    if (btnRefreshAdmin) {
+        btnRefreshAdmin.onclick = () => loadAdminKpiDashboard();
+    }
+
+    // Admin account search
+    const accountSearch = document.getElementById("inputKpiSearchAccount");
+    if (accountSearch) {
+        accountSearch.oninput = () => renderAdminMemberAccounts(kpiAdminAllAccounts);
+    }
+
+    // Admin save VietQR config
+    const btnSaveVietqr = document.getElementById("btnKpiSaveVietqrConfig");
+    if (btnSaveVietqr) {
+        btnSaveVietqr.onclick = handleSaveAdminVietqrConfig;
+    }
+}
+
+async function handleKpiMemberLogin() {
+    const idInput = document.getElementById("inputKpiMemberId");
+    const pwdInput = document.getElementById("inputKpiPassword");
+    const errBox = document.getElementById("kpiLoginErrorMsg");
+    if (!idInput || !pwdInput) return;
+
+    const member_id = idInput.value.trim().toUpperCase();
+    const password = pwdInput.value;
+
+    if (!member_id || !password) {
+        if (errBox) {
+            errBox.textContent = "Vui lòng nhập đầy đủ Mã thành viên và Mật khẩu!";
+            errBox.style.display = "block";
+        }
         return;
     }
-    const inventory = await fetch("/api/inventory")
-        .then((response) => response.json())
-        .catch(() => ({ products: [] }));
-    const products = (inventory.products || []).filter(
-        (product) =>
-            (product.initial_stock || 0) - (product.sold_count || 0) > 0,
-    );
-    body.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button id="pickupLogout" class="btn-secondary">Đăng xuất</button></div><form id="pickupOrderForm"><div id="pickupProductRows"></div><button type="button" id="pickupAddRow" class="btn-secondary"><i class="fa-solid fa-plus"></i> Thêm sản phẩm</button><select id="pickupPaymentMethod" class="form-input" style="margin:12px 0;max-width:220px"><option value="VietQR">VietQR</option><option value="Tiền mặt">Tiền mặt</option></select><button class="btn-primary" type="submit"><i class="fa-solid fa-paper-plane"></i> Tạo request</button></form><div id="pickupRequestsList" style="margin-top:24px"></div>`;
-    const rows = document.getElementById("pickupProductRows");
-    const addRow = () => {
-        const row = document.createElement("div");
-        row.style.cssText =
-            "display:grid;grid-template-columns:1fr 120px;gap:10px;margin-bottom:8px";
-        row.innerHTML = `<select class="form-input pickup-product">${products.map((product) => `<option value="${product.id}">${product.name} - ${formatVND(product.price)} (còn ${(product.initial_stock || 0) - (product.sold_count || 0)})</option>`).join("")}</select><input class="form-input pickup-quantity" type="number" min="1" value="1" required>`;
-        rows.appendChild(row);
-    };
-    addRow();
-    document.getElementById("pickupAddRow").onclick = addRow;
-    document.getElementById("pickupLogout").onclick = () => {
-        sessionStorage.removeItem("hv_member_token");
-        sessionStorage.removeItem("hv_member");
-        pickupMemberToken = null;
-        pickupMember = null;
+
+    try {
+        const res = await fetch("/api/member-auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ member_id, password })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            if (errBox) {
+                errBox.textContent = data.message || "Đăng nhập thất bại. Kiểm tra lại ID hoặc Mật khẩu.";
+                errBox.style.display = "block";
+            }
+            return;
+        }
+
+        pickupMemberToken = data.token;
+        pickupMember = data.member;
+        sessionStorage.setItem("hv_member_token", data.token);
+        sessionStorage.setItem("hv_member", JSON.stringify(data.member));
+
+        if (errBox) errBox.style.display = "none";
+        showToast(`Chào mừng ${pickupMember.name} (${pickupMember.id})!`, "success");
         renderPickupRequestTab();
+    } catch (err) {
+        if (errBox) {
+            errBox.textContent = "Lỗi kết nối máy chủ: " + err.message;
+            errBox.style.display = "block";
+        }
+    }
+}
+
+async function handleMemberSubmitChangePwd() {
+    const curPwd = document.getElementById("inputKpiCurrentPwd")?.value;
+    const newPwd = document.getElementById("inputKpiNewMemberPwd")?.value;
+    const confPwd = document.getElementById("inputKpiConfirmNewMemberPwd")?.value;
+    const errBox = document.getElementById("boxKpiChangePwdError");
+
+    if (!curPwd || !newPwd || !confPwd) {
+        if (errBox) {
+            errBox.textContent = "Vui lòng điền đủ tất cả các trường mật khẩu.";
+            errBox.style.display = "block";
+        }
+        return;
+    }
+    if (newPwd.length < 6) {
+        if (errBox) {
+            errBox.textContent = "Mật khẩu mới phải có ít nhất 6 ký tự.";
+            errBox.style.display = "block";
+        }
+        return;
+    }
+    if (newPwd !== confPwd) {
+        if (errBox) {
+            errBox.textContent = "Mật khẩu mới và xác nhận mật khẩu không khớp!";
+            errBox.style.display = "block";
+        }
+        return;
+    }
+
+    try {
+        const res = await pickupMemberFetch("/api/member-auth/change-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ current_password: curPwd, new_password: newPwd })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            if (errBox) {
+                errBox.textContent = data.message || "Đổi mật khẩu thất bại.";
+                errBox.style.display = "block";
+            }
+            return;
+        }
+
+        showToast("Đổi mật khẩu thành công! Hãy lưu lại mật khẩu mới.", "success");
+        document.getElementById("modalKpiChangeMemberPwd")?.classList.remove("active");
+    } catch (err) {
+        if (errBox) {
+            errBox.textContent = "Lỗi: " + err.message;
+            errBox.style.display = "block";
+        }
+    }
+}
+
+async function loadKpiInventoryProducts() {
+    try {
+        const res = await fetch("/api/inventory");
+        const data = await res.json();
+        const prods = data.products || [];
+        kpiActiveProducts = prods.map(p => {
+            const stock = Math.max(0, (p.initial_stock || 0) - (p.sold_count || 0));
+            return {
+                id: p.id,
+                name: p.name,
+                price: Number(p.price || 0),
+                unit: p.unit || "món",
+                stock
+            };
+        }).filter(p => p.stock > 0);
+
+        const container = document.getElementById("kpiOrderItemsContainer");
+        if (container && container.children.length === 0) {
+            addKpiOrderItemRow();
+        }
+    } catch (err) {
+        console.error("Lỗi tải danh mục kho:", err);
+    }
+}
+
+function addKpiOrderItemRow() {
+    const container = document.getElementById("kpiOrderItemsContainer");
+    if (!container) return;
+
+    if (kpiActiveProducts.length === 0) {
+        container.innerHTML = `<div class="alert alert-warning" style="font-size:0.85rem; padding:0.6rem;">
+            <i class="fa-solid fa-triangle-exclamation"></i> Kho hiện tại đã hết sản phẩm có sẵn.
+        </div>`;
+        return;
+    }
+
+    const row = document.createElement("div");
+    row.className = "kpi-order-row d-flex align-items-center gap-2 mb-2";
+    row.style.cssText = "background: rgba(0,0,0,0.2); padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid rgba(212,168,83,0.15); flex-wrap: wrap;";
+
+    let optionsHtml = kpiActiveProducts.map(p => 
+        `<option value="${p.id}" data-price="${p.price}" data-unit="${p.unit}" data-stock="${p.stock}">
+            ${p.name} - ${formatVND(p.price)} (Còn: ${p.stock} ${p.unit})
+        </option>`
+    ).join("");
+
+    row.innerHTML = `
+        <div style="flex: 2; min-width: 180px;">
+            <select class="custom-select w-full kpi-row-prod" style="font-size:0.85rem;">
+                ${optionsHtml}
+            </select>
+        </div>
+        <div style="flex: 1; min-width: 90px; display: flex; align-items: center; gap: 0.3rem;">
+            <input type="number" class="custom-input w-full kpi-row-qty" min="1" max="${kpiActiveProducts[0].stock}" value="1" style="font-size:0.85rem; padding: 0.35rem 0.5rem;" />
+            <span class="kpi-row-unit text-muted" style="font-size:0.8rem;">${kpiActiveProducts[0].unit}</span>
+        </div>
+        <div style="width: 95px; text-align: right; font-weight: 600;" class="kpi-row-subtotal text-gold">
+            ${formatVND(kpiActiveProducts[0].price)}
+        </div>
+        <div>
+            <button type="button" class="btn-secondary btn-sm kpi-row-remove" style="color: var(--cinnabar); padding: 0.3rem 0.5rem;" title="Xóa món này">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        </div>
+    `;
+
+    const selectProd = row.querySelector(".kpi-row-prod");
+    const inputQty = row.querySelector(".kpi-row-qty");
+    const unitSpan = row.querySelector(".kpi-row-unit");
+    const subtotalDiv = row.querySelector(".kpi-row-subtotal");
+    const btnRemove = row.querySelector(".kpi-row-remove");
+
+    const updateRow = () => {
+        const selectedOpt = selectProd.options[selectProd.selectedIndex];
+        const price = Number(selectedOpt.dataset.price || 0);
+        const maxStock = Number(selectedOpt.dataset.stock || 1);
+        const unit = selectedOpt.dataset.unit || "món";
+
+        unitSpan.textContent = unit;
+        inputQty.max = maxStock;
+
+        let qty = parseInt(inputQty.value) || 1;
+        if (qty < 1) qty = 1;
+        if (qty > maxStock) qty = maxStock;
+        inputQty.value = qty;
+
+        subtotalDiv.textContent = formatVND(price * qty);
+        calculateKpiOrderTotal();
     };
-    document.getElementById("pickupOrderForm").onsubmit = async (event) => {
-        event.preventDefault();
-        const items = [...document.querySelectorAll(".pickup-product")].map(
-            (select, index) => ({
-                product_id: select.value,
-                quantity: Number(
-                    document.querySelectorAll(".pickup-quantity")[index].value,
-                ),
-            }),
-        );
-        const response = await pickupMemberFetch("/api/pickup-requests", {
+
+    selectProd.onchange = updateRow;
+    inputQty.oninput = updateRow;
+    btnRemove.onclick = () => {
+        if (container.children.length > 1) {
+            row.remove();
+            calculateKpiOrderTotal();
+        } else {
+            showToast("Đơn hàng cần ít nhất 1 sản phẩm!", "warning");
+        }
+    };
+
+    container.appendChild(row);
+    calculateKpiOrderTotal();
+}
+
+function calculateKpiOrderTotal() {
+    let total = 0;
+    const rows = document.querySelectorAll(".kpi-order-row");
+    rows.forEach(r => {
+        const selectProd = r.querySelector(".kpi-row-prod");
+        const inputQty = r.querySelector(".kpi-row-qty");
+        if (selectProd && inputQty) {
+            const selectedOpt = selectProd.options[selectProd.selectedIndex];
+            const price = Number(selectedOpt?.dataset.price || 0);
+            const qty = parseInt(inputQty.value) || 0;
+            total += price * qty;
+        }
+    });
+
+    const totalEl = document.getElementById("kpiOrderTotalAmountText");
+    if (totalEl) totalEl.textContent = formatVND(total);
+    return total;
+}
+
+async function handleKpiSubmitOrder() {
+    if (!pickupMember) {
+        showToast("Vui lòng đăng nhập tài khoản thành viên để lấy hàng!", "error");
+        return;
+    }
+
+    const rows = document.querySelectorAll(".kpi-order-row");
+    const items = [];
+
+    rows.forEach(r => {
+        const selectProd = r.querySelector(".kpi-row-prod");
+        const inputQty = r.querySelector(".kpi-row-qty");
+        if (selectProd && inputQty) {
+            const product_id = selectProd.value;
+            const quantity = parseInt(inputQty.value) || 0;
+            if (quantity > 0) {
+                items.push({ product_id, quantity });
+            }
+        }
+    });
+
+    if (items.length === 0) {
+        showToast("Vui lòng chọn ít nhất 1 món hàng để lấy!", "warning");
+        return;
+    }
+
+    const payOption = document.querySelector('input[name="kpiPaymentOption"]:checked')?.value || "qr_now";
+    const note = document.getElementById("inputKpiOrderNote")?.value || "";
+
+    let payment_method = "VietQR";
+    let payment_timing = "immediate";
+
+    if (payOption === "cash") {
+        payment_method = "Tiền mặt";
+        payment_timing = "later";
+    } else if (payOption === "qr_later") {
+        payment_method = "VietQR";
+        payment_timing = "later";
+    } else {
+        payment_method = "VietQR";
+        payment_timing = "immediate";
+    }
+
+    const btnSubmit = document.getElementById("btnKpiSubmitOrder");
+    if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang tạo đơn và trừ tồn kho...`;
+    }
+
+    try {
+        const res = await pickupMemberFetch("/api/pickup-requests", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 items,
-                payment_method: document.getElementById("pickupPaymentMethod")
-                    .value,
-            }),
+                payment_method,
+                payment_timing,
+                note
+            })
         });
-        const data = await response.json();
-        if (!data.success) return showToast(data.message, "error");
-        showToast(`Đã tạo ${data.request.id}`, "success");
-        loadPickupRequests();
-    };
-    loadPickupRequests();
-    if (currentUserRole === "admin") loadAdminPickupRequests();
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Tạo yêu cầu lấy hàng thất bại!", "error");
+            return;
+        }
+
+        // Clear or reset items
+        const container = document.getElementById("kpiOrderItemsContainer");
+        if (container) container.innerHTML = "";
+        const noteInput = document.getElementById("inputKpiOrderNote");
+        if (noteInput) noteInput.value = "";
+
+        // Reload inventory & member requests
+        await loadKpiInventoryProducts();
+        await loadMemberKpiDashboard();
+
+        // If choosing QR Now, immediately open QR popup for instant payment & confirmation
+        if (payOption === "qr_now" && data.request && data.request.qr_url) {
+            showToast(`Đã tạo yêu cầu lấy hàng (${data.request.id})! Quét mã QR để chuyển khoản.`, "success");
+            showActiveKpiQr(data.request);
+            openKpiQrZoomModal(data.request);
+        } else {
+            showToast(`Đã tạo yêu cầu lấy hàng thành công (Mã: ${data.request.id})! Đơn hàng được lưu vào lịch sử bên dưới.`, "success");
+            showActiveKpiQr(data.request);
+        }
+
+        // Notify topbar inventory reload if available
+        if (typeof loadInventoryData === "function") {
+            loadInventoryData();
+        }
+    } catch (err) {
+        showToast("Lỗi khi tạo đơn: " + err.message, "error");
+    } finally {
+        if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Tạo Request Lấy Hàng (Trừ Kho)`;
+        }
+    }
 }
 
-async function loadPickupRequests() {
-    const data = await pickupMemberFetch("/api/pickup-requests").then(
-        (response) => response.json(),
-    );
-    const target = document.getElementById("pickupRequestsList");
-    if (!target || !data.success) return;
-    target.innerHTML =
-        `<h3>Lịch sử request của tôi</h3>` +
-            (data.requests || [])
-                .map(
-                    (request) =>
-                        `<article class="glass-card" style="padding:12px;margin:8px 0"><strong>${request.id}</strong> · ${request.status} · ${request.payment_status}<div>${request.items.map((item) => `${item.product_name} x${item.quantity}`).join(", ")} · <b>${formatVND(request.total_amount)}</b></div>${request.status === "Chờ Admin duyệt" ? `<button class="btn-secondary pickup-confirm" data-id="${request.id}" style="margin-top:8px">${request.payment_method === "VietQR" ? "Xác nhận đã chuyển khoản" : "Xác nhận dùng tiền mặt"}</button>${request.payment_method === "VietQR" ? `<img src="${request.qr_url}" alt="VietQR ${request.id}" style="display:block;width:220px;max-width:100%;margin-top:10px">` : ""}` : ""}</article>`,
-                )
-                .join("") ||
-        `<p style="color:var(--ink-dim)">Chưa có request.</p>`;
-    target.querySelectorAll(".pickup-confirm").forEach(
-        (button) =>
-            (button.onclick = async () => {
-                await pickupMemberFetch(
-                    `/api/pickup-requests/${button.dataset.id}/payment-confirmation`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            payment_method: button.textContent.includes(
-                                "chuyển",
-                            )
-                                ? "VietQR"
-                                : "Tiền mặt",
-                        }),
-                    },
-                );
-                loadPickupRequests();
-            }),
-    );
+async function loadMemberKpiDashboard() {
+    if (!pickupMember) return;
+
+    try {
+        const res = await pickupMemberFetch("/api/pickup-requests");
+        const data = await res.json();
+        if (!data.success) return;
+
+        kpiMemberAllRequests = data.requests || [];
+        const stats = data.stats || {};
+
+        const elOrders = document.getElementById("kpiUserStatOrders");
+        const elTotal = document.getElementById("kpiUserStatTotalAmount");
+        const elPending = document.getElementById("kpiUserStatPendingAmount");
+        const elPaid = document.getElementById("kpiUserStatPaidAmount");
+
+        if (elOrders) elOrders.textContent = `${stats.total_orders || 0} đơn`;
+        if (elTotal) elTotal.textContent = formatVND(stats.total_amount || 0);
+        if (elPending) elPending.textContent = formatVND(stats.pending_amount || 0);
+        if (elPaid) elPaid.textContent = formatVND(stats.paid_amount || 0);
+
+        renderMemberKpiOrders(kpiMemberAllRequests);
+
+        // Auto select latest request for QR if none is active
+        if (!kpiCurrentActiveQr && kpiMemberAllRequests.length > 0) {
+            showActiveKpiQr(kpiMemberAllRequests[0]);
+        }
+    } catch (err) {
+        console.error("Lỗi tải dashboard KPI thành viên:", err);
+    }
 }
 
-async function loadAdminPickupRequests() {
-    const body = document.getElementById("pickupRequestBody");
-    if (!body) return;
-    const data = await authFetch("/api/admin/pickup-requests")
-        .then((response) => response.json())
-        .catch(() => ({ requests: [] }));
-    if (!data.requests?.length) return;
-    const panel = document.createElement("div");
-    panel.innerHTML =
-        `<hr><h3>Admin xét duyệt</h3>` +
-        data.requests
-            .filter((request) => request.status === "Chờ Admin duyệt")
-            .map(
-                (request) =>
-                    `<div class="glass-card" style="padding:12px;margin:8px 0"><strong>${request.id}</strong> · ${request.member_name} · ${formatVND(request.total_amount)} · ${request.payment_status}<button class="btn-primary admin-pickup-decision" data-id="${request.id}" style="margin-left:10px">Duyệt đã thanh toán</button><button class="btn-secondary admin-pickup-reject" data-id="${request.id}" style="margin-left:8px">Từ chối</button></div>`,
-            )
-            .join("");
-    body.appendChild(panel);
-    panel.querySelectorAll("button").forEach(
-        (button) =>
-            (button.onclick = async () => {
-                await authFetch(
-                    `/api/admin/pickup-requests/${button.dataset.id}/decision`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            decision: button.classList.contains(
-                                "admin-pickup-decision",
-                            )
-                                ? "approve"
-                                : "reject",
-                        }),
-                    },
-                );
-                renderPickupRequestTab();
-            }),
-    );
+function renderMemberKpiOrders(requests) {
+    const tbody = document.getElementById("tbodyKpiMemberOrders");
+    if (!tbody) return;
+
+    const filter = document.getElementById("selectKpiFilterMemberStatus")?.value || "all";
+    let filtered = requests || [];
+
+    if (filter === "pending") {
+        filtered = filtered.filter(r => !(r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán") && r.status !== "Đã hủy" && r.status !== "Từ chối");
+    } else if (filter === "approved") {
+        filtered = filtered.filter(r => r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
+    } else if (filter === "unpaid") {
+        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "Từ chối" && r.status !== "Đã hủy");
+    } else if (filter === "paid") {
+        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán");
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr>
+            <td colspan="8" class="text-center py-4 text-muted">
+                <i class="fa-solid fa-box-archive"></i> Không có đơn lấy hàng nào phù hợp với bộ lọc.
+            </td>
+        </tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(r => {
+        const isConfirmed = r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán";
+        const isCancelled = r.status === "Đã hủy" || r.status === "Từ chối";
+
+        // Status Badge & Confirmation Badge
+        let statusBadge = "";
+        if (isConfirmed) {
+            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã xác nhận</span>`;
+        } else if (isCancelled) {
+            statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+        } else {
+            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chưa xác nhận</span>`;
+        }
+
+        // Payment detail badge
+        let payBadge = "";
+        if (isConfirmed) {
+            payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
+        } else if (isCancelled) {
+            payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+        } else if (r.payment_method === "Tiền mặt") {
+            payBadge = `<span class="badge badge-gold"><i class="fa-solid fa-hand-holding-dollar"></i> Tiền mặt (Chưa xác nhận)</span>`;
+        } else if (r.payment_timing === "later" || r.payment_status === "Chờ thanh toán (Chuyển sau)") {
+            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-hourglass-end"></i> Chuyển sau</span>`;
+        } else {
+            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-qrcode"></i> VietQR (Chưa xác nhận)</span>`;
+        }
+
+        // Items summary
+        const itemsSummary = (r.items || []).map(i => `${i.product_name} <b>x${i.quantity}</b>`).join(", ");
+
+        // Action buttons (Thành viên không được hủy đơn, chỉ có thể xem QR chuyển sau hoặc xem QR)
+        let actions = ``;
+        if (r.qr_url && !isCancelled) {
+            if (!isConfirmed) {
+                actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" style="color: var(--goldleaf); border-color: rgba(212,168,83,0.4);" title="Xem mã VietQR để chuyển khoản">
+                    <i class="fa-solid fa-qrcode"></i> Xem QR chuyển sau
+                </button>`;
+            } else {
+                actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" title="Xem lại mã VietQR">
+                    <i class="fa-solid fa-qrcode"></i> Xem QR
+                </button>`;
+            }
+        } else if (isCancelled) {
+            actions += `<span class="text-muted" style="font-size:0.8rem;">Đã hủy</span>`;
+        } else {
+            actions += `<span class="text-muted" style="font-size:0.8rem;">Tiền mặt</span>`;
+        }
+
+        return `<tr>
+            <td><strong class="text-gold" style="cursor:pointer;" onclick="viewMemberRequestQr('${r.id}')">${r.id}</strong></td>
+            <td class="text-muted" style="font-size:0.8rem;">${r.created_at || "---"}</td>
+            <td style="max-width: 200px; font-size: 0.85rem;">${itemsSummary}</td>
+            <td><strong class="text-gold">${formatVND(r.total_amount)}</strong></td>
+            <td><span class="badge" style="background: rgba(0,0,0,0.3);">${r.payment_method}</span></td>
+            <td>${statusBadge}</td>
+            <td>${payBadge}</td>
+            <td class="text-right" style="white-space: nowrap;">${actions}</td>
+        </tr>`;
+    }).join("");
+
+    // Bind item action clicks
+    tbody.querySelectorAll(".kpi-btn-show-qr").forEach(btn => {
+        btn.onclick = () => {
+            const req = requests.find(r => r.id === btn.dataset.id);
+            if (req) {
+                showActiveKpiQr(req);
+                openKpiQrZoomModal(req);
+            }
+        };
+    });
 }
+
+function viewMemberRequestQr(requestId) {
+    const req = kpiMemberAllRequests.find(r => r.id === requestId) || kpiAdminAllRequests.find(r => r.id === requestId);
+    if (req) {
+        showActiveKpiQr(req);
+        openKpiQrZoomModal(req);
+    }
+}
+
+function showActiveKpiQr(request) {
+    kpiCurrentActiveQr = request;
+
+    const placeholder = document.getElementById("kpiQrPlaceholder");
+    const activeView = document.getElementById("kpiQrActiveView");
+    if (!activeView) return;
+
+    if (!request || !request.qr_url) {
+        if (placeholder) placeholder.style.display = "block";
+        activeView.style.display = "none";
+        return;
+    }
+
+    if (placeholder) placeholder.style.display = "none";
+    activeView.style.display = "block";
+
+    const qrImg = document.getElementById("kpiQrActiveImg");
+    const reqIdEl = document.getElementById("kpiQrActiveReqId");
+    const amountEl = document.getElementById("kpiQrActiveAmount");
+    const memoEl = document.getElementById("kpiQrActiveMemo");
+    const badgeEl = document.getElementById("kpiActiveQrBadge");
+
+    if (qrImg) {
+        qrImg.src = request.qr_url;
+        qrImg.style.cursor = "pointer";
+        qrImg.title = "Bấm vào ảnh để phóng to";
+        qrImg.onclick = () => openKpiQrZoomModal(request);
+    }
+    if (reqIdEl) reqIdEl.textContent = request.id;
+    if (amountEl) amountEl.textContent = formatVND(request.total_amount);
+    if (memoEl) memoEl.textContent = request.id;
+    if (badgeEl) badgeEl.textContent = `Đơn: ${request.id}`;
+}
+
+function openKpiQrZoomModal(request) {
+    if (!request) return;
+    kpiCurrentActiveQr = request;
+    const modal = document.getElementById("modalKpiQrZoom");
+    if (!modal) return;
+
+    const img = document.getElementById("modalKpiQrImg");
+    const reqId = document.getElementById("modalKpiQrReqId");
+    const amount = document.getElementById("modalKpiQrAmount");
+    const memo = document.getElementById("modalKpiQrMemo");
+
+    if (img) img.src = request.qr_url || "";
+    if (reqId) reqId.textContent = request.id;
+    if (amount) amount.textContent = formatVND(request.total_amount);
+    if (memo) memo.textContent = request.id;
+
+    modal.classList.add("active");
+}
+
+async function autoConfirmMemberRequest(requestId) {
+    if (!requestId) return;
+
+    const btnConfirm = document.getElementById("btnModalKpiConfirmTransfer");
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang xác nhận chuyển khoản...`;
+    }
+
+    try {
+        const res = await pickupMemberFetch(`/api/pickup-requests/${requestId}/auto-confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Tự động xác nhận thất bại!", "error");
+            return;
+        }
+
+        showToast(data.message || "Thanh toán thành công! Giao dịch đã được tự động xác nhận.", "success");
+        document.getElementById("modalKpiQrZoom")?.classList.remove("active");
+
+        await loadKpiInventoryProducts();
+        await loadMemberKpiDashboard();
+        if (currentUserRole === "admin") {
+            await loadAdminKpiDashboard();
+        }
+        if (typeof loadInventoryData === "function") {
+            loadInventoryData();
+        }
+    } catch (err) {
+        showToast("Lỗi xác nhận: " + err.message, "error");
+    } finally {
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            btnConfirm.innerHTML = `<i class="fa-solid fa-circle-check"></i> Tôi Đã Chuyển Khoản (Tự Động Xác Nhận)`;
+        }
+    }
+}
+
+async function confirmMemberPayment(requestId, actionType) {
+    let action = "confirm_transfer";
+    let payment_method = "VietQR";
+    let msgSuccess = "Đã gửi thông báo xác nhận chuyển khoản!";
+
+    if (actionType === "paid_cash") {
+        action = "paid_cash";
+        payment_method = "Tiền mặt";
+        msgSuccess = "Đã cập nhật phương thức sang Đưa Tiền Mặt cho Quản lý!";
+    } else if (actionType === "pay_later") {
+        action = "pay_later";
+        payment_method = "VietQR";
+        msgSuccess = "Đã đăng ký Chuyển Khoản Sau!";
+    }
+
+    try {
+        const res = await pickupMemberFetch(`/api/pickup-requests/${requestId}/payment-confirmation`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, payment_method })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Cập nhật thất bại!", "error");
+            return;
+        }
+
+        showToast(msgSuccess, "success");
+        await loadMemberKpiDashboard();
+        if (currentUserRole === "admin") {
+            await loadAdminKpiDashboard();
+        }
+    } catch (err) {
+        showToast("Lỗi: " + err.message, "error");
+    }
+}
+
+async function cancelMemberPickupRequest(requestId) {
+    if (!confirm(`Bạn có chắc chắn muốn hủy đơn hàng ${requestId}? Các sản phẩm sẽ được tự động hoàn trả lại tồn kho.`)) {
+        return;
+    }
+
+    try {
+        const res = await pickupMemberFetch(`/api/pickup-requests/${requestId}/cancel`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Hủy đơn thất bại!", "error");
+            return;
+        }
+
+        showToast(data.message || "Đã hủy đơn và hoàn trả tồn kho thành công!", "success");
+        await loadKpiInventoryProducts();
+        await loadMemberKpiDashboard();
+        if (currentUserRole === "admin") {
+            await loadAdminKpiDashboard();
+        }
+        if (typeof loadInventoryData === "function") {
+            loadInventoryData();
+        }
+    } catch (err) {
+        showToast("Lỗi hủy đơn: " + err.message, "error");
+    }
+}
+
+// ================= ADMIN FUNCTIONS =================
+
+async function loadAdminKpiDashboard() {
+    if (currentUserRole !== "admin") return;
+
+    try {
+        const res = await authFetch("/api/admin/pickup-requests");
+        const data = await res.json();
+        if (!data.success) return;
+
+        kpiAdminAllRequests = data.requests || [];
+        const stats = data.stats || {};
+
+        const elTotal = document.getElementById("kpiAdminStatTotal");
+        const elPending = document.getElementById("kpiAdminStatPendingApprove");
+        const elPaid = document.getElementById("kpiAdminStatPaidAmount");
+        const elPendingAmount = document.getElementById("kpiAdminStatPendingAmount");
+        const badgeCount = document.getElementById("kpiAdminBadgeCount");
+
+        if (elTotal) elTotal.textContent = `${stats.total_orders || 0} đơn`;
+        if (elPending) elPending.textContent = `${stats.pending_approval_count || 0} đơn`;
+        if (elPaid) elPaid.textContent = formatVND(stats.paid_amount || 0);
+        if (elPendingAmount) elPendingAmount.textContent = formatVND(stats.pending_amount || 0);
+        if (badgeCount) badgeCount.textContent = stats.pending_approval_count || 0;
+
+        filterAndRenderAdminRequests();
+    } catch (err) {
+        console.error("Lỗi tải dữ liệu Admin KPI:", err);
+    }
+}
+
+function filterAndRenderAdminRequests() {
+    const searchVal = (document.getElementById("inputKpiAdminSearch")?.value || "").toLowerCase().trim();
+    const filterApproval = document.getElementById("selectKpiAdminFilterApproval")?.value || "all";
+    const filterPayment = document.getElementById("selectKpiAdminFilterPayment")?.value || "all";
+    const sortBy = document.getElementById("selectKpiAdminSort")?.value || "newest";
+
+    let filtered = [...(kpiAdminAllRequests || [])];
+
+    if (searchVal) {
+        filtered = filtered.filter(r => 
+            (r.id && r.id.toLowerCase().includes(searchVal)) ||
+            (r.member_name && r.member_name.toLowerCase().includes(searchVal)) ||
+            (r.member_id && r.member_id.toLowerCase().includes(searchVal))
+        );
+    }
+
+    // Filter by confirmation / approval status
+    if (filterApproval === "pending") {
+        filtered = filtered.filter(r => !(r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán") && r.status !== "Đã hủy" && r.status !== "Từ chối");
+    } else if (filterApproval === "approved") {
+        filtered = filtered.filter(r => r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
+    } else if (filterApproval === "rejected") {
+        filtered = filtered.filter(r => r.status === "Từ chối" || r.status === "Đã hủy");
+    }
+
+    // Filter by payment status
+    if (filterPayment === "unpaid") {
+        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "Từ chối" && r.status !== "Đã hủy");
+    } else if (filterPayment === "paid") {
+        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán");
+    } else if (filterPayment === "confirmed_transfer") {
+        filtered = filtered.filter(r => r.payment_status === "Đã xác nhận chuyển khoản");
+    }
+
+    // Sorting logic
+    if (sortBy === "oldest") {
+        filtered.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+    } else if (sortBy === "amount_desc") {
+        filtered.sort((a, b) => (b.total_amount || 0) - (a.total_amount || 0));
+    } else if (sortBy === "amount_asc") {
+        filtered.sort((a, b) => (a.total_amount || 0) - (b.total_amount || 0));
+    } else if (sortBy === "member_az") {
+        filtered.sort((a, b) => (a.member_name || "").localeCompare(b.member_name || ""));
+    } else {
+        // newest
+        filtered.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "") || (b.id || "").localeCompare(a.id || ""));
+    }
+
+    renderAdminKpiRequests(filtered);
+}
+
+function renderAdminKpiRequests(requests) {
+    const tbody = document.getElementById("tbodyKpiAdminRequests");
+    if (!tbody) return;
+
+    if (!requests || requests.length === 0) {
+        tbody.innerHTML = `<tr>
+            <td colspan="9" class="text-center py-4 text-muted">
+                <i class="fa-solid fa-list-check"></i> Không có yêu cầu lấy hàng nào phù hợp với bộ lọc.
+            </td>
+        </tr>`;
+        return;
+    }
+
+    tbody.innerHTML = requests.map(r => {
+        const isConfirmed = r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán";
+        const isCancelled = r.status === "Đã hủy" || r.status === "Từ chối";
+
+        // Status badge: Đã xác nhận / Chưa xác nhận / Đã hủy
+        let statusBadge = "";
+        if (isConfirmed) {
+            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã xác nhận</span>`;
+        } else if (isCancelled) {
+            statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+        } else {
+            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chưa xác nhận</span>`;
+        }
+
+        // Payment status badge
+        let payBadge = "";
+        if (isConfirmed) {
+            payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã TT</span>`;
+        } else if (isCancelled) {
+            payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+        } else if (r.payment_method === "Tiền mặt") {
+            payBadge = `<span class="badge badge-gold"><i class="fa-solid fa-hand-holding-dollar"></i> Tiền mặt</span>`;
+        } else if (r.payment_timing === "later" || r.payment_status === "Chờ thanh toán (Chuyển sau)") {
+            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-hourglass-end"></i> Chuyển sau</span>`;
+        } else {
+            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-qrcode"></i> VietQR</span>`;
+        }
+
+        const itemsSummary = (r.items || []).map(i => `${i.product_name} <b>x${i.quantity}</b>`).join(", ");
+
+        // Admin Actions: Admin có quyền "Xác nhận giao dịch" + "Hủy đơn & hoàn kho"
+        let decisionHtml = `<div class="d-flex align-items-center justify-content-center gap-1 flex-wrap">`;
+        
+        if (!isConfirmed && !isCancelled) {
+            decisionHtml += `<button type="button" class="btn-primary btn-sm admin-btn-confirm-trans" data-id="${r.id}" style="background: #059669; border-color: #059669; font-size: 0.78rem; padding: 0.35rem 0.6rem;" title="Xác nhận giao dịch (Đã duyệt &amp; Đã thanh toán)">
+                <i class="fa-solid fa-circle-check"></i> Xác nhận giao dịch
+            </button>`;
+            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn kho">
+                <i class="fa-solid fa-ban"></i> Hủy đơn
+            </button>`;
+            if (r.qr_url) {
+                decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-view-qr" data-id="${r.id}" style="font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Xem mã VietQR">
+                    <i class="fa-solid fa-qrcode"></i>
+                </button>`;
+            }
+        } else if (isConfirmed) {
+            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn tồn kho">
+                <i class="fa-solid fa-ban"></i> Hủy đơn
+            </button>`;
+            if (r.qr_url) {
+                decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-view-qr" data-id="${r.id}" style="font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Xem mã VietQR">
+                    <i class="fa-solid fa-qrcode"></i>
+                </button>`;
+            }
+        } else {
+            decisionHtml += `<span class="text-muted" style="font-size:0.8rem;"><i class="fa-solid fa-rotate-left"></i> Đã hoàn kho</span>`;
+        }
+        decisionHtml += `</div>`;
+
+        return `<tr>
+            <td><strong class="text-gold" style="cursor:pointer;" onclick="viewMemberRequestQr('${r.id}')">${r.id}</strong></td>
+            <td><strong>${r.member_name}</strong> <span class="text-muted" style="font-size:0.75rem;">(${r.member_id})</span></td>
+            <td class="text-muted" style="font-size:0.8rem;">${r.created_at || "---"}</td>
+            <td style="max-width: 180px; font-size: 0.82rem;">${itemsSummary}</td>
+            <td><strong class="text-gold">${formatVND(r.total_amount)}</strong></td>
+            <td><span class="badge" style="background: rgba(0,0,0,0.3); font-size:0.75rem;">${r.payment_method}</span></td>
+            <td>${statusBadge}</td>
+            <td>${payBadge}</td>
+            <td>${decisionHtml}</td>
+        </tr>`;
+    }).join("");
+
+    // Bind Admin button events
+    tbody.querySelectorAll(".admin-btn-confirm-trans").forEach(btn => {
+        btn.onclick = () => handleAdminConfirmTransaction(btn.dataset.id);
+    });
+    tbody.querySelectorAll(".admin-btn-cancel-req").forEach(btn => {
+        btn.onclick = () => handleAdminCancelRequest(btn.dataset.id);
+    });
+    tbody.querySelectorAll(".admin-btn-view-qr").forEach(btn => {
+        btn.onclick = () => {
+            const req = requests.find(r => r.id === btn.dataset.id);
+            if (req) openKpiQrZoomModal(req);
+        };
+    });
+}
+
+async function handleAdminConfirmTransaction(requestId) {
+    if (!confirm(`Xác nhận giao dịch thành công cho đơn ${requestId}? Đơn hàng sẽ được chuyển sang trạng thái Đã Duyệt và Đã Thanh Toán.`)) {
+        return;
+    }
+
+    try {
+        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/confirm-transaction`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Xác nhận giao dịch thất bại!", "error");
+            return;
+        }
+
+        showToast(data.message || "Đã xác nhận giao dịch thành công!", "success");
+        await loadAdminKpiDashboard();
+        if (pickupMember) {
+            await loadMemberKpiDashboard();
+        }
+        if (typeof loadInventoryData === "function") {
+            loadInventoryData();
+        }
+    } catch (err) {
+        showToast("Lỗi: " + err.message, "error");
+    }
+}
+
+async function handleAdminCancelRequest(requestId) {
+    if (!confirm(`Bạn có chắc muốn HỦY đơn hàng ${requestId}? Các sản phẩm trong đơn sẽ được tự động hoàn trả vào kho.`)) {
+        return;
+    }
+
+    try {
+        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/cancel`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Hủy đơn thất bại!", "error");
+            return;
+        }
+
+        showToast(data.message || "Đã hủy đơn và hoàn trả kho thành công!", "success");
+        await loadAdminKpiDashboard();
+        await loadKpiInventoryProducts();
+        if (pickupMember) {
+            await loadMemberKpiDashboard();
+        }
+        if (typeof loadInventoryData === "function") {
+            loadInventoryData();
+        }
+    } catch (err) {
+        showToast("Lỗi hủy đơn: " + err.message, "error");
+    }
+}
+
+async function handleAdminDecision(requestId, decision, paymentStatus) {
+    try {
+        const body = { decision };
+        if (paymentStatus) body.payment_status = paymentStatus;
+
+        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/decision`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Quyết định thất bại!", "error");
+            return;
+        }
+
+        showToast(data.message || "Cập nhật quyết định thành công!", "success");
+        await loadAdminKpiDashboard();
+        if (pickupMember) {
+            await loadMemberKpiDashboard();
+        }
+        if (typeof loadInventoryData === "function") {
+            loadInventoryData();
+        }
+    } catch (err) {
+        showToast("Lỗi: " + err.message, "error");
+    }
+}
+
+async function handleAdminChangePaymentStatus(requestId, newPaymentStatus) {
+    try {
+        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/payment-status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ payment_status: newPaymentStatus })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Cập nhật trạng thái thanh toán thất bại!", "error");
+            return;
+        }
+
+        showToast(`Đã đổi trạng thái thanh toán đơn ${requestId} sang "${newPaymentStatus}"!`, "success");
+        await loadAdminKpiDashboard();
+        if (pickupMember) {
+            await loadMemberKpiDashboard();
+        }
+    } catch (err) {
+        showToast("Lỗi: " + err.message, "error");
+    }
+}
+
+async function loadAdminMemberAccounts() {
+    if (currentUserRole !== "admin") return;
+
+    try {
+        const res = await authFetch("/api/member-auth/accounts");
+        const data = await res.json();
+        if (!data.success) return;
+
+        kpiAdminAllAccounts = data.accounts || [];
+        renderAdminMemberAccounts(kpiAdminAllAccounts);
+    } catch (err) {
+        console.error("Lỗi tải danh sách tài khoản thành viên:", err);
+    }
+}
+
+function renderAdminMemberAccounts(accounts) {
+    const tbody = document.getElementById("tbodyKpiAccounts");
+    if (!tbody) return;
+
+    const query = (document.getElementById("inputKpiSearchAccount")?.value || "").toLowerCase().trim();
+    let filtered = accounts || [];
+
+    if (query) {
+        filtered = filtered.filter(a => 
+            (a.member_id && a.member_id.toLowerCase().includes(query)) ||
+            (a.name && a.name.toLowerCase().includes(query)) ||
+            (a.department && a.department.toLowerCase().includes(query))
+        );
+    }
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr>
+            <td colspan="5" class="text-center py-4 text-muted">
+                <i class="fa-solid fa-users-slash"></i> Không tìm thấy thành viên nào.
+            </td>
+        </tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(a => `
+        <tr>
+            <td><strong class="text-gold">${a.member_id}</strong></td>
+            <td><strong>${a.name}</strong></td>
+            <td><span class="badge" style="background: rgba(0,0,0,0.25);">${a.department || "Chưa phân ban"}</span></td>
+            <td>
+                <span class="text-muted" style="font-family: monospace; letter-spacing: 1px;">
+                    ${a.password || `HV@${a.member_id}`}
+                </span>
+            </td>
+            <td class="text-center">
+                <button type="button" class="btn-secondary btn-sm admin-btn-reset-member-pwd" data-id="${a.member_id}" data-name="${a.name}">
+                    <i class="fa-solid fa-key"></i> Đặt Lại Mật Khẩu
+                </button>
+            </td>
+        </tr>
+    `).join("");
+
+    tbody.querySelectorAll(".admin-btn-reset-member-pwd").forEach(btn => {
+        btn.onclick = () => {
+            const mId = btn.dataset.id;
+            const mName = btn.dataset.name;
+
+            const inputId = document.getElementById("inputAdminResetMemberId");
+            const spanInfo = document.getElementById("spanAdminResetMemberInfo");
+            const inputNew = document.getElementById("inputAdminResetNewPwd");
+
+            if (inputId) inputId.value = mId;
+            if (spanInfo) spanInfo.textContent = `${mId} - ${mName}`;
+            if (inputNew) inputNew.value = `HV@${mId}`;
+
+            const modal = document.getElementById("modalKpiAdminResetPwd");
+            if (modal) modal.classList.add("active");
+        };
+    });
+}
+
+async function handleAdminSubmitResetPwd() {
+    const memberId = document.getElementById("inputAdminResetMemberId")?.value;
+    const newPassword = document.getElementById("inputAdminResetNewPwd")?.value;
+
+    if (!memberId || !newPassword) {
+        showToast("Vui lòng điền mật khẩu mới!", "warning");
+        return;
+    }
+
+    try {
+        const res = await authFetch("/api/admin/member-auth/reset-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ member_id: memberId, new_password: newPassword })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Đặt lại mật khẩu thất bại!", "error");
+            return;
+        }
+
+        showToast(data.message || `Đã đặt lại mật khẩu cho ${memberId}!`, "success");
+        document.getElementById("modalKpiAdminResetPwd")?.classList.remove("active");
+        await loadAdminMemberAccounts();
+    } catch (err) {
+        showToast("Lỗi: " + err.message, "error");
+    }
+}
+
+async function loadAdminVietqrConfig() {
+    if (currentUserRole !== "admin") return;
+
+    try {
+        const res = await authFetch("/api/admin/vietqr-config");
+        const data = await res.json();
+        if (!data.success) return;
+
+        const config = data.config || {};
+        const bankInput = document.getElementById("inputKpiBankId");
+        const accountNoInput = document.getElementById("inputKpiAccountNo");
+        const accountNameInput = document.getElementById("inputKpiAccountName");
+
+        if (bankInput) bankInput.value = config.bank_id || "970422";
+        if (accountNoInput) accountNoInput.value = config.account_no || "0987654321";
+        if (accountNameInput) accountNameInput.value = config.account_name || "DU AN FB HUNG VUONG";
+    } catch (err) {
+        console.error("Lỗi tải cấu hình VietQR:", err);
+    }
+}
+
+async function handleSaveAdminVietqrConfig() {
+    const bank_id = document.getElementById("inputKpiBankId")?.value.trim();
+    const account_no = document.getElementById("inputKpiAccountNo")?.value.trim();
+    const account_name = document.getElementById("inputKpiAccountName")?.value.trim();
+
+    if (!bank_id || !account_no || !account_name) {
+        showToast("Vui lòng điền đủ Mã BIN ngân hàng, Số tài khoản và Tên chủ tài khoản!", "warning");
+        return;
+    }
+
+    try {
+        const res = await authFetch("/api/admin/vietqr-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bank_id, account_no, account_name })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || "Lưu cấu hình VietQR thất bại!", "error");
+            return;
+        }
+
+        showToast("Đã lưu cấu hình VietQR thành công! Các đơn hàng sau sẽ quét mã theo tài khoản này.", "success");
+    } catch (err) {
+        showToast("Lỗi lưu cấu hình: " + err.message, "error");
+    }
+}
+
 
 let globalKpiAttendance = [];
 
