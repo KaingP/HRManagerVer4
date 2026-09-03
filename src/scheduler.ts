@@ -554,6 +554,16 @@ export class ShiftScheduler {
         }
       }
 
+      // Ca trưởng luôn là người chịu trách nhiệm kiểm kê hàng hóa và chốt ca trực
+      if (shift_leader) {
+        assigned_members.forEach(m => {
+          if (m.name === shift_leader) {
+            m.position_role = '📦 Kiểm kê hàng & Chốt ca (Ca trưởng)';
+            m.role = 'Chính';
+          }
+        });
+      }
+
       assigned_shifts.push({
         ...shift,
         assigned_members,

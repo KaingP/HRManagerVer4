@@ -85,7 +85,7 @@ let globalIncidentLogs = [];
 let currentEditingShift = null;
 
 // Ba tab này không nằm ở thanh đáy trên điện thoại; chúng ở trong bảng "Thêm".
-const MORE_TABS = ["tab-inventory", "tab-audit", "tab-protocols", "tab-kpi"];
+const MORE_TABS = ["tab-inventory", "tab-shift-audit", "tab-audit", "tab-protocols", "tab-kpi"];
 
 // AUTHENTICATION & RBAC HELPERS
 async function authFetch(url, options = {}) {
@@ -329,8 +329,9 @@ function initTabs() {
         "tab-optimizer":
             "Tinh Chỉnh Tham Số, Tối Ưu Hóa & Ca Bán Ngoài (OR-Tools)",
         "tab-inventory": "Kho Hàng & Quản Lý Doanh Thu F&B",
+        "tab-shift-audit": "Kiểm Kê & Đối Chiếu Tồn Kho Hàng Hóa Sau Ca Trực",
         "tab-ca-ngoai": "Quản Lý & Phân Bổ Ca Bán Ngoài",
-        "tab-analytics": "Báo Cáo Thống Kê & Heatmap Thời Gian Rảnh",
+        "tab-analytics": "Báo Cáo Thống Kê Phân Bổ Nhân Sự",
         "tab-kpi": "Chạy KPI Lấy Hàng & Quản Lý Doanh Thu",
         "tab-competition": "Bảng Vàng Thi Đua Cá Nhân & Nhóm",
         "tab-audit": "Kiểm Tra Tính Hợp Lệ & Thẩm Định Quy Chuẩn",
@@ -372,10 +373,14 @@ function initTabs() {
 
             if (targetTab === "tab-inventory") {
                 loadInventoryData();
+            } else if (targetTab === "tab-shift-audit") {
+                initTabShiftAudit();
             } else if (targetTab === "tab-kpi") {
                 renderPickupRequestTab();
             } else if (targetTab === "tab-competition") {
                 loadCompetitionStats();
+            } else if (targetTab === "tab-discipline") {
+                loadDisciplineData();
             } else if (targetTab === "tab-contingency") {
                 populateIncidentShiftDropdown();
                 if (currentSelectedLiveShiftId) {
@@ -832,6 +837,43 @@ function initEventListeners() {
                 return;
             }
             openProductModalForAdd();
+        });
+    document
+        .getElementById("btnOpenRestockModal")
+        ?.addEventListener("click", () => {
+            if (currentUserRole !== "admin") {
+                openAdminLoginModal(
+                    "Bạn cần đăng nhập quyền Quản trị viên để tạo phiếu nhập hàng giữa tuần!",
+                );
+                return;
+            }
+            openRestockModal();
+        });
+    document
+        .getElementById("btnCloseRestockModal")
+        ?.addEventListener("click", () => {
+            document.getElementById("restockModal")?.classList.remove("active");
+        });
+    document
+        .getElementById("btnCancelRestockModal")
+        ?.addEventListener("click", () => {
+            document.getElementById("restockModal")?.classList.remove("active");
+        });
+    document
+        .getElementById("btnAddRestockRow")
+        ?.addEventListener("click", () => addRestockItemRow());
+    document
+        .getElementById("restockForm")
+        ?.addEventListener("submit", handleSubmitRestockForm);
+    document
+        .getElementById("btnCloseRestockDetailModal")
+        ?.addEventListener("click", () => {
+            document.getElementById("restockDetailModal")?.classList.remove("active");
+        });
+    document
+        .getElementById("btnOkRestockDetailModal")
+        ?.addEventListener("click", () => {
+            document.getElementById("restockDetailModal")?.classList.remove("active");
         });
     document
         .getElementById("btnOpenRecordSaleModal")
@@ -2253,13 +2295,32 @@ window.openShiftEditModal = function (shiftId) {
         ? `<i class="fa-solid fa-pen-to-square"></i> Chi Tiết & Chỉnh Sửa Ca ${esc(s.shift_id)} (${esc(s.day)} - ${esc(s.slot)})`
         : `<i class="fa-solid fa-eye"></i> Chi Tiết Ca Trực ${esc(s.shift_id)} (${esc(s.day)} - ${esc(s.slot)}) <span style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.15); margin-left:8px;">Chỉ Xem</span>`;
 
-    let leaderOptions = "";
-    (s.assigned_members || []).forEach((m) => {
-        if (!m) return;
-        const mName = m.name || "N/A";
-        const sel = s.shift_leader === mName ? "selected" : "";
-        leaderOptions += `<option value="${esc(mName)}" ${sel}>⭐ ${esc(mName)} (${esc(m.department || "")} - ${esc(m.role || "")})</option>`;
-    });
+    let leaderOptions = `<option value="Chưa chỉ định" ${!s.shift_leader || s.shift_leader === "Chưa chỉ định" ? "selected" : ""}>-- Chưa chỉ định Trưởng ca --</option>`;
+    
+    // Group 1: Members assigned to current shift
+    if (s.assigned_members && s.assigned_members.length > 0) {
+        leaderOptions += `<optgroup label="Nhân sự trong ca ${esc(s.shift_id)}">`;
+        s.assigned_members.forEach((m) => {
+            if (!m) return;
+            const mName = m.name || "N/A";
+            const sel = s.shift_leader === mName ? "selected" : "";
+            leaderOptions += `<option value="${esc(mName)}" ${sel}>👑 ${esc(mName)} (${esc(m.department || "")} - ${esc(m.role || "")})</option>`;
+        });
+        leaderOptions += `</optgroup>`;
+    }
+
+    // Group 2: All global members if admin wants to designate someone else
+    if (globalMembers && globalMembers.length > 0) {
+        leaderOptions += `<optgroup label="Toàn bộ danh sách nhân sự">`;
+        globalMembers.forEach((m) => {
+            const isAssigned = (s.assigned_members || []).some(am => am && am.name === m.name);
+            if (!isAssigned) {
+                const sel = s.shift_leader === m.name ? "selected" : "";
+                leaderOptions += `<option value="${esc(m.name)}" ${sel}>⭐ ${esc(m.name)} (${esc(m.department || "")})</option>`;
+            }
+        });
+        leaderOptions += `</optgroup>`;
+    }
 
     const shiftLocation =
         s.location ||
@@ -2269,28 +2330,31 @@ window.openShiftEditModal = function (shiftId) {
     (s.assigned_members || []).forEach((m, idx) => {
         if (!m) return;
         const mName = m.name || "N/A";
-        const isDp = m.role !== "Chính";
-        const defaultRole = isDp
-            ? "⚡ Dự bị tiếp ứng & Hỗ trợ"
-            : idx === 0
-              ? "💵 Thu ngân / Nhập sheet"
-              : idx === 1
-                ? "📦 Kiểm kê hàng"
-                : "🛵 Phục vụ / Giao hàng";
-        const posRole = m.position_role || defaultRole;
+        const isLeader = s.shift_leader === mName;
+        const isDp = m.role !== "Chính" && !isLeader;
+        const defaultRole = isLeader
+            ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)"
+            : isDp
+              ? "⚡ Dự bị tiếp ứng & Hỗ trợ"
+              : idx === 0
+                ? "💵 Thu ngân / Nhập sheet"
+                : idx === 1
+                  ? "🥤 Pha chế & Chuẩn bị"
+                  : "🛵 Phục vụ / Giao hàng";
+        const posRole = isLeader ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)" : (m.position_role || defaultRole);
 
         const removeBtn = isAdmin
             ? `<button type="button" class="btn-action-sm btn-action-delete" style="padding: 2px 7px; font-size: 11px; margin-left: 6px; background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" onclick="handleCancelMemberInShift('${m.member_id}', '${esc(mName)}')" title="Rút nhân sự này khỏi ca trực"><i class="fa-solid fa-user-minus"></i> Hủy</button>`
             : "";
 
         membersListHtml += `
-            <div class="member-edit-row ${isDp ? "is-dp-row" : ""}">
+            <div class="member-edit-row ${isDp ? "is-dp-row" : ""}" id="modal_mem_row_${m.member_id}">
                 <div class="mer-who">
                     <div class="mer-name-line">
                         <span class="mer-index">#${idx + 1}</span>
                         <strong>${esc(mName)}</strong>
                         <span class="mer-dept-pill">${esc((m.department || "").replace("Ban ", ""))}</span>
-                        ${s.shift_leader === mName ? '<span class="mer-lead-badge"><i class="fa-solid fa-star"></i> Trưởng ca</span>' : ""}
+                        ${isLeader ? '<span class="mer-lead-badge"><i class="fa-solid fa-crown text-gold"></i> Trưởng ca</span>' : ""}
                         ${removeBtn}
                     </div>
                     <div class="mer-meta">
@@ -2302,7 +2366,7 @@ window.openShiftEditModal = function (shiftId) {
                 <div class="mer-controls">
                     <div class="mer-ctrl-item">
                         <span class="mer-ctrl-lbl">Vai trò</span>
-                        <select class="custom-select member-role-select" data-member-id="${m.member_id}" ${disabledAttr} onchange="handleRoleChangeInModal(this, '${m.member_id}')">
+                        <select class="custom-select member-role-select" data-member-id="${m.member_id}" id="role_sel_${m.member_id}" ${disabledAttr} onchange="handleRoleChangeInModal(this, '${m.member_id}')">
                             <option value="Chính" ${!isDp ? "selected" : ""}>Trực chính</option>
                             <option value="Dự phòng" ${isDp ? "selected" : ""}>Dự phòng</option>
                         </select>
@@ -2310,12 +2374,12 @@ window.openShiftEditModal = function (shiftId) {
                     <div class="mer-ctrl-item">
                         <span class="mer-ctrl-lbl">Nhiệm vụ cụ thể</span>
                         <select class="custom-select member-position-select" data-member-id="${m.member_id}" id="pos_sel_${m.member_id}" ${disabledAttr}>
-                            <option value="🛵 Phục vụ / Giao hàng" ${posRole.includes("Phục vụ") ? "selected" : ""}>🛵 Phục vụ / Giao hàng</option>
+                            <option value="📦 Kiểm kê hàng & Chốt ca (Ca trưởng)" ${posRole.includes("Kiểm kê") || posRole.includes("Ca trưởng") ? "selected" : ""}>📦 Kiểm kê hàng & Chốt ca (Ca trưởng)</option>
                             <option value="💵 Thu ngân / Nhập sheet" ${posRole.includes("Thu ngân") ? "selected" : ""}>💵 Thu ngân / Nhập sheet</option>
-                            <option value="📦 Kiểm kê hàng" ${posRole.includes("Kiểm kê") ? "selected" : ""}>📦 Kiểm kê hàng</option>
-                            <option value="⚡ Dự bị tiếp ứng & Hỗ trợ" ${posRole.includes("Dự bị") ? "selected" : ""}>⚡ Dự bị tiếp ứng & Hỗ trợ</option>
                             <option value="🥤 Pha chế & Chuẩn bị" ${posRole.includes("Pha chế") ? "selected" : ""}>🥤 Pha chế & Chuẩn bị</option>
+                            <option value="🛵 Phục vụ / Giao hàng" ${posRole.includes("Phục vụ") ? "selected" : ""}>🛵 Phục vụ / Giao hàng</option>
                             <option value="📣 Tiếp thị & Chào khách" ${posRole.includes("Tiếp thị") ? "selected" : ""}>📣 Tiếp thị & Chào khách</option>
+                            <option value="⚡ Dự bị tiếp ứng & Hỗ trợ" ${posRole.includes("Dự bị") ? "selected" : ""}>⚡ Dự bị tiếp ứng & Hỗ trợ</option>
                         </select>
                     </div>
                 </div>
@@ -2340,8 +2404,14 @@ window.openShiftEditModal = function (shiftId) {
         </div>
 
         <div class="form-group mb-16">
-            <label><i class="fa-solid fa-star text-gold"></i> <strong>Chỉ định Trưởng ca (Ca trưởng):</strong></label>
-            <select id="modalSelectLeader" class="custom-select" ${disabledAttr}>${leaderOptions}</select>
+            <label style="display:flex; justify-content:space-between; align-items:center;">
+                <span><i class="fa-solid fa-crown" style="color: #FBBF24;"></i> <strong>Chỉ định Trưởng ca (Ca trưởng):</strong></span>
+                <span style="font-size:11.5px; color:#FBBF24; font-weight:600;"><i class="fa-solid fa-shield-halved"></i> Ca trưởng luôn là người kiểm hàng</span>
+            </label>
+            <select id="modalSelectLeader" class="custom-select" ${disabledAttr} onchange="handleLeaderChangeInModal(this)">${leaderOptions}</select>
+            <div style="font-size: 11.5px; color: var(--ink-dim); margin-top: 4px;">
+                <i class="fa-solid fa-circle-info text-gold"></i> Khi chọn Ca trưởng, hệ thống sẽ tự động gán nhiệm vụ <b>📦 Kiểm kê hàng & Chốt ca</b> và chỉ định làm người kiểm kho ca trực.
+            </div>
         </div>
         <div class="form-group">
             <label><i class="fa-solid fa-users"></i> <strong>Phân công vị trí & nhiệm vụ (${s.assigned_count} người trong ca):</strong></label>
@@ -2365,6 +2435,42 @@ window.openShiftEditModal = function (shiftId) {
     }
 
     modal.classList.add("active");
+};
+
+window.handleLeaderChangeInModal = function (leaderSelect) {
+    if (currentUserRole !== "admin") return;
+    const selectedLeaderName = leaderSelect.value;
+    if (!currentEditingShift) return;
+
+    (currentEditingShift.assigned_members || []).forEach((m) => {
+        if (!m) return;
+        const mName = m.name || "N/A";
+        const posSel = document.getElementById(`pos_sel_${m.member_id}`);
+        const roleSel = document.getElementById(`role_sel_${m.member_id}`);
+
+        if (mName === selectedLeaderName) {
+            if (posSel) posSel.value = "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)";
+            if (roleSel) roleSel.value = "Chính";
+        } else {
+            if (posSel && posSel.value.includes("Ca trưởng")) {
+                posSel.value = "💵 Thu ngân / Nhập sheet";
+            }
+        }
+    });
+
+    // Update the visual leader badge on rows
+    document.querySelectorAll(".member-edit-row").forEach((row) => {
+        const nameEl = row.querySelector("strong");
+        const leadBadge = row.querySelector(".mer-lead-badge");
+        if (leadBadge) leadBadge.remove();
+
+        if (nameEl && nameEl.textContent.trim() === selectedLeaderName) {
+            const badgeSpan = document.createElement("span");
+            badgeSpan.className = "mer-lead-badge";
+            badgeSpan.innerHTML = '<i class="fa-solid fa-crown text-gold"></i> Trưởng ca';
+            nameEl.after(badgeSpan);
+        }
+    });
 };
 
 window.handleRoleChangeInModal = function (roleSelect, memberId) {
@@ -2986,10 +3092,75 @@ function renderIncidentLogs(incidents) {
     });
     if (container) container.innerHTML = html;
 
+    // Bind search & filter event listeners if not already bound
+    const inputSearch = document.getElementById("inputSearchIncident");
+    const selectFilter = document.getElementById("selectIncidentTypeFilter");
+    if (inputSearch && !inputSearch.dataset.listenerBound) {
+        inputSearch.dataset.listenerBound = "true";
+        inputSearch.addEventListener("input", () => renderIncidentLogs(globalIncidentLogs));
+    }
+    if (selectFilter && !selectFilter.dataset.listenerBound) {
+        selectFilter.dataset.listenerBound = "true";
+        selectFilter.addEventListener("change", () => renderIncidentLogs(globalIncidentLogs));
+    }
+
+    // Filter table records according to Admin search and filter selections
+    const searchVal = (inputSearch?.value || "").trim().toLowerCase();
+    const typeFilter = selectFilter?.value || "all";
+
+    let tableFilteredIncidents = displayedIncidents.filter((inc) => {
+        let matchesSearch = true;
+        if (searchVal) {
+            const shiftId = (inc.shift_id || "").toLowerCase();
+            const absentMember = (inc.absent_member || "").toLowerCase();
+            const repMember = (inc.replacement_member || "").toLowerCase();
+            const loc = (inc.location || "").toLowerCase();
+            const day = (inc.day || "").toLowerCase();
+            const leader = (inc.shift_leader || "").toLowerCase();
+            const note = (inc.note || "").toLowerCase();
+            const status = (inc.status_type || "").toLowerCase();
+            matchesSearch =
+                shiftId.includes(searchVal) ||
+                absentMember.includes(searchVal) ||
+                repMember.includes(searchVal) ||
+                loc.includes(searchVal) ||
+                day.includes(searchVal) ||
+                leader.includes(searchVal) ||
+                note.includes(searchVal) ||
+                status.includes(searchVal);
+        }
+
+        let matchesType = true;
+        if (typeFilter !== "all") {
+            const status = (inc.status_type || "").toLowerCase();
+            const hasRep =
+                inc.replacement_member &&
+                inc.replacement_member !== "Không thay thế" &&
+                inc.replacement_member !== "none" &&
+                inc.replacement_member !== "no_replacement" &&
+                inc.replacement_member !== "";
+
+            if (typeFilter === "late") {
+                matchesType = status.includes("trễ");
+            } else if (typeFilter === "absent") {
+                matchesType = status.includes("vắng") || status.includes("nghỉ") || status.includes("không gọi được");
+            } else if (typeFilter === "replaced") {
+                matchesType = Boolean(hasRep);
+            } else if (typeFilter === "unreplaced") {
+                matchesType = (status.includes("vắng") || status.includes("nghỉ") || status.includes("không gọi được")) && !hasRep;
+            }
+        }
+
+        return matchesSearch && matchesType;
+    });
+
     // Render Late Arrival & Absence Table (9 columns)
     if (tbody) {
-        let tableRows = "";
-        displayedIncidents.forEach((inc, idx) => {
+        if (tableFilteredIncidents.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="9" class="table-empty">Không tìm thấy bản ghi sự cố nào phù hợp điều kiện lọc.</td></tr>`;
+        } else {
+            let tableRows = "";
+            tableFilteredIncidents.forEach((inc, idx) => {
             let badgeClass = "badge-secondary";
             let statusLabel = inc.status_type || "Ghi nhận";
 
@@ -3048,24 +3219,59 @@ function renderIncidentLogs(incidents) {
                 repBadge = `<span style="color: var(--ink-dim); font-size: 11.5px;">Không thay thế</span>`;
             }
 
-            const actionBtn = isAdmin
-                ? `<div style="display: inline-flex; gap: 4px; align-items: center;">
-                    <button type="button" class="btn-action-sm btn-action-edit" onclick="openAdminAssignReplacementModal('${esc(inc.id || "")}', '${esc(inc.timestamp || "")}', '${esc(inc.shift_id || "")}', '${esc(inc.absent_member || "")}', '${esc(inc.replacement_member || "")}', '${esc(inc.status_type || "")}', '${esc(inc.note || "")}')" title="Gán / Đổi người thay thế cho ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+            const isAbsentStatus = (type) => {
+                if (!type) return false;
+                const t = String(type).toLowerCase();
+                return (
+                    t.includes("vắng") ||
+                    t.includes("nghỉ") ||
+                    t.includes("không gọi được") ||
+                    t.includes("có phép") ||
+                    t.includes("không phép")
+                );
+            };
+
+            let shiftLeader = inc.shift_leader;
+            if (!shiftLeader || shiftLeader === "Chưa chỉ định") {
+                const sObj = (globalScheduleData?.assigned_shifts || []).find((s) => s.shift_id === inc.shift_id) ||
+                             (globalShifts || []).find((s) => s.shift_id === inc.shift_id);
+                if (sObj && sObj.shift_leader) {
+                    shiftLeader = sObj.shift_leader;
+                }
+            }
+            const leaderDisplay = shiftLeader && shiftLeader !== "Chưa chỉ định"
+                ? `<span style="color: #FBBF24; font-weight: 700;"><i class="fa-solid fa-crown" style="font-size: 10px;"></i> ${esc(shiftLeader)}</span>`
+                : `<span style="color: var(--ink-dim); font-style: italic;">Chưa chỉ định</span>`;
+
+            let actionBtn = "";
+            if (isAdmin) {
+                const showChangeBtn = isAbsentStatus(inc.status_type);
+                const changeBtnHtml = showChangeBtn
+                    ? `<button type="button" class="btn-action-sm btn-action-edit" onclick="openAdminAssignReplacementModal('${esc(inc.id || "")}', '${esc(inc.timestamp || "")}', '${esc(inc.shift_id || "")}', '${esc(inc.absent_member || "")}', '${esc(inc.replacement_member || "")}', '${esc(inc.status_type || "")}', '${esc(inc.note || "")}')" title="Gán / Đổi người thay thế cho ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="fa-solid fa-user-pen"></i> Đổi người
-                    </button>
+                    </button>`
+                    : "";
+
+                actionBtn = `<div style="display: inline-flex; gap: 4px; align-items: center;">
+                    ${changeBtnHtml}
                     <button type="button" class="btn-action-sm btn-danger-red" onclick="deleteSingleIncident('${esc(inc.id || "")}', '${esc(inc.timestamp || "")}', '${esc(inc.shift_id || "")}', '${esc(inc.absent_member || "")}')" title="Xóa lịch sử ghi nhận ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="fa-solid fa-trash-can"></i> Xóa
                     </button>
-                </div>`
-                : "";
+                </div>`;
+            }
 
             tableRows += `
                 <tr>
                     <td class="cell-center mk-num">${idx + 1}</td>
                     <td class="cell-center mk-num" style="font-size: 11.5px; white-space: nowrap;">${esc(inc.timestamp || "")}</td>
                     <td>
-                        <span class="shift-id-tag">${esc(inc.shift_id)}</span>
-                        <span style="margin-left: 5px; font-weight: 600; color: var(--ink-hi);">${esc(inc.day || "")} ${esc(inc.slot || "")}</span>
+                        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                            <span class="shift-id-tag">${esc(inc.shift_id)}</span>
+                            <span style="font-weight: 600; color: var(--ink-hi);">${esc(inc.day || "")} ${esc(inc.slot || "")}</span>
+                        </div>
+                        <div style="font-size: 11.5px; margin-top: 3px; color: var(--ink-dim);">
+                            Trưởng ca: ${leaderDisplay}
+                        </div>
                     </td>
                     <td><span style="color: var(--goldleaf); font-weight: 500;">${esc(inc.location || "Phòng Thanh Niên")}</span></td>
                     <td><strong style="color: var(--cinnabar-lt); font-size: 13px;">${esc(inc.absent_member)}</strong></td>
@@ -3075,8 +3281,9 @@ function renderIncidentLogs(incidents) {
                     <td class="cell-center admin-only-cell">${actionBtn}</td>
                 </tr>
             `;
-        });
-        tbody.innerHTML = tableRows;
+            });
+            tbody.innerHTML = tableRows;
+        }
     }
 
     if (kpiLate) kpiLate.textContent = String(lateCount);
@@ -3482,6 +3689,7 @@ async function loadInventoryData() {
             renderInventoryKPIs(data.kpis);
             renderInventoryTable(data.products || []);
             renderSalesLogsTable(data.sales_logs || []);
+            renderRestockReceiptsTable(data.restock_receipts || []);
             populateSaleProductOptions(data.products || []);
             renderLivePOSProductGrid();
             if (currentSelectedLiveShiftId) {
@@ -3559,6 +3767,9 @@ function renderInventoryTable(products) {
                         ${
                             currentUserRole === "admin"
                                 ? `
+                            <button type="button" class="btn-action-sm" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8; border: 1px solid rgba(2, 132, 199, 0.3);" onclick="openRestockModal('${esc(p.id)}')" title="Nhập thêm hàng cho sản phẩm này">
+                                <i class="fa-solid fa-plus"></i> Nhập
+                            </button>
                             <button type="button" class="btn-action-sm btn-action-edit" onclick="openEditProductModal('${esc(p.id)}')" title="Sửa">
                                 <i class="fa-solid fa-pen"></i> Sửa
                             </button>
@@ -4117,8 +4328,409 @@ async function handleResetInventory() {
 }
 
 // ---------------------------------------------------------------------------
-// CA-LIVE & THU NGÂN POS MODULE
+// RESTOCK MID-WEEK LOGIC (Phiếu Nhập Hàng Giữa Tuần)
 // ---------------------------------------------------------------------------
+window.openRestockModal = function (prefillProductId = "") {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal(
+            "Bạn cần đăng nhập quyền Quản trị viên để tạo phiếu nhập hàng giữa tuần!",
+        );
+        return;
+    }
+
+    const modal = document.getElementById("restockModal");
+    if (!modal) return;
+
+    const tbody = document.getElementById("restockItemsTableBody");
+    if (tbody) tbody.innerHTML = "";
+
+    const msg = document.getElementById("restockModalMsg");
+    if (msg) {
+        msg.style.display = "none";
+        msg.className = "swap-msg";
+        msg.textContent = "";
+    }
+
+    // Add first row or prefilled row
+    addRestockItemRow(prefillProductId);
+
+    updateRestockSummary();
+    modal.classList.add("active");
+};
+
+function addRestockItemRow(selectedProdId = "") {
+    const tbody = document.getElementById("restockItemsTableBody");
+    if (!tbody) return;
+
+    const prods = (globalInventoryData && globalInventoryData.products) || [];
+    if (prods.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 12px; color: var(--ink-dim);">Chưa có sản phẩm nào trong kho. Hãy thêm sản phẩm trước!</td></tr>`;
+        return;
+    }
+
+    const rowId = "restockRow_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4);
+
+    let optionsHtml = '<option value="">-- Chọn sản phẩm --</option>';
+    prods.forEach((p) => {
+        const curStock = p.current_stock !== undefined ? p.current_stock : (p.initial_stock - p.sold_count);
+        const sel = p.id === selectedProdId ? "selected" : "";
+        optionsHtml += `<option value="${esc(p.id)}" data-unit="${esc(p.unit)}" data-stock="${curStock}" data-price="${p.price}" ${sel}>${esc(p.name)} (${esc(p.id)}) [Hiện có: ${curStock} ${esc(p.unit)}]</option>`;
+    });
+
+    const tr = document.createElement("tr");
+    tr.id = rowId;
+    tr.style.borderBottom = "1px solid rgba(255, 255, 255, 0.06)";
+    tr.innerHTML = `
+        <td style="padding: 6px 8px;">
+            <select class="custom-input restock-prod-select" style="width: 100%; font-size: 12.5px; padding: 5px 8px;">
+                ${optionsHtml}
+            </select>
+        </td>
+        <td style="padding: 6px; text-align: center;">
+            <span class="restock-unit-badge shift-id-tag" style="font-size: 11px;">-</span>
+        </td>
+        <td style="padding: 6px; text-align: center;">
+            <span class="restock-current-stock" style="font-size: 12px; font-weight: 600; color: var(--ink-light);">-</span>
+        </td>
+        <td style="padding: 6px; text-align: center;">
+            <input type="number" class="custom-input restock-qty-input" min="1" value="10" style="width: 80px; text-align: center; font-size: 12.5px; font-weight: 700; padding: 5px 4px;" />
+        </td>
+        <td style="padding: 6px; text-align: right;">
+            <input type="number" class="custom-input restock-cost-input" min="0" step="1000" placeholder="0" style="width: 100px; text-align: right; font-size: 12.5px; padding: 5px 6px;" />
+        </td>
+        <td style="padding: 6px; text-align: center;">
+            <button type="button" class="btn-action-sm btn-action-delete" style="padding: 4px 6px; font-size: 11px;" title="Xóa dòng" onclick="removeRestockRow('${rowId}')">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        </td>
+    `;
+
+    tbody.appendChild(tr);
+
+    const selectEl = tr.querySelector(".restock-prod-select");
+    const qtyInput = tr.querySelector(".restock-qty-input");
+    const costInput = tr.querySelector(".restock-cost-input");
+
+    const onRowChange = () => {
+        const opt = selectEl.selectedOptions[0];
+        const unitBadge = tr.querySelector(".restock-unit-badge");
+        const stockBadge = tr.querySelector(".restock-current-stock");
+        if (opt && opt.value) {
+            const unit = opt.getAttribute("data-unit") || "SP";
+            const curStock = opt.getAttribute("data-stock") || "0";
+            if (unitBadge) unitBadge.textContent = unit;
+            if (stockBadge) stockBadge.textContent = curStock;
+        } else {
+            if (unitBadge) unitBadge.textContent = "-";
+            if (stockBadge) stockBadge.textContent = "-";
+        }
+        updateRestockSummary();
+    };
+
+    selectEl.addEventListener("change", onRowChange);
+    qtyInput.addEventListener("input", updateRestockSummary);
+    costInput.addEventListener("input", updateRestockSummary);
+
+    // Initial trigger
+    onRowChange();
+}
+
+window.removeRestockRow = function (rowId) {
+    const row = document.getElementById(rowId);
+    if (row) {
+        row.remove();
+        updateRestockSummary();
+    }
+};
+
+function updateRestockSummary() {
+    const tbody = document.getElementById("restockItemsTableBody");
+    if (!tbody) return;
+
+    const rows = tbody.querySelectorAll("tr");
+    let totalQty = 0;
+    let totalCost = 0;
+
+    rows.forEach((r) => {
+        const selectEl = r.querySelector(".restock-prod-select");
+        const qtyInp = r.querySelector(".restock-qty-input");
+        const costInp = r.querySelector(".restock-cost-input");
+
+        if (selectEl && selectEl.value && qtyInp) {
+            const qty = parseInt(qtyInp.value) || 0;
+            const cost = parseInt(costInp?.value) || 0;
+            totalQty += qty;
+            totalCost += cost * qty;
+        }
+    });
+
+    const countEl = document.getElementById("restockTotalItemsCount");
+    const costEl = document.getElementById("restockTotalCostDisplay");
+
+    if (countEl) countEl.textContent = `${totalQty.toLocaleString("vi-VN")} món`;
+    if (costEl) costEl.textContent = formatVND(totalCost);
+}
+
+async function handleSubmitRestockForm(e) {
+    e.preventDefault();
+    const tbody = document.getElementById("restockItemsTableBody");
+    const msg = document.getElementById("restockModalMsg");
+    const btnSubmit = document.getElementById("btnSubmitRestock");
+
+    const creator = document.getElementById("inputRestockCreator")?.value.trim() || "Quản trị viên / Thủ kho";
+    const supplier = document.getElementById("inputRestockSupplier")?.value.trim() || "";
+    const reason = document.getElementById("inputRestockReason")?.value.trim() || "Nhập bổ sung giữa tuần";
+
+    const rows = tbody ? tbody.querySelectorAll("tr") : [];
+    const items = [];
+
+    rows.forEach((r) => {
+        const selectEl = r.querySelector(".restock-prod-select");
+        const qtyInp = r.querySelector(".restock-qty-input");
+        const costInp = r.querySelector(".restock-cost-input");
+
+        if (selectEl && selectEl.value && qtyInp) {
+            const prodId = selectEl.value;
+            const qty = parseInt(qtyInp.value) || 0;
+            const cost = parseInt(costInp?.value) || 0;
+            if (prodId && qty > 0) {
+                items.push({
+                    product_id: prodId,
+                    quantity: qty,
+                    unit_cost: cost > 0 ? cost : undefined,
+                });
+            }
+        }
+    });
+
+    if (items.length === 0) {
+        if (msg) {
+            msg.style.display = "block";
+            msg.className = "swap-msg error";
+            msg.textContent = "Vui lòng chọn ít nhất 1 sản phẩm và nhập số lượng > 0!";
+        }
+        return;
+    }
+
+    if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý nhập kho...';
+    }
+
+    try {
+        const res = await authFetch("/api/inventory/restock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                creator,
+                supplier,
+                reason,
+                items,
+            }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById("restockModal")?.classList.remove("active");
+            showToastNotification(`✅ ${data.message}`);
+            loadInventoryData();
+        } else {
+            if (msg) {
+                msg.style.display = "block";
+                msg.className = "swap-msg error";
+                msg.textContent = data.message || "Lỗi tạo phiếu nhập hàng!";
+            }
+        }
+    } catch (err) {
+        if (msg) {
+            msg.style.display = "block";
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi kết nối: " + err.message;
+        }
+    } finally {
+        if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = '<i class="fa-solid fa-check"></i> Xác Nhận Nhập Kho';
+        }
+    }
+}
+
+function renderRestockReceiptsTable(receipts) {
+    const tbody = document.getElementById("restockReceiptsTableBody");
+    const countBadge = document.getElementById("restockBadgeCount");
+    if (!tbody) return;
+
+    const list = receipts || [];
+    if (countBadge) countBadge.textContent = `${list.length} phiếu`;
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="table-empty">Chưa có phiếu nhập hàng nào trong tuần. Nhấn "+ Nhập Hàng Giữa Tuần" để tạo phiếu mới.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    list.forEach((rc) => {
+        let itemsHtml = '<div style="display: flex; flex-direction: column; gap: 3px;">';
+        (rc.items || []).forEach((it) => {
+            const costText = it.unit_cost ? ` • Vốn: ${formatVND(it.unit_cost)}` : "";
+            itemsHtml += `
+                <div style="font-size: 12px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">
+                    <span><strong>${esc(it.product_name || it.product_id)}</strong></span>
+                    <span style="color: #38bdf8; font-weight: 700;">+${it.quantity} ${esc(it.unit)}${costText}</span>
+                </div>
+            `;
+        });
+        itemsHtml += "</div>";
+
+        const supplierText = rc.supplier ? `<div style="font-size: 11px; color: #38bdf8;"><i class="fa-solid fa-truck-field"></i> ${esc(rc.supplier)}</div>` : "";
+        const costDisplay = rc.total_cost > 0 ? formatVND(rc.total_cost) : `<span style="color: var(--ink-dim); font-size: 11.5px;">-</span>`;
+
+        html += `
+            <tr>
+                <td class="cell-center">
+                    <strong style="color: #38bdf8; font-size: 13px;">${esc(rc.id)}</strong>
+                </td>
+                <td class="cell-center" style="font-size: 11.5px; color: var(--ink-dim);">
+                    ${esc(rc.timestamp)}
+                </td>
+                <td>
+                    ${itemsHtml}
+                </td>
+                <td class="cell-center">
+                    <span class="stock-badge high" style="font-size: 12px; font-weight: 700;">+${rc.total_items || 0} SP</span>
+                </td>
+                <td class="cell-right mk-num" style="color: var(--goldleaf); font-weight: 700;">
+                    ${costDisplay}
+                </td>
+                <td>
+                    <strong>${esc(rc.creator || "Thủ kho")}</strong>
+                    ${supplierText}
+                </td>
+                <td style="font-size: 12px; color: var(--ink-dim);">
+                    ${esc(rc.reason || rc.note || "-")}
+                </td>
+                <td class="cell-center">
+                    <div style="display: inline-flex; gap: 4px;">
+                        <button type="button" class="btn-action-sm btn-action-secondary" style="padding: 3px 6px; font-size: 11px;" onclick="viewRestockReceiptDetail('${rc.id}')" title="Xem chi tiết phiếu">
+                            <i class="fa-solid fa-eye"></i> Xem
+                        </button>
+                        ${
+                            currentUserRole === "admin"
+                                ? `
+                            <button type="button" class="btn-action-sm btn-action-delete" style="padding: 3px 6px; font-size: 11px;" onclick="deleteRestockReceipt('${rc.id}')" title="Hủy phiếu nhập và trừ lại tồn kho">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        `
+                                : ""
+                        }
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+}
+
+window.viewRestockReceiptDetail = function (receiptId) {
+    const receipts = (globalInventoryData && globalInventoryData.restock_receipts) || [];
+    const rc = receipts.find((r) => r.id === receiptId);
+    if (!rc) return;
+
+    const modal = document.getElementById("restockDetailModal");
+    const titleEl = document.getElementById("restockDetailCode");
+    const bodyEl = document.getElementById("restockDetailContent");
+
+    if (titleEl) titleEl.textContent = `(#${rc.id})`;
+
+    let rowsHtml = "";
+    (rc.items || []).forEach((it, idx) => {
+        const costStr = it.unit_cost ? formatVND(it.unit_cost) : "-";
+        const totalCostStr = it.total_cost ? formatVND(it.total_cost) : "-";
+        rowsHtml += `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.06);">
+                <td style="padding: 6px 8px; text-align: center;">${idx + 1}</td>
+                <td style="padding: 6px 8px;"><strong>${esc(it.product_name)}</strong> <span style="font-size:11px; color:var(--ink-dim);">(${esc(it.product_id)})</span></td>
+                <td style="padding: 6px 8px; text-align: center;">${esc(it.unit)}</td>
+                <td style="padding: 6px 8px; text-align: center; color: #38bdf8; font-weight: 700;">+${it.quantity}</td>
+                <td style="padding: 6px 8px; text-align: right;">${costStr}</td>
+                <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: var(--goldleaf);">${totalCostStr}</td>
+            </tr>
+        `;
+    });
+
+    if (bodyEl) {
+        bodyEl.innerHTML = `
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
+                    <div><strong>Mã phiếu:</strong> <span style="color: #38bdf8; font-weight: 700;">${esc(rc.id)}</span></div>
+                    <div><strong>Thời gian:</strong> <span>${esc(rc.timestamp)}</span></div>
+                    <div><strong>Người lập:</strong> <span>${esc(rc.creator || "Thủ kho")}</span></div>
+                    <div><strong>Nhà cung cấp:</strong> <span>${esc(rc.supplier || "Không ghi")}</span></div>
+                    <div style="grid-column: span 2;"><strong>Lý do / Ghi chú:</strong> <span style="color: var(--ink-light);">${esc(rc.reason || rc.note || "Nhập bổ sung giữa tuần")}</span></div>
+                </div>
+            </div>
+
+            <div style="border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin-bottom: 12px;">
+                <table style="width: 100%; font-size: 12.5px; border-collapse: collapse;">
+                    <thead style="background: var(--lacquer-1); border-bottom: 1px solid var(--rule);">
+                        <tr>
+                            <th style="padding: 6px 8px; width: 40px; text-align: center;">STT</th>
+                            <th style="padding: 6px 8px; text-align: left;">SẢN PHẨM</th>
+                            <th style="padding: 6px 8px; width: 60px; text-align: center;">ĐVT</th>
+                            <th style="padding: 6px 8px; width: 80px; text-align: center;">SL NHẬP</th>
+                            <th style="padding: 6px 8px; width: 100px; text-align: right;">GIÁ VỐN</th>
+                            <th style="padding: 6px 8px; width: 110px; text-align: right;">THÀNH TIỀN</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(2, 132, 199, 0.08); border: 1px solid rgba(2, 132, 199, 0.25); border-radius: 8px; padding: 10px 14px;">
+                <div>Tổng số lượng nhập: <strong style="color: #38bdf8; font-size: 14px;">+${rc.total_items || 0} món</strong></div>
+                <div>Tổng chi phí: <strong style="color: var(--goldleaf); font-size: 15px; font-weight: 700;">${rc.total_cost > 0 ? formatVND(rc.total_cost) : "0 ₫"}</strong></div>
+            </div>
+        `;
+    }
+
+    modal?.classList.add("active");
+};
+
+window.deleteRestockReceipt = function (receiptId) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal(
+            "Bạn cần đăng nhập quyền Quản trị viên để hủy phiếu nhập hàng!",
+        );
+        return;
+    }
+
+    openConfirmModal({
+        title: "Xác Nhận Hủy Phiếu Nhập Hàng",
+        message: `Bạn có chắc chắn muốn hủy phiếu nhập "${receiptId}"? Số lượng hàng hóa trong phiếu sẽ được tự động trừ lùi khỏi tồn kho ban đầu.`,
+        confirmBtnText: "Hủy Phiếu & Trừ Kho",
+        onConfirm: async () => {
+            try {
+                const res = await authFetch("/api/inventory/restock/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: receiptId }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToastNotification(`🗑️ ${data.message}`);
+                    loadInventoryData();
+                } else {
+                    alert(data.message || "Không thể hủy phiếu nhập!");
+                }
+            } catch (err) {
+                alert("Lỗi hủy phiếu nhập: " + err.message);
+            }
+        },
+    });
+};
 let liveCart = {}; // { product_id: { product, quantity } }
 let currentSelectedLiveShiftId = null;
 
@@ -4394,9 +5006,10 @@ async function loadLiveShiftDetailsAndCandidates(shiftId) {
         }
     }
 
-    // 3. Render shift details and incident logs (filtered for staff)
+    // 3. Render shift details, online orders, and shift audit table
     renderLiveShiftDetails(shiftId);
     loadLiveShiftOnlineOrders(shiftId);
+    renderShiftAuditTable(shiftId);
     if (globalIncidentLogs) {
         renderIncidentLogs(globalIncidentLogs);
     }
@@ -4439,37 +5052,12 @@ function renderLiveShiftDetails(shiftId) {
 
     let allMembersInShift = [...(shift.assigned_members || [])].filter(Boolean);
 
-    // Ensure the Shift Leader is present in the members list
+    // Exclude the Shift Leader from the members list because the leader is the person recording attendance
     if (shift.shift_leader && shift.shift_leader !== "Chưa chỉ định") {
         const leaderName = shift.shift_leader;
-        const leaderExists = allMembersInShift.some(
-            (m) => m && (m.name === leaderName || m.member_id === leaderName),
+        allMembersInShift = allMembersInShift.filter(
+            (m) => m && m.name !== leaderName && m.member_id !== leaderName,
         );
-        if (!leaderExists) {
-            const gMem = (globalMembers || []).find(
-                (m) =>
-                    m && (m.name === leaderName || m.member_id === leaderName),
-            );
-            if (gMem) {
-                allMembersInShift.unshift({
-                    member_id: gMem.member_id,
-                    name: gMem.name,
-                    phone: gMem.phone || "",
-                    department: gMem.department || "Ban Quản Lý",
-                    role: "Chính",
-                    position_role: "⭐ Trưởng ca / Điều phối",
-                });
-            } else {
-                allMembersInShift.unshift({
-                    member_id: `leader_${shift.shift_id}`,
-                    name: leaderName,
-                    phone: "",
-                    department: "Trưởng ca",
-                    role: "Chính",
-                    position_role: "⭐ Trưởng ca / Điều phối",
-                });
-            }
-        }
     }
 
     const subEl = document.getElementById("liveShiftInfoSub");
@@ -4885,42 +5473,57 @@ function renderLiveShiftDetails(shiftId) {
             if (histCountBadge) {
                 histCountBadge.textContent = `${shiftIncidents.length} ghi nhận`;
             }
+            const shiftLeaderName = shift.shift_leader && shift.shift_leader !== "Chưa chỉ định"
+                ? shift.shift_leader
+                : "Chưa chỉ định";
+
             let histHtml = "";
             shiftIncidents.forEach((inc) => {
                 const isUnreach =
                     inc.status_type &&
                     inc.status_type.includes("Không gọi được");
                 const borderCol = isUnreach
-                    ? "#EF4444"
-                    : "rgba(255,255,255,0.12)";
+                    ? "rgba(239, 68, 68, 0.4)"
+                    : "rgba(255, 255, 255, 0.1)";
                 const bgCol = isUnreach
-                    ? "rgba(239,68,68,0.08)"
-                    : "rgba(255,255,255,0.02)";
-                const iconTag = isUnreach
-                    ? '<i class="fa-solid fa-phone-slash" style="color:#EF4444; margin-right:4px;"></i>'
-                    : '<i class="fa-solid fa-circle-exclamation" style="color:var(--goldleaf); margin-right:4px;"></i>';
+                    ? "rgba(239, 68, 68, 0.08)"
+                    : "rgba(0, 0, 0, 0.25)";
                 const hasRep =
                     inc.replacement_member &&
                     inc.replacement_member !== "Không thay thế" &&
                     inc.replacement_member !== "none" &&
                     inc.replacement_member !== "no_replacement" &&
                     inc.replacement_member !== "";
+
+                let badgeStyle = "background: rgba(255, 255, 255, 0.08); color: var(--ink-hi); border: 1px solid rgba(255, 255, 255, 0.12);";
+                if (inc.status_type === "Đi trễ") {
+                    badgeStyle = "background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3);";
+                } else if (inc.status_type && (inc.status_type.includes("Vắng") || inc.status_type.includes("Nghỉ") || isUnreach)) {
+                    badgeStyle = "background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.3);";
+                } else if (inc.status_type === "Có mặt") {
+                    badgeStyle = "background: rgba(16, 185, 129, 0.15); color: #34D399; border: 1px solid rgba(16, 185, 129, 0.3);";
+                }
+
                 const repBadge = hasRep
-                    ? ` • Người thay thế: <strong style="color:var(--patina-lt);"><i class="fa-solid fa-user-shield"></i> ${esc(inc.replacement_member)}</strong>`
+                    ? `<span style="color: #34D399; font-weight: 600;"><i class="fa-solid fa-user-shield" style="font-size: 10px;"></i> Thay thế: ${esc(inc.replacement_member)}</span>`
                     : isUnreach
-                      ? ` • <span style="color:#F87171; font-weight:600;"><i class="fa-solid fa-clock"></i> Chờ Admin gán người</span>`
+                      ? `<span style="color: #F87171; font-weight: 600;"><i class="fa-solid fa-clock" style="font-size: 10px;"></i> Chờ Admin gán</span>`
                       : "";
 
+                const leaderBadge = `<span style="color: #FBBF24; font-size: 11px;"><i class="fa-solid fa-crown" style="font-size: 10px;"></i> Trưởng ca: ${esc(shiftLeaderName)}</span>`;
+
                 histHtml += `
-                    <div style="background: ${bgCol}; border: 1px solid ${borderCol}; border-left: 3px solid ${borderCol}; border-radius: 6px; padding: 8px 12px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <div>
-                            ${iconTag}
-                            <span class="mk-num" style="color:var(--ink-dim); font-size:11.5px; margin-right:6px;">${esc(inc.timestamp || "")}</span>
-                            <strong style="color:var(--ink-hi);">${esc(inc.absent_member || "Nhân sự")}</strong>:
-                            <span style="color:var(--cinnabar-lt); font-weight:600;"> ${esc(inc.status_type || "")}</span>
-                            ${repBadge}
-                            <span style="color:var(--ink-dim); font-size:11px; margin-left:6px;">(${esc(inc.note || "-")})</span>
+                    <div style="background: ${bgCol}; border: 1px solid ${borderCol}; border-radius: 6px; padding: 6px 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <span class="mk-num" style="color: var(--ink-dim); font-size: 11px; background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px;">${esc(inc.timestamp || "")}</span>
+                            <strong style="color: var(--ink-hi); font-size: 12.5px;">${esc(inc.absent_member || "Nhân sự")}</strong>
+                            <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; ${badgeStyle}">
+                                ${esc(inc.status_type || "Ghi nhận")}
+                            </span>
+                            ${repBadge ? `<span>• ${repBadge}</span>` : ""}
+                            <span>• ${leaderBadge}</span>
                         </div>
+                        ${inc.note && inc.note !== "-" ? `<div style="color: var(--ink-dim); font-size: 11px; font-style: italic;"><i class="fa-solid fa-comment-dots"></i> ${esc(inc.note)}</div>` : ""}
                     </div>
                 `;
             });
@@ -5327,6 +5930,7 @@ window.openCallBackupModal = function (
         if (shift && shift.assigned_members) {
             shift.assigned_members.forEach((m) => {
                 if (!m || m.member_id === backupMemberId) return; // Do not replace self
+                if (shift.shift_leader && (m.name === shift.shift_leader || m.member_id === shift.shift_leader)) return; // Exclude shift leader
                 const mName = m.name || m.member_id;
                 const mState = localAttendanceState[m.member_id];
                 const isMarkedAbsent =
@@ -5600,6 +6204,7 @@ window.openUnreachableBackupModal = function (backupMemberId, backupName) {
 
             shift.assigned_members.forEach((m) => {
                 if (!m || m.member_id === backupMemberId) return;
+                if (shift.shift_leader && (m.name === shift.shift_leader || m.member_id === shift.shift_leader)) return; // Exclude shift leader
                 const mName = m.name || m.member_id;
                 const mState = localAttendanceState[m.member_id];
                 const isMarkedAbsent =
@@ -6769,17 +7374,882 @@ function renderLiveShiftSalesTable(shiftId) {
     tbody.innerHTML = html;
 }
 
+// ---------------------------------------------------------------------------
+// TAB: KIỂM KÊ & ĐỐI CHIẾU TỒN KHO HÀNG HÓA SAU CA TRỰC (CHÊNH LỆCH & CỘNG DỒN)
+// ---------------------------------------------------------------------------
+
+let globalTabAudits = [];
+let currentSelectedAuditTabShiftId = null;
+let currentAuditTabRollovers = [];
+
+window.initTabShiftAudit = async function () {
+    if (!globalInventoryData || !globalInventoryData.products || globalInventoryData.products.length === 0) {
+        await loadInventoryData();
+    }
+    populateTabAuditShiftDropdown();
+    const shiftSelect = document.getElementById("tabAuditShiftSelect");
+    let targetShiftId = shiftSelect?.value;
+    if (!targetShiftId && currentSelectedLiveShiftId) {
+        targetShiftId = currentSelectedLiveShiftId;
+        if (shiftSelect) shiftSelect.value = targetShiftId;
+    }
+    if (targetShiftId) {
+        await onTabAuditShiftChange(targetShiftId);
+    }
+    await loadTabAuditHistory();
+};
+
+window.populateTabAuditShiftDropdown = function () {
+    const shiftSelect = document.getElementById("tabAuditShiftSelect");
+    const histShiftSelect = document.getElementById("filterAuditHistoryShift");
+    if (!shiftSelect) return;
+
+    const allShifts = [
+        ...(globalScheduleData?.assigned_shifts || []),
+        ...(globalCaNgoai || []),
+    ];
+
+    let optHtml = "";
+    if (allShifts.length === 0) {
+        optHtml = `<option value="Live">Ca Trực Hiện Tại (Live)</option>`;
+    } else {
+        allShifts.forEach((s) => {
+            const isLive = s.shift_id === currentSelectedLiveShiftId;
+            const leaderName = s.shift_leader && s.shift_leader !== "Chưa chỉ định" ? `👑 ${s.shift_leader}` : "Chưa có Trưởng ca";
+            const liveMarker = isLive ? "🔴 [ĐANG TRỰC] " : "";
+            optHtml += `<option value="${esc(s.shift_id)}">${liveMarker}${esc(s.shift_name || s.day_of_week + " - " + s.shift_id)} (${esc(s.time_slot || "")}) - ${esc(leaderName)}</option>`;
+        });
+    }
+
+    shiftSelect.innerHTML = optHtml;
+    if (currentSelectedAuditTabShiftId) {
+        shiftSelect.value = currentSelectedAuditTabShiftId;
+    } else if (currentSelectedLiveShiftId) {
+        shiftSelect.value = currentSelectedLiveShiftId;
+        currentSelectedAuditTabShiftId = currentSelectedLiveShiftId;
+    } else if (allShifts.length > 0) {
+        shiftSelect.value = allShifts[0].shift_id;
+        currentSelectedAuditTabShiftId = allShifts[0].shift_id;
+    }
+
+    if (histShiftSelect) {
+        let histOptHtml = `<option value="ALL">-- Tất cả ca trực --</option>`;
+        allShifts.forEach((s) => {
+            histOptHtml += `<option value="${esc(s.shift_id)}">${esc(s.shift_name || s.shift_id)}</option>`;
+        });
+        histShiftSelect.innerHTML = histOptHtml;
+    }
+};
+
+window.onTabAuditShiftChange = async function (shiftId) {
+    currentSelectedAuditTabShiftId = shiftId;
+    const noticeEl = document.getElementById("tabAuditRolloverNotice");
+    const noticeText = document.getElementById("tabAuditRolloverText");
+
+    // Fetch pending rollover items for this shift
+    try {
+        const res = await fetch(`/api/inventory/audit-shift/pending-rollover?shift_id=${encodeURIComponent(shiftId)}`).then((r) => r.json());
+        if (res.success && res.pending_rollovers && res.pending_rollovers.length > 0) {
+            currentAuditTabRollovers = res.pending_rollovers;
+            if (noticeEl && noticeText) {
+                noticeEl.style.display = "block";
+                const summaryNames = res.pending_rollovers.map((it) => `<b>${esc(it.product_name)}</b> (${it.diff > 0 ? "+" + it.diff : it.diff} ${esc(it.unit)})`).join(", ");
+                noticeText.innerHTML = `<strong><i class="fa-solid fa-arrows-spin text-gold"></i> Tiếp nhận cộng dồn từ ca trước:</strong> Đã tiếp nhận ${res.pending_rollovers.length} mặt hàng nợ/chênh lệch: ${summaryNames}. Số lượng đã được tự động kết chuyển vào Tồn Lý Thuyết!`;
+            }
+        } else {
+            currentAuditTabRollovers = [];
+            if (noticeEl) noticeEl.style.display = "none";
+        }
+    } catch (e) {
+        currentAuditTabRollovers = [];
+        if (noticeEl) noticeEl.style.display = "none";
+    }
+
+    renderTabActiveShiftAudit(shiftId);
+};
+
+window.openShiftEditFromAuditTab = function () {
+    const shiftId = currentSelectedAuditTabShiftId || currentSelectedLiveShiftId;
+    if (shiftId) {
+        openShiftEditModal(shiftId);
+    } else {
+        showToast("Vui lòng chọn một ca trực trước.", "info");
+    }
+};
+
+window.renderTabActiveShiftAudit = function (shiftId) {
+    const tbody = document.getElementById("tabAuditTableBody");
+    const auditorSelect = document.getElementById("tabAuditAuditorSelect");
+    const subtitleEl = document.getElementById("tabAuditLeaderSubtitle");
+    if (!tbody) return;
+
+    // Find current shift information
+    const allShifts = [
+        ...(globalScheduleData?.assigned_shifts || []),
+        ...(globalCaNgoai || []),
+    ];
+    const currentShift = allShifts.find((s) => s.shift_id === shiftId);
+    const shiftLeader = currentShift?.shift_leader && currentShift.shift_leader !== "Chưa chỉ định"
+        ? currentShift.shift_leader
+        : null;
+
+    if (subtitleEl) {
+        if (shiftLeader) {
+            subtitleEl.innerHTML = `<i class="fa-solid fa-crown" style="color: #FBBF24;"></i> <strong>Ca trưởng kiểm hàng:</strong> <b style="color: #FBBF24; font-size: 13px;">${esc(shiftLeader)}</b> (Ca trực ${esc(shiftId || "")}). Đã tự động chọn làm Người kiểm hàng &amp; Chốt đối chiếu kho.`;
+        } else {
+            subtitleEl.innerHTML = `<i class="fa-solid fa-crown" style="color: #FBBF24;"></i> <strong>Ca trưởng luôn là người kiểm hàng</strong>: Tự động chỉ định Ca trưởng chịu trách nhiệm kiểm kê hàng hóa và đối chiếu chênh lệch kho sau mỗi ca trực.`;
+        }
+    }
+
+    if (auditorSelect) {
+        let optHtml = "";
+        if (shiftLeader) {
+            optHtml += `<option value="${esc(shiftLeader)}" selected>👑 ${esc(shiftLeader)} (Ca trưởng - Người kiểm hàng)</option>`;
+        }
+
+        const shiftMembers = (currentShift?.assigned_members || []).filter(
+            (m) => m && m.name && m.name !== shiftLeader,
+        );
+        if (shiftMembers.length > 0) {
+            optHtml += `<optgroup label="Nhân sự trong ca ${esc(shiftId || "")}">`;
+            shiftMembers.forEach((m) => {
+                optHtml += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.department || "Thành viên")})</option>`;
+            });
+            optHtml += `</optgroup>`;
+        }
+
+        if (globalMembers && globalMembers.length > 0) {
+            optHtml += `<optgroup label="Toàn bộ nhân sự">`;
+            globalMembers.forEach((m) => {
+                if (m.name !== shiftLeader) {
+                    optHtml += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.department || "")})</option>`;
+                }
+            });
+            optHtml += `</optgroup>`;
+        }
+
+        if (!shiftLeader) {
+            optHtml = `<option value="Bộ phận kiểm hàng" selected>-- Chọn người kiểm hàng --</option>` + optHtml;
+        }
+
+        auditorSelect.innerHTML = optHtml;
+        if (shiftLeader) auditorSelect.value = shiftLeader;
+    }
+
+    const products = globalInventoryData?.products || [];
+    const allSales = globalInventoryData?.sales_logs || [];
+
+    const currentShiftSales = allSales.filter(
+        (l) => !l.refunded && (l.channel || "").includes(shiftId),
+    );
+    const shiftSalesMap = {};
+    currentShiftSales.forEach((l) => {
+        shiftSalesMap[l.product_id] = (shiftSalesMap[l.product_id] || 0) + (l.quantity || 0);
+    });
+
+    const rolloverMap = {};
+    (currentAuditTabRollovers || []).forEach((ro) => {
+        rolloverMap[ro.product_id] = (rolloverMap[ro.product_id] || 0) + (ro.diff || 0);
+    });
+
+    if (products.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="12" class="table-empty">Kho hàng đang trống. Chưa có dữ liệu sản phẩm để kiểm kê.</td></tr>`;
+        updateTabAuditFooterStats();
+        return;
+    }
+
+    let html = "";
+    products.forEach((p, idx) => {
+        const soldInShift = shiftSalesMap[p.id] || 0;
+        const initialStock = p.initial_stock || 0;
+        const totalSoldAll = p.sold_count || 0;
+        const carriedFromPrev = rolloverMap[p.id] || 0;
+        const theoreticalStock = Math.max(0, initialStock - totalSoldAll + carriedFromPrev);
+
+        const carriedHtml = carriedFromPrev !== 0
+            ? `<span style="font-weight: 700; color: ${carriedFromPrev > 0 ? 'var(--goldleaf)' : '#EF4444'};" title="Chuyển giao nợ/dư từ ca trước">${carriedFromPrev > 0 ? '+' + carriedFromPrev : carriedFromPrev}</span>`
+            : `<span style="color: var(--ink-dim); font-size: 11px;">0</span>`;
+
+        html += `
+            <tr id="tabAuditRow_${p.id}">
+                <td class="cell-center mk-num">${idx + 1}</td>
+                <td class="mk-num"><strong>${p.id}</strong></td>
+                <td><strong>${esc(p.name)}</strong></td>
+                <td class="cell-center">${p.unit || "món"}</td>
+                <td class="cell-right mk-num">${initialStock}</td>
+                <td class="cell-right mk-num" style="color: var(--goldleaf); font-weight:700;">${soldInShift}</td>
+                <td class="cell-right mk-num">${carriedHtml}</td>
+                <td class="cell-right mk-num" style="font-weight:700; color:var(--ink-hi);">${theoreticalStock}</td>
+                <td class="cell-center" style="background: rgba(217, 119, 6, 0.06);">
+                    <input type="number" min="0" 
+                           class="audit-actual-input custom-input" 
+                           id="tabAuditActual_${p.id}"
+                           data-pid="${p.id}"
+                           data-pname="${esc(p.name)}"
+                           data-unit="${p.unit || 'món'}"
+                           data-price="${p.price || 0}"
+                           data-expected="${theoreticalStock}"
+                           data-carried="${carriedFromPrev}"
+                           value="${theoreticalStock}" 
+                           oninput="onTabAuditQtyChange('${p.id}', ${theoreticalStock}, ${p.price || 0})"
+                           style="width: 80px; text-align: center; font-weight: 700; font-size: 13px; padding: 4px 6px; border-color: var(--goldleaf);" />
+                </td>
+                <td class="cell-center" id="tabAuditDiffCol_${p.id}">
+                    <span class="badge-audit-ok"><i class="fa-solid fa-circle-check"></i> Khớp (0)</span>
+                </td>
+                <td>
+                    <select class="custom-select" id="tabAuditResolution_${p.id}" data-pid="${p.id}" style="font-size: 11.5px; padding: 3px 6px; width: 100%; border-radius: 4px;" onchange="onTabAuditResolutionChange('${p.id}')">
+                        <option value="Khớp kho">✅ Khớp kho (0)</option>
+                        <option value="Đã bù ngay">⚡ Đã bù ngay trong ca</option>
+                        <option value="Bù sau">⏳ Bù sau (Ghi nợ ca)</option>
+                        <option value="Cộng dồn chuyển ca sau">🔄 Cộng dồn chuyển ca sau</option>
+                        <option value="Hao hụt cho phép">🏷️ Hao hụt cho phép</option>
+                        <option value="Đã trừ quỹ ca">💰 Đã trừ quỹ ca trực</option>
+                        <option value="Đang kiểm tra">🔍 Đang kiểm tra đối chiếu</option>
+                    </select>
+                </td>
+                <td>
+                    <input type="text" class="custom-input" id="tabAuditNote_${p.id}" data-pid="${p.id}" placeholder="Ghi chú người bù, lý do..." style="font-size: 12px; padding: 4px 6px; width: 100%;" />
+                </td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
+    updateTabAuditFooterStats();
+};
+
+window.onTabAuditQtyChange = function (pid, expected, unitPrice) {
+    const input = document.getElementById(`tabAuditActual_${pid}`);
+    const diffCol = document.getElementById(`tabAuditDiffCol_${pid}`);
+    const resSelect = document.getElementById(`tabAuditResolution_${pid}`);
+    if (!input || !diffCol) return;
+
+    const valStr = input.value;
+    const actual = valStr === "" ? 0 : parseInt(valStr, 10);
+    const diff = actual - expected;
+
+    if (diff === 0) {
+        diffCol.innerHTML = `<span class="badge-audit-ok"><i class="fa-solid fa-circle-check"></i> Khớp (0)</span>`;
+        if (resSelect && resSelect.value !== "Khớp kho") {
+            resSelect.value = "Khớp kho";
+        }
+    } else if (diff < 0) {
+        diffCol.innerHTML = `<span class="badge-audit-loss"><i class="fa-solid fa-circle-exclamation"></i> Thiếu ${diff}</span>`;
+        if (resSelect && resSelect.value === "Khớp kho") {
+            resSelect.value = "Đã bù ngay";
+        }
+    } else {
+        diffCol.innerHTML = `<span class="badge-audit-surplus"><i class="fa-solid fa-circle-info"></i> Thừa +${diff}</span>`;
+        if (resSelect && resSelect.value === "Khớp kho") {
+            resSelect.value = "Cộng dồn chuyển ca sau";
+        }
+    }
+
+    updateTabAuditFooterStats();
+};
+
+window.onTabAuditResolutionChange = function (pid) {
+    updateTabAuditFooterStats();
+};
+
+window.updateTabAuditFooterStats = function () {
+    const products = globalInventoryData?.products || [];
+    let matched = 0;
+    let missing = 0;
+    let surplus = 0;
+    let totalDiffAmount = 0;
+
+    products.forEach((p) => {
+        const input = document.getElementById(`tabAuditActual_${p.id}`);
+        if (!input) return;
+        const expected = parseInt(input.getAttribute("data-expected") || "0", 10);
+        const actual = input.value === "" ? expected : parseInt(input.value, 10);
+        const diff = actual - expected;
+        const price = parseInt(input.getAttribute("data-price") || "0", 10);
+
+        if (diff === 0) {
+            matched++;
+        } else if (diff < 0) {
+            missing += Math.abs(diff);
+            totalDiffAmount += Math.abs(diff) * price;
+        } else {
+            surplus += diff;
+            totalDiffAmount += diff * price;
+        }
+    });
+
+    const elMatched = document.getElementById("tabAuditStatMatched");
+    const elMissing = document.getElementById("tabAuditStatMissing");
+    const elSurplus = document.getElementById("tabAuditStatSurplus");
+    const elDiffAmount = document.getElementById("tabAuditStatDiffAmount");
+
+    if (elMatched) elMatched.textContent = matched;
+    if (elMissing) elMissing.textContent = missing;
+    if (elSurplus) elSurplus.textContent = surplus;
+    if (elDiffAmount) elDiffAmount.textContent = totalDiffAmount.toLocaleString("vi-VN") + " ₫";
+};
+
+window.markAllAuditItemsImmediateResolved = function () {
+    const products = globalInventoryData?.products || [];
+    let changed = 0;
+    products.forEach((p) => {
+        const input = document.getElementById(`tabAuditActual_${p.id}`);
+        const resSelect = document.getElementById(`tabAuditResolution_${p.id}`);
+        if (!input || !resSelect) return;
+        const expected = parseInt(input.getAttribute("data-expected") || "0", 10);
+        const actual = input.value === "" ? expected : parseInt(input.value, 10);
+        if (actual !== expected) {
+            resSelect.value = "Đã bù ngay";
+            changed++;
+        }
+    });
+    showToast(`Đã gán hướng xử lý "Đã bù ngay trong ca" cho ${changed} mặt hàng lệch!`, "success");
+};
+
+window.markAllAuditItemsRollover = function () {
+    const products = globalInventoryData?.products || [];
+    let changed = 0;
+    products.forEach((p) => {
+        const input = document.getElementById(`tabAuditActual_${p.id}`);
+        const resSelect = document.getElementById(`tabAuditResolution_${p.id}`);
+        if (!input || !resSelect) return;
+        const expected = parseInt(input.getAttribute("data-expected") || "0", 10);
+        const actual = input.value === "" ? expected : parseInt(input.value, 10);
+        if (actual !== expected) {
+            resSelect.value = "Cộng dồn chuyển ca sau";
+            changed++;
+        }
+    });
+    showToast(`Đã gán hướng xử lý "Cộng dồn chuyển ca sau" cho ${changed} mặt hàng lệch!`, "info");
+};
+
+window.handleSaveTabShiftAudit = async function () {
+    const msg = document.getElementById("tabAuditMsg");
+    const auditorSelect = document.getElementById("tabAuditAuditorSelect");
+    const auditor = auditorSelect?.value || "Người kiểm hàng ca";
+    const shiftId = currentSelectedAuditTabShiftId || "Live";
+
+    const products = globalInventoryData?.products || [];
+    if (products.length === 0) {
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Không có sản phẩm nào để lưu báo cáo kiểm kê!";
+        }
+        return;
+    }
+
+    const items = [];
+    products.forEach((p) => {
+        const inputActual = document.getElementById(`tabAuditActual_${p.id}`);
+        const inputNote = document.getElementById(`tabAuditNote_${p.id}`);
+        const resSelect = document.getElementById(`tabAuditResolution_${p.id}`);
+        const expected = parseInt(inputActual?.getAttribute("data-expected") || "0", 10);
+        const carried = parseInt(inputActual?.getAttribute("data-carried") || "0", 10);
+        const price = parseInt(inputActual?.getAttribute("data-price") || "0", 10);
+        const actualStr = inputActual?.value;
+        const actual = actualStr === "" || actualStr === undefined ? expected : parseInt(actualStr, 10);
+        const diff = actual - expected;
+        const note = inputNote?.value.trim() || "";
+        const resType = resSelect?.value || (diff === 0 ? "Khớp kho" : "Chưa xử lý");
+
+        items.push({
+            product_id: p.id,
+            product_name: p.name,
+            unit: p.unit || "món",
+            expected_stock: expected,
+            actual_stock: actual,
+            diff: diff,
+            carried_from_prev: carried,
+            resolution_type: resType,
+            resolution_note: note,
+            resolved_by: auditor,
+            unit_price: price,
+            note: note,
+        });
+    });
+
+    if (msg) {
+        msg.className = "swap-msg";
+        msg.textContent = "Đang lưu báo cáo đối chiếu kiểm kê ca trực...";
+    }
+
+    try {
+        const res = await fetch("/api/inventory/audit-shift", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                shift_id: shiftId,
+                auditor: auditor,
+                items: items,
+                summary_note: `Báo cáo kiểm kê ca ${shiftId}`,
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (msg) {
+                msg.className = "swap-msg success";
+                msg.textContent = `✓ ${data.message}`;
+            }
+            showToast(data.message, "success");
+            await loadTabAuditHistory();
+        } else {
+            if (msg) {
+                msg.className = "swap-msg error";
+                msg.textContent = "Lỗi lưu kiểm kê: " + data.message;
+            }
+        }
+    } catch (err) {
+        if (msg) {
+            msg.className = "swap-msg error";
+            msg.textContent = "Lỗi kết nối: " + err.message;
+        }
+    }
+};
+
+window.loadTabAuditHistory = async function () {
+    try {
+        const res = await fetch("/api/inventory/audit-shift").then((r) => r.json());
+        if (res.success && Array.isArray(res.audits)) {
+            globalTabAudits = res.audits;
+            updateAuditKpiCards(globalTabAudits);
+            filterAuditHistory();
+        }
+    } catch (err) {
+        console.error("Failed to load audit history:", err);
+    }
+};
+
+function updateAuditKpiCards(audits) {
+    const elTotal = document.getElementById("kpiAuditTotalAudits");
+    const elMatched = document.getElementById("kpiAuditMatchedCount");
+    const elPending = document.getElementById("kpiAuditPendingDiff");
+    const elResolved = document.getElementById("kpiAuditResolvedCount");
+
+    const totalAudits = audits.length;
+    let perfectAudits = 0;
+    let pendingDiffCount = 0;
+    let resolvedRolledCount = 0;
+
+    audits.forEach((a) => {
+        const items = a.items || [];
+        const hasDiff = items.some((i) => i.diff !== 0);
+        if (!hasDiff) {
+            perfectAudits++;
+        } else {
+            items.forEach((it) => {
+                if (it.diff !== 0) {
+                    if (it.is_resolved) {
+                        resolvedRolledCount += Math.abs(it.diff);
+                    } else if (it.resolution_type === "Cộng dồn chuyển ca sau") {
+                        resolvedRolledCount += Math.abs(it.diff);
+                    } else {
+                        pendingDiffCount += Math.abs(it.diff);
+                    }
+                }
+            });
+        }
+    });
+
+    const matchRate = totalAudits > 0 ? Math.round((perfectAudits / totalAudits) * 100) : 100;
+
+    if (elTotal) elTotal.textContent = `${totalAudits} ca`;
+    if (elMatched) elMatched.textContent = `${perfectAudits} / ${totalAudits} (${matchRate}%)`;
+    if (elPending) elPending.textContent = `${pendingDiffCount} món`;
+    if (elResolved) elResolved.textContent = `${resolvedRolledCount} món`;
+}
+
+window.filterAuditHistory = function () {
+    const statusFilter = document.getElementById("filterAuditHistoryStatus")?.value || "ALL";
+    const shiftFilter = document.getElementById("filterAuditHistoryShift")?.value || "ALL";
+
+    let filtered = globalTabAudits || [];
+
+    if (shiftFilter !== "ALL") {
+        filtered = filtered.filter((a) => a.shift_id === shiftFilter);
+    }
+
+    if (statusFilter === "HAS_DIFF") {
+        filtered = filtered.filter((a) => (a.items || []).some((i) => i.diff !== 0));
+    } else if (statusFilter === "UNRESOLVED") {
+        filtered = filtered.filter((a) => (a.unresolved_count || 0) > 0);
+    } else if (statusFilter === "ROLLED_OVER") {
+        filtered = filtered.filter((a) => a.overall_status === "CỘNG DỒN CHUYỂN CA" || (a.items || []).some((i) => i.resolution_type === "Cộng dồn chuyển ca sau"));
+    } else if (statusFilter === "RESOLVED") {
+        filtered = filtered.filter((a) => a.overall_status === "ĐÃ XỬ LÝ XONG");
+    } else if (statusFilter === "PERFECT") {
+        filtered = filtered.filter((a) => !(a.items || []).some((i) => i.diff !== 0));
+    }
+
+    renderAuditHistoryTable(filtered);
+};
+
+window.renderAuditHistoryTable = function (audits) {
+    const tbody = document.getElementById("auditHistoryTableBody");
+    if (!tbody) return;
+
+    if (!audits || audits.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="table-empty">Không có báo cáo kiểm kê nào phù hợp với bộ lọc.</td></tr>`;
+        return;
+    }
+
+    let html = "";
+    audits.forEach((a) => {
+        const items = a.items || [];
+        const diffItems = items.filter((i) => i.diff !== 0);
+        const hasDiff = diffItems.length > 0;
+
+        // Result badge
+        let resultBadge = `<span class="badge-status badge-success" style="font-size: 11.5px;"><i class="fa-solid fa-circle-check"></i> Khớp 100% (${items.length} SP)</span>`;
+        if (hasDiff) {
+            const totalDiffQty = diffItems.reduce((acc, it) => acc + it.diff, 0);
+            resultBadge = `<span class="badge-status badge-warning" style="font-size: 11.5px;"><i class="fa-solid fa-triangle-exclamation"></i> Lệch ${diffItems.length} SP (${totalDiffQty > 0 ? '+' + totalDiffQty : totalDiffQty})</span>`;
+        }
+
+        // Status badge
+        let statusBadge = `<span class="badge-status badge-success" style="font-size: 11.5px;">✓ Hoàn tất</span>`;
+        if (a.overall_status === "CỘNG DỒN CHUYỂN CA") {
+            statusBadge = `<span class="badge-status badge-info" style="font-size: 11.5px;"><i class="fa-solid fa-arrows-spin"></i> Cộng dồn ca sau</span>`;
+        } else if (a.overall_status === "CHỜ BÙ / XỬ LÝ") {
+            statusBadge = `<span class="badge-status badge-danger" style="font-size: 11.5px;"><i class="fa-solid fa-clock"></i> Chờ bù (${a.unresolved_count || diffItems.length} SP)</span>`;
+        } else if (a.overall_status === "ĐÃ XỬ LÝ XONG") {
+            statusBadge = `<span class="badge-status badge-success" style="font-size: 11.5px;"><i class="fa-solid fa-check-double"></i> Đã xử lý bù</span>`;
+        }
+
+        // Detail list of discrepant items with resolution tags
+        let diffItemsHtml = "";
+        if (!hasDiff) {
+            diffItemsHtml = `<span style="color: var(--ink-dim); font-size: 12px;"><i class="fa-solid fa-check text-emerald"></i> Toàn bộ sản phẩm kiểm kê khớp chính xác với phần mềm POS.</span>`;
+        } else {
+            diffItemsHtml = `<div style="display: flex; flex-direction: column; gap: 4px;">`;
+            diffItems.forEach((it) => {
+                const isLoss = it.diff < 0;
+                const sign = it.diff > 0 ? `+${it.diff}` : `${it.diff}`;
+                const diffColor = isLoss ? '#EF4444' : '#F59E0B';
+
+                let resTagColor = 'var(--ink-dim)';
+                let resIcon = 'fa-tag';
+                if (it.resolution_type === 'Đã bù ngay' || it.resolution_type === 'Đã trừ quỹ ca') {
+                    resTagColor = '#10B981';
+                    resIcon = 'fa-circle-check';
+                } else if (it.resolution_type === 'Bù sau') {
+                    resTagColor = '#F59E0B';
+                    resIcon = 'fa-clock';
+                } else if (it.resolution_type === 'Cộng dồn chuyển ca sau') {
+                    resTagColor = '#06B6D4';
+                    resIcon = 'fa-forward-step';
+                } else if (it.resolution_type === 'Hao hụt cho phép') {
+                    resTagColor = '#8B5CF6';
+                    resIcon = 'fa-shield';
+                }
+
+                const carryNote = it.carry_to_shift ? ` [Chuyển ca ${esc(it.carry_to_shift)}]` : '';
+                const itemNote = it.resolution_note ? ` (${esc(it.resolution_note)})` : '';
+
+                diffItemsHtml += `
+                    <div style="font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255, 255, 255, 0.03); padding: 3px 6px; border-radius: 4px;">
+                        <span><strong>${esc(it.product_name)}</strong>: <b style="color: ${diffColor};">${sign} ${esc(it.unit)}</b></span>
+                        <div style="display: flex; align-items: center; gap: 4px;">
+                            <span style="font-size: 11px; color: ${resTagColor}; font-weight: 600;">
+                                <i class="fa-solid ${resIcon}"></i> ${esc(it.resolution_type || 'Chưa xử lý')}${carryNote}${itemNote}
+                            </span>
+                            <button type="button" class="btn-action-sm btn-action-secondary" style="font-size: 10px; padding: 1px 4px;" onclick="openAuditResolutionModal('${a.id}', '${it.product_id}')" title="Cập nhật hướng xử lý cho món này">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            diffItemsHtml += `</div>`;
+        }
+
+        html += `
+            <tr>
+                <td class="mk-num"><strong>${a.id}</strong></td>
+                <td style="font-size: 12px;">${esc(a.timestamp)}</td>
+                <td><strong style="color: var(--goldleaf);">${esc(a.shift_id)}</strong></td>
+                <td><i class="fa-solid fa-crown text-gold"></i> <strong>${esc(a.auditor)}</strong></td>
+                <td class="cell-center">${resultBadge}</td>
+                <td>${diffItemsHtml}</td>
+                <td class="cell-center">${statusBadge}</td>
+                <td class="cell-center">
+                    <div style="display: inline-flex; gap: 4px;">
+                        <button type="button" class="btn-action-sm btn-action-secondary" style="font-size: 11px; padding: 3px 6px;" onclick="openAuditResolutionModal('${a.id}', '')" title="Cập nhật hướng xử lý cho toàn ca">
+                            <i class="fa-solid fa-sliders text-gold"></i> Xử lý
+                        </button>
+                        <button type="button" class="btn-action-sm btn-action-secondary admin-only-elem" style="font-size: 11px; padding: 3px 6px; color: #EF4444;" onclick="deleteAuditRecord('${a.id}')" title="Xóa phiếu kiểm kê">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+};
+
+window.openAuditResolutionModal = function (auditId, productId) {
+    const modal = document.getElementById("auditResolutionModal");
+    const inputAuditId = document.getElementById("modalResAuditId");
+    const inputProductId = document.getElementById("modalResProductId");
+    const infoBox = document.getElementById("modalResInfoBox");
+    const typeSelect = document.getElementById("modalResTypeSelect");
+    const personInput = document.getElementById("modalResPersonInput");
+    const noteInput = document.getElementById("modalResNoteInput");
+    const targetShiftGroup = document.getElementById("modalResTargetShiftGroup");
+    const targetShiftSelect = document.getElementById("modalResTargetShiftSelect");
+
+    if (!modal) return;
+
+    const audit = (globalTabAudits || []).find((a) => a.id === auditId);
+    if (!audit) {
+        showToast("Không tìm thấy đợt kiểm kê", "error");
+        return;
+    }
+
+    inputAuditId.value = auditId;
+    inputProductId.value = productId || "";
+
+    // Populate target shift options for rollover
+    const allShifts = [
+        ...(globalScheduleData?.assigned_shifts || []),
+        ...(globalCaNgoai || []),
+    ];
+    let optHtml = "";
+    allShifts.forEach((s) => {
+        if (s.shift_id !== audit.shift_id) {
+            optHtml += `<option value="${esc(s.shift_id)}">${esc(s.shift_name || s.shift_id)} (${esc(s.time_slot || "")})</option>`;
+        }
+    });
+    if (targetShiftSelect) targetShiftSelect.innerHTML = optHtml;
+
+    if (productId) {
+        const item = (audit.items || []).find((i) => i.product_id === productId);
+        if (item) {
+            infoBox.innerHTML = `
+                <div><strong>Mã phiếu:</strong> ${audit.id} | <strong>Ca trực:</strong> ${audit.shift_id} | <strong>Ca trưởng:</strong> ${esc(audit.auditor)}</div>
+                <div style="margin-top: 4px;"><strong>Sản phẩm:</strong> <span style="color: var(--goldleaf);">${esc(item.product_name)}</span> (Mã: ${item.product_id})</div>
+                <div style="margin-top: 4px;"><strong>Chênh lệch:</strong> <b style="color: ${item.diff < 0 ? '#EF4444' : '#F59E0B'};">${item.diff > 0 ? '+' + item.diff : item.diff} ${esc(item.unit)}</b> (Tồn lý thuyết: ${item.expected_stock} vs Thực tế: ${item.actual_stock})</div>
+            `;
+            if (typeSelect) typeSelect.value = item.resolution_type || "Đã bù ngay";
+            if (personInput) personInput.value = item.resolved_by || audit.auditor || "";
+            if (noteInput) noteInput.value = item.resolution_note || "";
+        }
+    } else {
+        const diffItems = (audit.items || []).filter((i) => i.diff !== 0);
+        infoBox.innerHTML = `
+            <div><strong>Mã phiếu:</strong> ${audit.id} | <strong>Ca trực:</strong> ${audit.shift_id} | <strong>Ca trưởng:</strong> ${esc(audit.auditor)}</div>
+            <div style="margin-top: 4px;"><strong>Tổng số mặt hàng bị lệch:</strong> <strong style="color: #F59E0B;">${diffItems.length} sản phẩm</strong></div>
+            <div style="margin-top: 4px; font-size: 12px; color: var(--ink-dim);">Áp dụng hướng xử lý đồng loạt cho toàn bộ các mặt hàng chênh lệch trong ca này.</div>
+        `;
+        if (typeSelect) typeSelect.value = "Đã bù ngay";
+        if (personInput) personInput.value = audit.auditor || "";
+        if (noteInput) noteInput.value = audit.summary_note || "";
+    }
+
+    onModalResTypeChange(typeSelect ? typeSelect.value : "Đã bù ngay");
+    modal.classList.add("active");
+};
+
+window.closeAuditResolutionModal = function () {
+    const modal = document.getElementById("auditResolutionModal");
+    if (modal) modal.classList.remove("active");
+};
+
+window.onModalResTypeChange = function (type) {
+    const targetGroup = document.getElementById("modalResTargetShiftGroup");
+    if (targetGroup) {
+        targetGroup.style.display = type === "Cộng dồn chuyển ca sau" ? "block" : "none";
+    }
+};
+
+window.submitAuditResolutionModal = async function () {
+    const auditId = document.getElementById("modalResAuditId")?.value;
+    const productId = document.getElementById("modalResProductId")?.value;
+    const resType = document.getElementById("modalResTypeSelect")?.value;
+    const resolvedBy = document.getElementById("modalResPersonInput")?.value.trim();
+    const note = document.getElementById("modalResNoteInput")?.value.trim();
+    const targetShift = document.getElementById("modalResTargetShiftSelect")?.value;
+
+    if (!auditId) return;
+
+    try {
+        const res = await fetch("/api/inventory/audit-shift/update-resolution", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                audit_id: auditId,
+                product_id: productId || undefined,
+                resolution_type: resType,
+                resolution_note: note,
+                resolved_by: resolvedBy,
+                carry_to_shift: resType === "Cộng dồn chuyển ca sau" ? targetShift : undefined,
+            }),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast(res.message, "success");
+            closeAuditResolutionModal();
+            await loadTabAuditHistory();
+            if (currentSelectedAuditTabShiftId) {
+                await onTabAuditShiftChange(currentSelectedAuditTabShiftId);
+            }
+        } else {
+            showToast(res.message || "Lỗi cập nhật hướng xử lý", "error");
+        }
+    } catch (err) {
+        showToast("Lỗi kết nối: " + err.message, "error");
+    }
+};
+
+window.openRolloverModalForActiveShift = function () {
+    const modal = document.getElementById("auditRolloverModal");
+    const shiftSelect = document.getElementById("modalRolloverToShiftSelect");
+    const inputFromShift = document.getElementById("modalRolloverFromShiftId");
+    const noteInput = document.getElementById("modalRolloverNote");
+
+    if (!modal) return;
+
+    const fromShiftId = currentSelectedAuditTabShiftId || currentSelectedLiveShiftId || "Live";
+    if (inputFromShift) inputFromShift.value = fromShiftId;
+
+    const allShifts = [
+        ...(globalScheduleData?.assigned_shifts || []),
+        ...(globalCaNgoai || []),
+    ];
+
+    let optHtml = "";
+    allShifts.forEach((s) => {
+        if (s.shift_id !== fromShiftId) {
+            optHtml += `<option value="${esc(s.shift_id)}">${esc(s.shift_name || s.shift_id)} (${esc(s.time_slot || "")}) - 👑 ${esc(s.shift_leader || "Chưa có Trưởng ca")}</option>`;
+        }
+    });
+
+    if (shiftSelect) shiftSelect.innerHTML = optHtml;
+    if (noteInput) noteInput.value = `Chuyển giao cộng dồn các mặt hàng chênh lệch từ ca ${fromShiftId} sang ca tiếp theo.`;
+
+    modal.classList.add("active");
+};
+
+window.closeAuditRolloverModal = function () {
+    const modal = document.getElementById("auditRolloverModal");
+    if (modal) modal.classList.remove("active");
+};
+
+window.submitAuditRolloverModal = async function () {
+    const fromShiftId = document.getElementById("modalRolloverFromShiftId")?.value;
+    const toShiftId = document.getElementById("modalRolloverToShiftSelect")?.value;
+    const note = document.getElementById("modalRolloverNote")?.value.trim();
+
+    if (!toShiftId) {
+        showToast("Vui lòng chọn ca trực tiếp nhận", "error");
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/inventory/audit-shift/rollover-to-shift", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                from_shift_id: fromShiftId,
+                to_shift_id: toShiftId,
+                note: note,
+            }),
+        }).then((r) => r.json());
+
+        if (res.success) {
+            showToast(res.message, "success");
+            closeAuditRolloverModal();
+            await loadTabAuditHistory();
+            if (currentSelectedAuditTabShiftId) {
+                await onTabAuditShiftChange(currentSelectedAuditTabShiftId);
+            }
+        } else {
+            showToast(res.message || "Lỗi chuyển giao ca", "error");
+        }
+    } catch (err) {
+        showToast("Lỗi kết nối: " + err.message, "error");
+    }
+};
+
+window.deleteAuditRecord = async function (auditId) {
+    if (!confirm(`Bạn có chắc chắn muốn xóa báo cáo kiểm kê ${auditId}?`)) return;
+    try {
+        const res = await authFetch(`/api/inventory/audit-shift/${encodeURIComponent(auditId)}`, {
+            method: "DELETE",
+        }).then((r) => r.json());
+        if (res.success) {
+            showToast(res.message, "success");
+            await loadTabAuditHistory();
+        } else {
+            showToast(res.message || "Lỗi xóa báo cáo", "error");
+        }
+    } catch (err) {
+        showToast("Lỗi kết nối: " + err.message, "error");
+    }
+};
+
 function renderShiftAuditTable(shiftId) {
     const tbody = document.getElementById("shiftAuditTableBody");
     const auditorSelect = document.getElementById("auditSelectAuditor");
+    const subtitleEl = document.getElementById("shiftAuditLeaderSubtitle");
     if (!tbody) return;
 
-    if (auditorSelect && globalMembers && globalMembers.length > 0) {
-        let optHtml = `<option value="Bộ phận kiểm hàng">-- Chọn người kiểm hàng --</option>`;
-        globalMembers.forEach((m) => {
-            optHtml += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.department)})</option>`;
-        });
+    // Find current shift information
+    const allShifts = [
+        ...(globalScheduleData?.assigned_shifts || []),
+        ...(globalCaNgoai || []),
+    ];
+    const currentShift = allShifts.find((s) => s.shift_id === shiftId);
+    const shiftLeader = currentShift?.shift_leader && currentShift.shift_leader !== "Chưa chỉ định"
+        ? currentShift.shift_leader
+        : null;
+
+    if (subtitleEl) {
+        if (shiftLeader) {
+            subtitleEl.innerHTML = `<i class="fa-solid fa-crown" style="color: #FBBF24;"></i> <strong>Ca trưởng chịu trách nhiệm kiểm hàng:</strong> <b style="color: #FBBF24; font-size: 13px;">${esc(shiftLeader)}</b> (Ca trực ${esc(shiftId || "")}). Đã tự động chọn làm Người kiểm hàng.`;
+        } else {
+            subtitleEl.innerHTML = `<i class="fa-solid fa-crown" style="color: #FBBF24;"></i> <strong>Ca trưởng luôn là người kiểm hàng</strong>: Hệ thống tự động chỉ định Ca trưởng chịu trách nhiệm kiểm kê hàng hóa và đối chiếu chênh lệch kho sau mỗi ca trực.`;
+        }
+    }
+
+    if (auditorSelect) {
+        let optHtml = "";
+        if (shiftLeader) {
+            optHtml += `<option value="${esc(shiftLeader)}" selected>👑 ${esc(shiftLeader)} (Ca trưởng - Người kiểm hàng)</option>`;
+        }
+
+        // Assigned members in current shift
+        const shiftMembers = (currentShift?.assigned_members || []).filter(
+            (m) => m && m.name && m.name !== shiftLeader,
+        );
+        if (shiftMembers.length > 0) {
+            optHtml += `<optgroup label="Nhân sự trong ca ${esc(shiftId || "")}">`;
+            shiftMembers.forEach((m) => {
+                optHtml += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.department || "Thành viên")})</option>`;
+            });
+            optHtml += `</optgroup>`;
+        }
+
+        // Global members
+        if (globalMembers && globalMembers.length > 0) {
+            optHtml += `<optgroup label="Toàn bộ nhân sự">`;
+            globalMembers.forEach((m) => {
+                if (m.name !== shiftLeader) {
+                    optHtml += `<option value="${esc(m.name)}">${esc(m.name)} (${esc(m.department || "")})</option>`;
+                }
+            });
+            optHtml += `</optgroup>`;
+        }
+
+        if (!shiftLeader) {
+            optHtml = `<option value="Bộ phận kiểm hàng" selected>-- Chọn người kiểm hàng --</option>` + optHtml;
+        }
+
         auditorSelect.innerHTML = optHtml;
+        if (shiftLeader) {
+            auditorSelect.value = shiftLeader;
+        }
     }
 
     const products = globalInventoryData?.products || [];
@@ -9399,6 +10869,7 @@ async function loadAdminVietqrConfig() {
 
     try {
         const res = await authFetch("/api/admin/vietqr-config");
+        if (!res.ok) return;
         const data = await res.json();
         if (!data.success) return;
 
@@ -11605,4 +13076,413 @@ async function handleCheckoutLivePOS() {
             msg.textContent = "Lỗi hệ thống khi thanh toán.";
         }
     }
+}
+
+// ==========================================
+// QUẢN LÝ KỶ LUẬT & ĐIỂM UY TÍN (DISCIPLINE)
+// ==========================================
+let rawDisciplineData = null;
+
+function safeEscHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+async function loadDisciplineData() {
+    try {
+        const res = await fetch("/api/discipline");
+        const data = await res.json();
+        if (data.success) {
+            rawDisciplineData = data;
+            renderDisciplineModule();
+            populateDisciplineMemberDropdown();
+        } else {
+            console.error("Lỗi tải dữ liệu kỷ luật:", data.message);
+        }
+    } catch (err) {
+        console.error("Lỗi kết nối API kỷ luật:", err);
+    }
+}
+
+function renderDisciplineModule() {
+    if (!rawDisciplineData) return;
+    const { members = [], logs = [], stats = {} } = rawDisciplineData;
+
+    // Render KPIs
+    const kpiAvg = document.getElementById("kpiDisciplineAvgPoints");
+    if (kpiAvg) kpiAvg.textContent = stats.avg_points !== undefined ? Number(stats.avg_points).toFixed(1) : "100.0";
+
+    const kpiTotal = document.getElementById("kpiDisciplineTotalMembers");
+    if (kpiTotal) kpiTotal.textContent = stats.total_members || members.length;
+
+    const kpiExcellenceSub = document.getElementById("kpiDisciplineExcellenceSub");
+    if (kpiExcellenceSub) kpiExcellenceSub.textContent = `${stats.excellence_count || 0} nhân sự đạt Xuất sắc (>=100đ)`;
+
+    const kpiGoodFair = document.getElementById("kpiDisciplineGoodFair");
+    if (kpiGoodFair) kpiGoodFair.textContent = (stats.good_count || 0) + (stats.fair_count || 0);
+
+    const kpiWarning = document.getElementById("kpiDisciplineWarning");
+    if (kpiWarning) kpiWarning.textContent = stats.warning_count || 0;
+
+    // Render Members Table with search & filter
+    filterAndRenderDisciplineMembers();
+
+    // Render Audit Logs Table
+    renderDisciplineLogsTable(logs);
+}
+
+function filterAndRenderDisciplineMembers() {
+    if (!rawDisciplineData || !rawDisciplineData.members) return;
+
+    const searchInput = document.getElementById("inputSearchDisciplineMember");
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+
+    const gradeFilter = document.getElementById("selectDisciplineGradeFilter");
+    const gradeVal = gradeFilter ? gradeFilter.value : "all";
+
+    let filtered = rawDisciplineData.members.filter((m) => {
+        const matchesQuery = !query || m.name.toLowerCase().includes(query) || m.member_id.toLowerCase().includes(query);
+        let matchesGrade = true;
+        if (gradeVal === "excellence") matchesGrade = m.points >= 100;
+        else if (gradeVal === "good") matchesGrade = m.points >= 85 && m.points < 100;
+        else if (gradeVal === "fair") matchesGrade = m.points >= 70 && m.points < 85;
+        else if (gradeVal === "warning") matchesGrade = m.points < 70;
+
+        return matchesQuery && matchesGrade;
+    });
+
+    const displayCount = document.getElementById("disciplineCountDisplay");
+    if (displayCount) {
+        displayCount.textContent = `Hiển thị ${filtered.length}/${rawDisciplineData.members.length} nhân sự`;
+    }
+
+    const tbody = document.getElementById("disciplineMembersTableBody");
+    if (!tbody) return;
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="table-empty">Không tìm thấy nhân sự phù hợp điều kiện lọc.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = filtered.map((m, idx) => {
+        let scoreColor = "#10b981";
+        let scoreBg = "rgba(16, 185, 129, 0.12)";
+        if (m.points < 70) {
+            scoreColor = "#ef4444";
+            scoreBg = "rgba(239, 68, 68, 0.15)";
+        } else if (m.points < 85) {
+            scoreColor = "#f59e0b";
+            scoreBg = "rgba(245, 158, 11, 0.15)";
+        } else if (m.points < 100) {
+            scoreColor = "#38bdf8";
+            scoreBg = "rgba(56, 189, 248, 0.15)";
+        }
+
+        let changeBadge = `<span style="color: var(--ink-dim); font-size: 12px;">0đ</span>`;
+        if (m.net_change > 0) {
+            changeBadge = `<span style="color: #10b981; font-weight: 700; font-size: 12.5px;">+${m.net_change}đ</span>`;
+        } else if (m.net_change < 0) {
+            changeBadge = `<span style="color: #ef4444; font-weight: 700; font-size: 12.5px;">${m.net_change}đ</span>`;
+        }
+
+        return `
+            <tr style="border-bottom: 1px solid var(--rule);">
+                <td style="text-align: center; font-weight: 600; color: var(--ink-dim);">${idx + 1}</td>
+                <td>
+                    <div style="font-weight: 700; font-size: 13.5px; color: var(--ink);">${safeEscHtml(m.name)}</div>
+                    <div style="font-size: 11.5px; color: var(--ink-dim);">Mã: ${safeEscHtml(m.member_id)} | SĐT: ${safeEscHtml(m.phone)}</div>
+                </td>
+                <td style="text-align: center;">
+                    <span class="stock-badge normal" style="font-size: 11.5px;">${safeEscHtml(m.department)}</span>
+                </td>
+                <td style="text-align: center;">
+                    <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; font-weight: 800; font-size: 15px; background: ${scoreBg}; color: ${scoreColor}; border: 1px solid ${scoreColor}40;">
+                        ${m.points}đ
+                    </div>
+                </td>
+                <td style="text-align: center;">
+                    <span class="stock-badge ${m.gradeBadgeClass}" style="font-size: 12px; font-weight: 700;">${safeEscHtml(m.grade)}</span>
+                </td>
+                <td style="text-align: center; font-size: 12px;">
+                    <span style="color: #10b981; font-weight: 700;">+${m.bonus_count}</span> / 
+                    <span style="color: #ef4444; font-weight: 700;">-${m.penalty_count}</span>
+                </td>
+                <td style="text-align: center;">${changeBadge}</td>
+                <td style="text-align: center;">
+                    <div style="display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+                        <button type="button" class="btn-action-sm btn-action-primary" title="Cộng/Trừ điểm" onclick="openAdjustDisciplineForMember('${safeEscHtml(m.member_id)}')">
+                            <i class="fa-solid fa-plus-minus"></i> Điểm
+                        </button>
+                        <button type="button" class="btn-action-sm btn-action-secondary" title="Reset về 100đ" onclick="resetMemberDisciplineScore('${safeEscHtml(m.member_id)}', '${safeEscHtml(m.name)}')">
+                            <i class="fa-solid fa-arrow-rotate-left"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderDisciplineLogsTable(logs) {
+    const tbody = document.getElementById("disciplineLogsTableBody");
+    const badge = document.getElementById("disciplineLogBadgeCount");
+    if (badge) badge.textContent = `${logs ? logs.length : 0} nhật ký`;
+
+    if (!tbody) return;
+
+    if (!logs || logs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="table-empty">Chưa có nhật ký thay đổi điểm uy tín nào.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = logs.map((log) => {
+        const isBonus = log.type === "Cộng điểm";
+        const typeBadge = isBonus
+            ? `<span class="stock-badge good" style="font-size: 11.5px;">🟢 Cộng thưởng</span>`
+            : `<span class="stock-badge danger" style="font-size: 11.5px;">🔴 Trừ phạt</span>`;
+
+        const changeStr = isBonus
+            ? `<span style="color: #10b981; font-weight: 800; font-size: 13px;">+${Math.abs(log.points_change)}đ</span>`
+            : `<span style="color: #ef4444; font-weight: 800; font-size: 13px;">-${Math.abs(log.points_change)}đ</span>`;
+
+        return `
+            <tr style="border-bottom: 1px solid var(--rule);">
+                <td style="text-align: center; font-family: monospace; font-size: 11px; color: var(--ink-dim);">${safeEscHtml(log.id)}</td>
+                <td style="text-align: center; font-size: 12px; color: var(--ink-light);">${safeEscHtml(log.timestamp)}</td>
+                <td>
+                    <div style="font-weight: 700; font-size: 13px;">${safeEscHtml(log.member_name)}</div>
+                    <div style="font-size: 11px; color: var(--ink-dim);">${safeEscHtml(log.member_id)}</div>
+                </td>
+                <td style="text-align: center;">${typeBadge}</td>
+                <td style="text-align: center;">${changeStr}</td>
+                <td style="text-align: center; font-weight: 700; font-size: 13px; color: var(--goldleaf);">${log.new_points}đ</td>
+                <td style="font-size: 12.5px; color: var(--ink); line-height: 1.4;">${safeEscHtml(log.reason)}</td>
+                <td style="font-size: 12px; color: var(--ink-dim);">${safeEscHtml(log.performed_by)}</td>
+                <td style="text-align: center;">
+                    <button type="button" class="btn-action-sm btn-action-danger" title="Xóa log & hoàn tác" onclick="deleteDisciplineLog('${safeEscHtml(log.id)}')">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function populateDisciplineMemberDropdown() {
+    const select = document.getElementById("selectAdjustDisciplineMember");
+    if (!select || !rawDisciplineData || !rawDisciplineData.members) return;
+
+    const currentVal = select.value;
+    select.innerHTML = `<option value="">-- Chọn nhân sự cần điều chỉnh --</option>` +
+        rawDisciplineData.members.map((m) => {
+            return `<option value="${safeEscHtml(m.member_id)}">${safeEscHtml(m.name)} (${safeEscHtml(m.department)} - ${m.points}đ)</option>`;
+        }).join("");
+
+    if (currentVal) select.value = currentVal;
+}
+
+function openAdjustDisciplineForMember(memberId) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Tính năng điều chỉnh điểm kỷ luật yêu cầu quyền Admin. Vui lòng đăng nhập Admin.");
+        return;
+    }
+    const modal = document.getElementById("modalAdjustDiscipline");
+    const select = document.getElementById("selectAdjustDisciplineMember");
+    if (select) select.value = memberId;
+    if (modal) modal.classList.add("active");
+}
+
+function applyDisciplinePreset(type, points, reason) {
+    const selectType = document.getElementById("selectAdjustDisciplineType");
+    const inputPoints = document.getElementById("inputAdjustDisciplinePoints");
+    const inputReason = document.getElementById("inputAdjustDisciplineReason");
+
+    if (selectType) selectType.value = type;
+    if (inputPoints) inputPoints.value = points;
+    if (inputReason) inputReason.value = reason;
+}
+
+async function resetMemberDisciplineScore(memberId, memberName) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Tính năng khôi phục điểm kỷ luật yêu cầu quyền Admin.");
+        return;
+    }
+
+    if (!confirm(`Bạn có chắc chắn muốn khôi phục điểm uy tín của ${memberName} về 100 điểm mặc định?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/discipline/reset-member", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${adminAuthToken || ""}`,
+            },
+            body: JSON.stringify({ member_id: memberId }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            alert(data.message);
+            rawDisciplineData = data;
+            renderDisciplineModule();
+            populateDisciplineMemberDropdown();
+        } else {
+            alert("Lỗi: " + data.message);
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Lỗi kết nối máy chủ khi khôi phục điểm.");
+    }
+}
+
+async function deleteDisciplineLog(logId) {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Tính năng xóa nhật ký kỷ luật yêu cầu quyền Admin.");
+        return;
+    }
+
+    if (!confirm("Bạn có chắc muốn xóa nhật ký này? Điểm uy tín của nhân sự sẽ được hoàn tác tương ứng.")) {
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/discipline/delete-log", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${adminAuthToken || ""}`,
+            },
+            body: JSON.stringify({ log_id: logId }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            rawDisciplineData = data;
+            renderDisciplineModule();
+            populateDisciplineMemberDropdown();
+        } else {
+            alert("Lỗi: " + data.message);
+        }
+    } catch (err) {
+        console.error(err);
+        alert("Lỗi kết nối máy chủ khi xóa nhật ký.");
+    }
+}
+
+// Event Listeners initialization for Discipline Module
+function initDisciplineEventListeners() {
+    const btnOpenModal = document.getElementById("btnOpenAdjustDisciplineModal");
+    const modal = document.getElementById("modalAdjustDiscipline");
+    const btnCloseModal = document.getElementById("btnCloseAdjustDisciplineModal");
+    const btnCancelModal = document.getElementById("btnCancelAdjustDisciplineModal");
+    const form = document.getElementById("formAdjustDiscipline");
+
+    if (btnOpenModal) {
+        btnOpenModal.addEventListener("click", () => {
+            if (currentUserRole !== "admin") {
+                openAdminLoginModal("Tính năng điều chỉnh điểm kỷ luật yêu cầu quyền Admin.");
+                return;
+            }
+            if (modal) modal.classList.add("active");
+        });
+    }
+
+    const closeModalFunc = () => {
+        if (modal) modal.classList.remove("active");
+        const msg = document.getElementById("msgAdjustDiscipline");
+        if (msg) {
+            msg.style.display = "none";
+            msg.textContent = "";
+        }
+    };
+
+    if (btnCloseModal) btnCloseModal.addEventListener("click", closeModalFunc);
+    if (btnCancelModal) btnCancelModal.addEventListener("click", closeModalFunc);
+
+    const searchInput = document.getElementById("inputSearchDisciplineMember");
+    if (searchInput) {
+        searchInput.addEventListener("input", filterAndRenderDisciplineMembers);
+    }
+
+    const gradeFilter = document.getElementById("selectDisciplineGradeFilter");
+    if (gradeFilter) {
+        gradeFilter.addEventListener("change", filterAndRenderDisciplineMembers);
+    }
+
+    if (form) {
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            if (currentUserRole !== "admin") {
+                openAdminLoginModal("Vui lòng đăng nhập Admin để gửi yêu cầu.");
+                return;
+            }
+
+            const memberId = document.getElementById("selectAdjustDisciplineMember").value;
+            const type = document.getElementById("selectAdjustDisciplineType").value;
+            const pointsChange = document.getElementById("inputAdjustDisciplinePoints").value;
+            const reason = document.getElementById("inputAdjustDisciplineReason").value;
+            const msg = document.getElementById("msgAdjustDiscipline");
+
+            if (!memberId) {
+                if (msg) {
+                    msg.style.display = "block";
+                    msg.className = "swap-msg error";
+                    msg.textContent = "Vui lòng chọn nhân sự cần điều chỉnh.";
+                }
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/discipline/adjust", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${adminAuthToken || ""}`,
+                    },
+                    body: JSON.stringify({
+                        member_id: memberId,
+                        type,
+                        points_change: parseInt(pointsChange, 10),
+                        reason,
+                        performed_by: "Admin",
+                    }),
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    rawDisciplineData = data;
+                    renderDisciplineModule();
+                    populateDisciplineMemberDropdown();
+                    closeModalFunc();
+                    alert(data.message);
+                } else {
+                    if (msg) {
+                        msg.style.display = "block";
+                        msg.className = "swap-msg error";
+                        msg.textContent = data.message || "Đã xảy ra lỗi.";
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+                if (msg) {
+                    msg.style.display = "block";
+                    msg.className = "swap-msg error";
+                    msg.textContent = "Lỗi kết nối máy chủ.";
+                }
+            }
+        });
+    }
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initDisciplineEventListeners);
+} else {
+    initDisciplineEventListeners();
 }

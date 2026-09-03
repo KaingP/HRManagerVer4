@@ -151,6 +151,15 @@ export interface ShiftAuditItem {
     expected_stock: number;
     actual_stock: number;
     diff: number;
+    carried_from_prev?: number;
+    resolution_type?: string; // "Khớp kho" | "Đã bù ngay" | "Bù sau" | "Cộng dồn chuyển ca sau" | "Hao hụt cho phép" | "Đang kiểm tra"
+    resolution_note?: string;
+    resolved_by?: string;
+    resolved_at?: string;
+    is_resolved?: boolean;
+    carry_to_shift?: string;
+    carry_qty?: number;
+    unit_price?: number;
     note?: string;
 }
 
@@ -162,6 +171,46 @@ export interface ShiftAudit {
     items: ShiftAuditItem[];
     total_diff: number;
     summary_note?: string;
+    overall_status?: string; // "KHỚP HOÀN TOÀN" | "ĐÃ XỬ LÝ XONG" | "CHỜ BÙ / CỘNG DỒN" | "ĐANG KIỂM TRA"
+    carried_forward_shift?: string;
+    resolved_count?: number;
+    unresolved_count?: number;
+    updated_at?: string;
+}
+
+export interface RestockItem {
+    product_id: string;
+    product_name: string;
+    unit: string;
+    quantity: number;
+    unit_cost?: number;
+    total_cost?: number;
+    note?: string;
+}
+
+export interface RestockReceipt {
+    id: string;
+    timestamp: string;
+    creator: string;
+    supplier?: string;
+    items: RestockItem[];
+    total_items: number;
+    total_cost: number;
+    note?: string;
+    reason?: string;
+}
+
+export interface DisciplineRecord {
+    id: string;
+    timestamp: string;
+    member_id: string;
+    member_name: string;
+    type: "Cộng điểm" | "Trừ điểm";
+    points_change: number;
+    reason: string;
+    performed_by: string;
+    old_points: number;
+    new_points: number;
 }
 
 // Global State & Auth
@@ -315,10 +364,13 @@ const DEFAULT_SALES_LOGS: SaleTransaction[] = [];
 
 let INVENTORY_PRODUCTS: Product[] = [];
 let SALES_LOGS: SaleTransaction[] = [];
+let RESTOCK_RECEIPTS: RestockReceipt[] = [];
 let KPI_ATTENDANCE: any[] = [];
 let SHIFT_AUDITS: ShiftAudit[] = [];
 let ONLINE_ORDERS: OnlineOrder[] = [];
 let PICKUP_REQUESTS: PickupRequest[] = [];
+let MEMBER_DISCIPLINE_SCORES: Record<string, number> = {};
+let DISCIPLINE_LOGS: DisciplineRecord[] = [];
 let MEMBER_PASSWORDS: Record<string, string> = {};
 let VIETQR_CONFIG = {
     bank_id: process.env.VIETQR_BANK_ID || "970422",
@@ -596,10 +648,13 @@ function persist() {
         members: CURRENT_MEMBERS,
         inventory: INVENTORY_PRODUCTS,
         sales_logs: SALES_LOGS,
+        restock_receipts: RESTOCK_RECEIPTS,
         kpi_attendance: KPI_ATTENDANCE,
         shift_audits: SHIFT_AUDITS,
         online_orders: ONLINE_ORDERS,
         pickup_requests: PICKUP_REQUESTS,
+        member_discipline_scores: MEMBER_DISCIPLINE_SCORES,
+        discipline_logs: DISCIPLINE_LOGS,
         member_passwords: MEMBER_PASSWORDS,
         vietqr_config: VIETQR_CONFIG,
         competition_config: COMPETITION_CONFIG,
@@ -702,10 +757,13 @@ function bootstrapState() {
 
                 INVENTORY_PRODUCTS = saved.inventory || [];
                 SALES_LOGS = saved.sales_logs || [];
+                RESTOCK_RECEIPTS = saved.restock_receipts || [];
                 KPI_ATTENDANCE = saved.kpi_attendance || [];
                 SHIFT_AUDITS = saved.shift_audits || [];
                 ONLINE_ORDERS = saved.online_orders || [];
                 PICKUP_REQUESTS = saved.pickup_requests || [];
+                MEMBER_DISCIPLINE_SCORES = saved.member_discipline_scores || {};
+                DISCIPLINE_LOGS = saved.discipline_logs || [];
                 MEMBER_PASSWORDS = saved.member_passwords || {};
                 if (saved.vietqr_config) {
                     VIETQR_CONFIG = { ...VIETQR_CONFIG, ...saved.vietqr_config };
@@ -1021,6 +1079,7 @@ function getInventoryData() {
             total_stock_value,
         },
         sales_logs: SALES_LOGS,
+        restock_receipts: RESTOCK_RECEIPTS,
     };
 }
 
@@ -1126,6 +1185,406 @@ app.post("/api/inventory/delete", requireAdmin, (req, res) => {
         message: `Đã xóa sản phẩm ${id} khỏi kho hàng!`,
         ...inv,
     });
+});
+
+// RESTOCK MID-WEEK ENDPOINTS (Tạo Phiếu Nhập Hàng Giữa Tuần)
+app.post("/api/inventory/restock", requireAdmin, (req, res) => {
+    try {
+        const data = req.body || {};
+        let creator = String(data.creator || "").trim();
+        if (!creator) creator = "Quản trị viên / Thủ kho";
+        const supplier = String(data.supplier || "").trim();
+        const reason = String(data.reason || "Nhập bổ sung giữa tuần").trim();
+        const note = String(data.note || "").trim();
+
+        // Support both multi-item (items array) or single item (product_id, quantity)
+        let incomingItems: any[] = [];
+        if (Array.isArray(data.items) && data.items.length > 0) {
+            incomingItems = data.items;
+        } else if (data.product_id) {
+            incomingItems = [{
+                product_id: data.product_id,
+                product_name: data.product_name,
+                unit: data.unit,
+                quantity: data.quantity,
+                unit_cost: data.unit_cost,
+                note: data.item_note || note,
+            }];
+        }
+
+        if (incomingItems.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Phiếu nhập hàng phải có ít nhất 1 sản phẩm!",
+            });
+        }
+
+        const timestamp = new Date().toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour12: false,
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+
+        const validRestockItems: RestockItem[] = [];
+        let totalCost = 0;
+        let totalItems = 0;
+
+        for (const it of incomingItems) {
+            const pid = String(it.product_id || "").trim();
+            const qty = Math.max(0, parseInt(String(it.quantity || "0"), 10));
+            const unitCost = Math.max(0, parseInt(String(it.unit_cost || "0"), 10));
+            const itemNote = String(it.note || "").trim();
+
+            if (!pid || qty <= 0) continue;
+
+            const existingProd = INVENTORY_PRODUCTS.find((p) => p.id === pid);
+            if (!existingProd) continue;
+
+            // Increment initial_stock so current_stock (initial_stock - sold_count) increases cleanly
+            existingProd.initial_stock = (existingProd.initial_stock || 0) + qty;
+
+            const itemTotalCost = unitCost * qty;
+            totalCost += itemTotalCost;
+            totalItems += qty;
+
+            validRestockItems.push({
+                product_id: existingProd.id,
+                product_name: existingProd.name,
+                unit: existingProd.unit,
+                quantity: qty,
+                unit_cost: unitCost > 0 ? unitCost : undefined,
+                total_cost: itemTotalCost > 0 ? itemTotalCost : undefined,
+                note: itemNote || undefined,
+            });
+        }
+
+        if (validRestockItems.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Không có sản phẩm hoặc số lượng nhập hợp lệ (> 0)!",
+            });
+        }
+
+        const nextNum = RESTOCK_RECEIPTS.length + 1;
+        const receiptId = `NK${String(nextNum).padStart(3, "0")}`;
+
+        const newReceipt: RestockReceipt = {
+            id: receiptId,
+            timestamp,
+            creator,
+            supplier: supplier || undefined,
+            items: validRestockItems,
+            total_items: totalItems,
+            total_cost: totalCost,
+            note: note || undefined,
+            reason: reason || undefined,
+        };
+
+        RESTOCK_RECEIPTS.unshift(newReceipt);
+        persist();
+
+        const inv = getInventoryData();
+        return res.json({
+            success: true,
+            message: `Tạo phiếu nhập hàng ${receiptId} thành công! Đã cộng thêm ${totalItems} món vào tồn kho.`,
+            receipt: newReceipt,
+            ...inv,
+        });
+    } catch (err: any) {
+        return res.status(500).json({
+            success: false,
+            message: `Lỗi xử lý phiếu nhập hàng: ${err.message}`,
+        });
+    }
+});
+
+app.get("/api/inventory/restock", (req, res) => {
+    res.json({
+        success: true,
+        restock_receipts: RESTOCK_RECEIPTS,
+    });
+});
+
+app.post("/api/inventory/restock/delete", requireAdmin, (req, res) => {
+    try {
+        const { id } = req.body || {};
+        if (!id) {
+            return res.status(400).json({ success: false, message: "Thiếu mã phiếu nhập" });
+        }
+
+        const receiptIdx = RESTOCK_RECEIPTS.findIndex((r) => r.id === id);
+        if (receiptIdx === -1) {
+            return res.status(404).json({ success: false, message: `Không tìm thấy phiếu nhập ${id}` });
+        }
+
+        // Roll back the stock
+        const receipt = RESTOCK_RECEIPTS[receiptIdx];
+        for (const it of receipt.items) {
+            const prod = INVENTORY_PRODUCTS.find((p) => p.id === it.product_id);
+            if (prod) {
+                prod.initial_stock = Math.max(0, (prod.initial_stock || 0) - it.quantity);
+            }
+        }
+
+        RESTOCK_RECEIPTS.splice(receiptIdx, 1);
+        persist();
+
+        const inv = getInventoryData();
+        return res.json({
+            success: true,
+            message: `Đã hủy phiếu nhập ${id} và hoàn tác số lượng tồn kho tương ứng!`,
+            ...inv,
+        });
+    } catch (err: any) {
+        return res.status(500).json({
+            success: false,
+            message: `Lỗi hủy phiếu nhập: ${err.message}`,
+        });
+    }
+});
+
+// DISCIPLINE / CREDIBILITY MANAGEMENT HELPERS & ENDPOINTS
+function getDisciplineData() {
+    const memberStats = CURRENT_MEMBERS.map((m) => {
+        const currentPoints = MEMBER_DISCIPLINE_SCORES[m.member_id] !== undefined
+            ? MEMBER_DISCIPLINE_SCORES[m.member_id]
+            : 100;
+
+        const memberLogs = DISCIPLINE_LOGS.filter((l) => l.member_id === m.member_id);
+        const bonusLogs = memberLogs.filter((l) => l.type === "Cộng điểm");
+        const penaltyLogs = memberLogs.filter((l) => l.type === "Trừ điểm");
+
+        let grade = "🌟 Xuất sắc";
+        let gradeBadgeClass = "high";
+        if (currentPoints >= 100) {
+            grade = "🌟 Xuất sắc";
+            gradeBadgeClass = "high";
+        } else if (currentPoints >= 85) {
+            grade = "🟢 Tốt";
+            gradeBadgeClass = "good";
+        } else if (currentPoints >= 70) {
+            grade = "🟡 Khá";
+            gradeBadgeClass = "warning";
+        } else {
+            grade = "🔴 Cảnh cáo";
+            gradeBadgeClass = "danger";
+        }
+
+        return {
+            member_id: m.member_id,
+            name: m.name,
+            department: m.department || "Nhân sự",
+            job: m.job || "Phục vụ",
+            phone: m.phone || "-",
+            points: currentPoints,
+            grade,
+            gradeBadgeClass,
+            total_adjustments: memberLogs.length,
+            bonus_count: bonusLogs.length,
+            penalty_count: penaltyLogs.length,
+            net_change: currentPoints - 100,
+        };
+    });
+
+    memberStats.sort((a, b) => b.points - a.points);
+
+    const totalMembers = memberStats.length;
+    const avgPoints = totalMembers > 0
+        ? Math.round((memberStats.reduce((sum, m) => sum + m.points, 0) / totalMembers) * 10) / 10
+        : 100;
+    const excellenceCount = memberStats.filter((m) => m.points >= 100).length;
+    const goodCount = memberStats.filter((m) => m.points >= 85 && m.points < 100).length;
+    const fairCount = memberStats.filter((m) => m.points >= 70 && m.points < 85).length;
+    const warningCount = memberStats.filter((m) => m.points < 70).length;
+
+    return {
+        members: memberStats,
+        logs: DISCIPLINE_LOGS,
+        stats: {
+            total_members: totalMembers,
+            avg_points: avgPoints,
+            excellence_count: excellenceCount,
+            good_count: goodCount,
+            fair_count: fairCount,
+            warning_count: warningCount,
+            total_logs: DISCIPLINE_LOGS.length,
+        },
+    };
+}
+
+app.get("/api/discipline", (req, res) => {
+    res.json({
+        success: true,
+        ...getDisciplineData(),
+    });
+});
+
+app.post("/api/discipline/adjust", requireAdmin, (req, res) => {
+    try {
+        const { member_id, type, points_change, reason, performed_by } = req.body || {};
+
+        if (!member_id) {
+            return res.status(400).json({ success: false, message: "Vui lòng chọn nhân sự cần điều chỉnh điểm uy tín!" });
+        }
+
+        const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
+        if (!member) {
+            return res.status(404).json({ success: false, message: `Không tìm thấy nhân sự có mã ${member_id}` });
+        }
+
+        const changeVal = Math.abs(parseInt(String(points_change || "0"), 10));
+        if (changeVal <= 0) {
+            return res.status(400).json({ success: false, message: "Số điểm thay đổi phải lớn hơn 0!" });
+        }
+
+        const isDeduct = type === "Trừ điểm" || type === "penalty";
+        const actionType: "Cộng điểm" | "Trừ điểm" = isDeduct ? "Trừ điểm" : "Cộng điểm";
+        const oldPoints = MEMBER_DISCIPLINE_SCORES[member_id] !== undefined
+            ? MEMBER_DISCIPLINE_SCORES[member_id]
+            : 100;
+
+        const delta = isDeduct ? -changeVal : changeVal;
+        const newPoints = Math.max(0, oldPoints + delta);
+
+        MEMBER_DISCIPLINE_SCORES[member_id] = newPoints;
+
+        const timestamp = new Date().toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour12: false,
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+
+        const logId = `DISC_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const record: DisciplineRecord = {
+            id: logId,
+            timestamp,
+            member_id,
+            member_name: member.name,
+            type: actionType,
+            points_change: delta,
+            reason: String(reason || "Điều chỉnh kỷ luật / thưởng điểm").trim(),
+            performed_by: String(performed_by || "Quản trị viên").trim(),
+            old_points: oldPoints,
+            new_points: newPoints,
+        };
+
+        DISCIPLINE_LOGS.unshift(record);
+        persist();
+
+        const data = getDisciplineData();
+        return res.json({
+            success: true,
+            message: `Đã ${actionType.toLowerCase()} ${changeVal} điểm cho ${member.name}! (Điểm mới: ${newPoints}đ)`,
+            record,
+            ...data,
+        });
+    } catch (err: any) {
+        return res.status(500).json({
+            success: false,
+            message: `Lỗi điều chỉnh điểm kỷ luật: ${err.message}`,
+        });
+    }
+});
+
+app.post("/api/discipline/reset-member", requireAdmin, (req, res) => {
+    try {
+        const { member_id } = req.body || {};
+        if (!member_id) {
+            return res.status(400).json({ success: false, message: "Vui lòng chọn nhân sự" });
+        }
+
+        const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
+        if (!member) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy nhân sự" });
+        }
+
+        const oldPoints = MEMBER_DISCIPLINE_SCORES[member_id] !== undefined
+            ? MEMBER_DISCIPLINE_SCORES[member_id]
+            : 100;
+
+        MEMBER_DISCIPLINE_SCORES[member_id] = 100;
+
+        const timestamp = new Date().toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour12: false,
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+
+        const record: DisciplineRecord = {
+            id: `DISC_RST_${Date.now()}`,
+            timestamp,
+            member_id,
+            member_name: member.name,
+            type: "Cộng điểm",
+            points_change: 100 - oldPoints,
+            reason: "Reset điểm uy tín về mặc định 100đ",
+            performed_by: "Quản trị viên",
+            old_points: oldPoints,
+            new_points: 100,
+        };
+
+        DISCIPLINE_LOGS.unshift(record);
+        persist();
+
+        const data = getDisciplineData();
+        return res.json({
+            success: true,
+            message: `Đã khôi phục điểm uy tín của ${member.name} về mặc định 100đ!`,
+            ...data,
+        });
+    } catch (err: any) {
+        return res.status(500).json({
+            success: false,
+            message: `Lỗi reset điểm: ${err.message}`,
+        });
+    }
+});
+
+app.post("/api/discipline/delete-log", requireAdmin, (req, res) => {
+    try {
+        const { log_id } = req.body || {};
+        if (!log_id) {
+            return res.status(400).json({ success: false, message: "Thiếu mã nhật ký" });
+        }
+
+        const idx = DISCIPLINE_LOGS.findIndex((l) => l.id === log_id);
+        if (idx === -1) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy nhật ký này" });
+        }
+
+        const targetLog = DISCIPLINE_LOGS[idx];
+        const memberId = targetLog.member_id;
+        if (memberId && MEMBER_DISCIPLINE_SCORES[memberId] !== undefined) {
+            MEMBER_DISCIPLINE_SCORES[memberId] = Math.max(0, MEMBER_DISCIPLINE_SCORES[memberId] - targetLog.points_change);
+        }
+
+        DISCIPLINE_LOGS.splice(idx, 1);
+        persist();
+
+        const data = getDisciplineData();
+        return res.json({
+            success: true,
+            message: `Đã xóa nhật ký kỷ luật và hoàn tác điểm!`,
+            ...data,
+        });
+    } catch (err: any) {
+        return res.status(500).json({
+            success: false,
+            message: `Lỗi xóa nhật ký: ${err.message}`,
+        });
+    }
 });
 
 // Helper for Excel parsing
@@ -2151,6 +2610,13 @@ function removePickupSales(requestId: string) {
 }
 
 app.get("/api/vietqr-config", (_req, res) => {
+    res.json({
+        success: true,
+        config: VIETQR_CONFIG,
+    });
+});
+
+app.get("/api/admin/vietqr-config", (_req, res) => {
     res.json({
         success: true,
         config: VIETQR_CONFIG,
@@ -3328,6 +3794,7 @@ app.post("/api/inventory/sell", (req, res) => {
 app.post("/api/inventory/reset", requireAdmin, (req, res) => {
     INVENTORY_PRODUCTS = JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
     SALES_LOGS = JSON.parse(JSON.stringify(DEFAULT_SALES_LOGS));
+    RESTOCK_RECEIPTS = [];
     SHIFT_AUDITS = [];
     persist();
     const inv = getInventoryData();
@@ -3341,9 +3808,22 @@ app.post("/api/inventory/reset", requireAdmin, (req, res) => {
 app.post("/api/inventory/audit-shift", (req, res) => {
     const data = req.body || {};
     const shift_id = String(data.shift_id || "Live").trim();
-    const auditor = String(data.auditor || "Người kiểm hàng").trim();
+    let auditor = String(data.auditor || "").trim();
+
+    // Tự động gán Ca trưởng là người kiểm hàng nếu chưa chọn hoặc để mặc định
+    if ((!auditor || auditor === "Người kiểm hàng" || auditor === "Bộ phận kiểm hàng" || auditor === "Người kiểm hàng ca") && LATEST_SCHEDULE_RESULT?.assigned_shifts) {
+        const foundShift = LATEST_SCHEDULE_RESULT.assigned_shifts.find((s: any) => s.shift_id === shift_id);
+        if (foundShift?.shift_leader && foundShift.shift_leader !== "Chưa chỉ định") {
+            auditor = foundShift.shift_leader;
+        }
+    }
+    if (!auditor) {
+        auditor = "Người kiểm hàng ca";
+    }
+
     const itemsData = Array.isArray(data.items) ? data.items : [];
     const summary_note = String(data.summary_note || "").trim();
+    const target_rollover_shift = String(data.carried_forward_shift || "").trim();
 
     const timestamp = new Date().toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
@@ -3355,17 +3835,67 @@ app.post("/api/inventory/audit-shift", (req, res) => {
         minute: "2-digit",
     });
 
-    const auditItems: ShiftAuditItem[] = itemsData.map((it: any) => ({
-        product_id: String(it.product_id || ""),
-        product_name: String(it.product_name || ""),
-        unit: String(it.unit || "món"),
-        expected_stock: parseInt(it.expected_stock || "0", 10),
-        actual_stock: parseInt(it.actual_stock || "0", 10),
-        diff: parseInt(it.diff || "0", 10),
-        note: String(it.note || "").trim(),
-    }));
+    let resolvedCount = 0;
+    let unresolvedCount = 0;
+
+    const auditItems: ShiftAuditItem[] = itemsData.map((it: any) => {
+        const diff = parseInt(it.diff || "0", 10);
+        let resType = String(it.resolution_type || "").trim();
+        if (!resType) {
+            resType = diff === 0 ? "Khớp kho" : "Chưa xử lý";
+        }
+
+        const isResolved =
+            resType === "Khớp kho" ||
+            resType === "Đã bù ngay" ||
+            resType === "Hao hụt cho phép" ||
+            resType === "Đã trừ quỹ ca";
+
+        if (diff !== 0) {
+            if (isResolved) {
+                resolvedCount++;
+            } else {
+                unresolvedCount++;
+            }
+        }
+
+        const unitPrice = parseInt(it.unit_price || "0", 10) ||
+            (INVENTORY_PRODUCTS.find((p) => p.id === it.product_id)?.price || 0);
+
+        return {
+            product_id: String(it.product_id || ""),
+            product_name: String(it.product_name || ""),
+            unit: String(it.unit || "món"),
+            expected_stock: parseInt(it.expected_stock || "0", 10),
+            actual_stock: parseInt(it.actual_stock || "0", 10),
+            diff: diff,
+            carried_from_prev: parseInt(it.carried_from_prev || "0", 10) || 0,
+            resolution_type: resType,
+            resolution_note: String(it.resolution_note || it.note || "").trim(),
+            resolved_by: String(it.resolved_by || (isResolved ? auditor : "")).trim(),
+            resolved_at: isResolved ? timestamp : (it.resolved_at || ""),
+            is_resolved: isResolved,
+            carry_to_shift: String(it.carry_to_shift || (resType === "Cộng dồn chuyển ca sau" ? target_rollover_shift : "")).trim(),
+            carry_qty: resType === "Cộng dồn chuyển ca sau" ? Math.abs(diff) : (parseInt(it.carry_qty || "0", 10) || 0),
+            unit_price: unitPrice,
+            note: String(it.note || "").trim(),
+        };
+    });
 
     const total_diff = auditItems.reduce((acc, item) => acc + item.diff, 0);
+    const hasDiff = auditItems.some((item) => item.diff !== 0);
+
+    let overall_status = "KHỚP HOÀN TOÀN";
+    if (hasDiff) {
+        if (unresolvedCount === 0) {
+            overall_status = "ĐÃ XỬ LÝ XONG";
+        } else if (auditItems.some((i) => i.resolution_type === "Cộng dồn chuyển ca sau")) {
+            overall_status = "CỘNG DỒN CHUYỂN CA";
+        } else {
+            overall_status = "CHỜ BÙ / XỬ LÝ";
+        }
+    }
+
     const auditId = `AUD${String(SHIFT_AUDITS.length + 1).padStart(3, "0")}`;
 
     const auditRecord: ShiftAudit = {
@@ -3376,6 +3906,11 @@ app.post("/api/inventory/audit-shift", (req, res) => {
         items: auditItems,
         total_diff,
         summary_note,
+        overall_status,
+        carried_forward_shift: target_rollover_shift,
+        resolved_count: resolvedCount,
+        unresolved_count: unresolvedCount,
+        updated_at: timestamp,
     };
 
     SHIFT_AUDITS.unshift(auditRecord);
@@ -3398,6 +3933,201 @@ app.get("/api/inventory/audit-shift", (req, res) => {
         success: true,
         audits: results,
     });
+});
+
+app.post("/api/inventory/audit-shift/update-resolution", (req, res) => {
+    const { audit_id, product_id, resolution_type, resolution_note, resolved_by, carry_to_shift } = req.body || {};
+    if (!audit_id) {
+        return res.status(400).json({ success: false, message: "Thiếu audit_id" });
+    }
+
+    const audit = SHIFT_AUDITS.find((a) => a.id === audit_id);
+    if (!audit) {
+        return res.status(404).json({ success: false, message: `Không tìm thấy báo cáo kiểm kê ${audit_id}` });
+    }
+
+    const timestamp = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour12: false,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+    const isResolvedType = (type: string) =>
+        type === "Khớp kho" ||
+        type === "Đã bù ngay" ||
+        type === "Hao hụt cho phép" ||
+        type === "Đã trừ quỹ ca";
+
+    if (product_id) {
+        const item = (audit.items || []).find((it) => it.product_id === product_id);
+        if (item) {
+            item.resolution_type = resolution_type || item.resolution_type || "Chưa xử lý";
+            if (resolution_note !== undefined) item.resolution_note = resolution_note;
+            if (resolved_by !== undefined) item.resolved_by = resolved_by;
+            if (carry_to_shift !== undefined) item.carry_to_shift = carry_to_shift;
+            item.is_resolved = isResolvedType(item.resolution_type);
+            item.resolved_at = item.is_resolved ? timestamp : "";
+        }
+    } else if (resolution_type) {
+        // Apply resolution to all discrepant items in audit
+        (audit.items || []).forEach((item) => {
+            if (item.diff !== 0) {
+                item.resolution_type = resolution_type;
+                if (resolution_note !== undefined) item.resolution_note = resolution_note;
+                if (resolved_by !== undefined) item.resolved_by = resolved_by;
+                if (carry_to_shift !== undefined) item.carry_to_shift = carry_to_shift;
+                item.is_resolved = isResolvedType(resolution_type);
+                item.resolved_at = item.is_resolved ? timestamp : "";
+            }
+        });
+    }
+
+    // Recompute counts & status
+    let resolvedCount = 0;
+    let unresolvedCount = 0;
+    (audit.items || []).forEach((item) => {
+        if (item.diff !== 0) {
+            if (item.is_resolved) resolvedCount++;
+            else unresolvedCount++;
+        }
+    });
+    audit.resolved_count = resolvedCount;
+    audit.unresolved_count = unresolvedCount;
+    audit.updated_at = timestamp;
+
+    const hasDiff = (audit.items || []).some((item) => item.diff !== 0);
+    if (!hasDiff) {
+        audit.overall_status = "KHỚP HOÀN TOÀN";
+    } else if (unresolvedCount === 0) {
+        audit.overall_status = "ĐÃ XỬ LÝ XONG";
+    } else if ((audit.items || []).some((i) => i.resolution_type === "Cộng dồn chuyển ca sau")) {
+        audit.overall_status = "CỘNG DỒN CHUYỂN CA";
+    } else {
+        audit.overall_status = "CHỜ BÙ / XỬ LÝ";
+    }
+
+    persist();
+    res.json({
+        success: true,
+        message: `Đã cập nhật hướng xử lý chênh lệch cho báo cáo ${audit_id}!`,
+        audit,
+    });
+});
+
+app.post("/api/inventory/audit-shift/rollover-to-shift", (req, res) => {
+    const { from_audit_id, from_shift_id, to_shift_id, note, resolved_by } = req.body || {};
+    if (!to_shift_id) {
+        return res.status(400).json({ success: false, message: "Thiếu ca đích (to_shift_id) để cộng dồn!" });
+    }
+
+    let targetAudits = SHIFT_AUDITS;
+    if (from_audit_id) {
+        targetAudits = SHIFT_AUDITS.filter((a) => a.id === from_audit_id);
+    } else if (from_shift_id) {
+        targetAudits = SHIFT_AUDITS.filter((a) => a.shift_id === from_shift_id);
+    }
+
+    if (targetAudits.length === 0) {
+        return res.status(404).json({ success: false, message: "Không tìm thấy đợt kiểm kê phù hợp để chuyển giao cộng dồn!" });
+    }
+
+    const timestamp = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour12: false,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+
+    let rolledCount = 0;
+    targetAudits.forEach((audit) => {
+        audit.carried_forward_shift = to_shift_id;
+        (audit.items || []).forEach((it) => {
+            if (it.diff !== 0 && !it.is_resolved) {
+                it.resolution_type = "Cộng dồn chuyển ca sau";
+                it.carry_to_shift = to_shift_id;
+                it.carry_qty = Math.abs(it.diff);
+                it.resolution_note = note || `Đã chuyển giao cộng dồn chênh lệch sang ca ${to_shift_id}`;
+                if (resolved_by) it.resolved_by = resolved_by;
+                it.resolved_at = timestamp;
+                rolledCount++;
+            }
+        });
+        audit.overall_status = "CỘNG DỒN CHUYỂN CA";
+        audit.updated_at = timestamp;
+    });
+
+    persist();
+    res.json({
+        success: true,
+        message: `✓ Đã chuyển giao cộng dồn ${rolledCount} mặt hàng chênh lệch sang ca ${to_shift_id}!`,
+        rolled_items_count: rolledCount,
+        to_shift_id,
+    });
+});
+
+app.get("/api/inventory/audit-shift/pending-rollover", (req, res) => {
+    const shift_id = String(req.query.shift_id || "").trim();
+    
+    // Find all items that are either designated to carry over to shift_id,
+    // or are from the immediately previous audit with unresolved discrepancies
+    const pendingItems: Array<{
+        from_audit_id: string;
+        from_shift_id: string;
+        from_timestamp: string;
+        product_id: string;
+        product_name: string;
+        unit: string;
+        diff: number;
+        resolution_type: string;
+        resolution_note?: string;
+    }> = [];
+
+    SHIFT_AUDITS.forEach((audit) => {
+        (audit.items || []).forEach((it) => {
+            if (it.diff !== 0) {
+                const isCarriedToThis = it.carry_to_shift === shift_id;
+                const isGeneralPending = !it.is_resolved && it.resolution_type === "Cộng dồn chuyển ca sau" && (!it.carry_to_shift || it.carry_to_shift === shift_id);
+                if (isCarriedToThis || isGeneralPending) {
+                    pendingItems.push({
+                        from_audit_id: audit.id,
+                        from_shift_id: audit.shift_id,
+                        from_timestamp: audit.timestamp,
+                        product_id: it.product_id,
+                        product_name: it.product_name,
+                        unit: it.unit,
+                        diff: it.diff,
+                        resolution_type: it.resolution_type || "Cộng dồn chuyển ca sau",
+                        resolution_note: it.resolution_note,
+                    });
+                }
+            }
+        });
+    });
+
+    res.json({
+        success: true,
+        shift_id,
+        pending_rollovers: pendingItems,
+    });
+});
+
+app.delete("/api/inventory/audit-shift/:id", requireAdmin, (req, res) => {
+    const id = req.params.id;
+    const initialLen = SHIFT_AUDITS.length;
+    SHIFT_AUDITS = SHIFT_AUDITS.filter((a) => a.id !== id);
+    if (SHIFT_AUDITS.length < initialLen) {
+        persist();
+        res.json({ success: true, message: `Đã xóa báo cáo kiểm kê ${id}!` });
+    } else {
+        res.status(404).json({ success: false, message: `Không tìm thấy báo cáo kiểm kê ${id}` });
+    }
 });
 
 app.get("/api/members", (req, res) => {
@@ -3829,6 +4559,9 @@ app.post("/api/shift/update", requireAdmin, async (req, res) => {
         for (const mu of members_update) {
             const m_orig = mem_lookup.get(mu.member_id);
             if (m_orig) {
+                const isLeader = target_shift.shift_leader === m_orig.name || target_shift.shift_leader === m_orig.member_id;
+                const posRole = isLeader ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)" : (mu.position_role || "Phục vụ / Giao hàng");
+                const role = isLeader ? "Chính" : (mu.role || "Chính");
                 new_assigned.push({
                     member_id: m_orig.member_id,
                     name: m_orig.name,
@@ -3838,8 +4571,8 @@ app.post("/api/shift/update", requireAdmin, async (req, res) => {
                     job: m_orig.job,
                     school: m_orig.school,
                     phone: m_orig.phone,
-                    role: mu.role || "Chính",
-                    position_role: mu.position_role || "Phục vụ / Giao hàng",
+                    role: role,
+                    position_role: posRole,
                     is_standby: m_orig.is_standby,
                     is_committed:
                         m_orig.committed_slots[
@@ -3858,6 +4591,13 @@ app.post("/api/shift/update", requireAdmin, async (req, res) => {
         ).length;
         target_shift.is_filled =
             new_assigned.length >= (target_shift.required_count || 0);
+    } else if (new_leader && target_shift.assigned_members) {
+        target_shift.assigned_members.forEach((m: any) => {
+            if (m.name === new_leader || m.member_id === new_leader) {
+                m.position_role = "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)";
+                m.role = "Chính";
+            }
+        });
     }
 
     // Save to Excel and disk
