@@ -111,18 +111,28 @@ export interface OnlineOrder {
 
 interface PickupRequestItem extends OnlineOrderItem {}
 
-interface PickupRequest {
+export type PickupPaymentMethod = "IMMEDIATE_TRANSFER" | "PAY_LATER" | string;
+export type PickupRequestStatus = "PENDING" | "APPROVED" | "CANCELLED" | "EXPIRED" | string;
+
+export interface PickupRequest {
     id: string;
     member_id: string;
     member_name: string;
     items: PickupRequestItem[];
     total_amount: number;
-    payment_method: "VietQR" | "Tiền mặt";
+    pickup_time: string;
+    shift_id: string;
+    shift_label?: string;
+    payment_method: PickupPaymentMethod;
     payment_status: string;
-    status: string;
+    status: PickupRequestStatus;
+    inventory_deducted: boolean;
     qr_url: string;
     note?: string;
     created_at: string;
+    created_timestamp?: number;
+    approved_at?: string;
+    cancelled_at?: string;
 }
 
 export interface SaleTransaction {
@@ -762,6 +772,29 @@ function bootstrapState() {
                 SHIFT_AUDITS = saved.shift_audits || [];
                 ONLINE_ORDERS = saved.online_orders || [];
                 PICKUP_REQUESTS = saved.pickup_requests || [];
+                // Migration logic for legacy pickup requests
+                PICKUP_REQUESTS.forEach((req: any) => {
+                    if (!req.status || req.status === "Chờ Admin duyệt") req.status = "PENDING";
+                    else if (req.status === "Đã duyệt") req.status = "APPROVED";
+                    else if (req.status === "Từ chối" || req.status === "Đã hủy") req.status = "CANCELLED";
+
+                    if (!req.payment_method || req.payment_method === "VietQR") {
+                        req.payment_method = (req.status === "APPROVED" || req.payment_status === "Đã thanh toán") ? "IMMEDIATE_TRANSFER" : "PAY_LATER";
+                    } else if (req.payment_method === "Tiền mặt") {
+                        req.payment_method = "PAY_LATER";
+                    }
+
+                    if (req.inventory_deducted === undefined) {
+                        req.inventory_deducted = req.status === "APPROVED";
+                    }
+
+                    if (!req.created_timestamp) {
+                        req.created_timestamp = req.created_at ? (new Date(req.created_at).getTime() || Date.now()) : Date.now();
+                    }
+                    if (!req.pickup_time) {
+                        req.pickup_time = req.created_at || new Date().toISOString();
+                    }
+                });
                 MEMBER_DISCIPLINE_SCORES = saved.member_discipline_scores || {};
                 DISCIPLINE_LOGS = saved.discipline_logs || [];
                 MEMBER_PASSWORDS = saved.member_passwords || {};
@@ -2568,6 +2601,168 @@ app.post("/api/online-orders/create", (req, res) => {
     }
 });
 
+function matchShiftByPickupTime(
+    pickupTimeStr: string,
+    shifts: Shift[],
+): { shift_id: string; shift_label: string } {
+    const fallback = {
+        shift_id: shifts && shifts[0] ? shifts[0].shift_id : "CA001",
+        shift_label: shifts && shifts[0]
+            ? `${shifts[0].day} (${shifts[0].date || ""}) - ${shifts[0].slot || shifts[0].start_time}`
+            : "Ca 1",
+    };
+
+    if (!pickupTimeStr || !shifts || shifts.length === 0) {
+        return fallback;
+    }
+
+    let targetDate = "";
+    let targetTime = "";
+
+    if (pickupTimeStr.includes("T")) {
+        const parts = pickupTimeStr.split("T");
+        targetDate = parts[0];
+        targetTime = parts[1].slice(0, 5);
+    } else if (pickupTimeStr.includes(" ")) {
+        const parts = pickupTimeStr.split(" ");
+        if (parts[0].includes("-") || parts[0].includes("/")) {
+            targetDate = parts[0];
+            targetTime = parts[1].slice(0, 5);
+        } else {
+            targetTime = parts[0].slice(0, 5);
+            targetDate = parts[1];
+        }
+    } else if (pickupTimeStr.includes(":")) {
+        targetTime = pickupTimeStr.slice(0, 5);
+    }
+
+    const normDate = normalizeDateStr(targetDate);
+
+    // Determine Day of Week
+    let dayOfWeekStr = "";
+    if (normDate && normDate.includes("-")) {
+        const d = new Date(normDate + "T00:00:00");
+        if (!isNaN(d.getTime())) {
+            const days = [
+                "Chủ Nhật",
+                "Thứ 2",
+                "Thứ 3",
+                "Thứ 4",
+                "Thứ 5",
+                "Thứ 6",
+                "Thứ 7",
+            ];
+            dayOfWeekStr = days[d.getDay()];
+        }
+    }
+
+    // Filter shifts for this date / day
+    let candidateShifts = shifts.filter((s) => {
+        if (normDate && s.date && normalizeDateStr(s.date) === normDate) return true;
+        if (dayOfWeekStr && s.day && s.day.toLowerCase().includes(dayOfWeekStr.toLowerCase())) return true;
+        return false;
+    });
+
+    if (candidateShifts.length === 0) {
+        candidateShifts = shifts;
+    }
+
+    const timeToMinutes = (t: string) => {
+        if (!t) return 0;
+        const [h, m] = t.split(":").map(Number);
+        return (h || 0) * 60 + (m || 0);
+    };
+
+    const targetMinutes = targetTime ? timeToMinutes(targetTime) : -1;
+
+    if (targetMinutes >= 0) {
+        // 1. Check if time falls within [start_time, end_time]
+        for (const s of candidateShifts) {
+            const startM = timeToMinutes(s.start_time);
+            const endM = timeToMinutes(s.end_time);
+            if (startM <= targetMinutes && targetMinutes <= endM) {
+                return {
+                    shift_id: s.shift_id,
+                    shift_label: `${s.day} (${s.date || ""}) - ${s.slot || s.start_time + " - " + s.end_time}`,
+                };
+            }
+        }
+
+        // 2. Fallback: Find closest shift by time difference
+        let closestShift = candidateShifts[0];
+        let minDiff = Infinity;
+        for (const s of candidateShifts) {
+            const startM = timeToMinutes(s.start_time);
+            const endM = timeToMinutes(s.end_time);
+            const diff = Math.min(
+                Math.abs(targetMinutes - startM),
+                Math.abs(targetMinutes - endM),
+            );
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestShift = s;
+            }
+        }
+
+        return {
+            shift_id: closestShift.shift_id,
+            shift_label: `${closestShift.day} (${closestShift.date || ""}) - ${closestShift.slot || closestShift.start_time + " - " + closestShift.end_time}`,
+        };
+    }
+
+    const first = candidateShifts[0] || shifts[0];
+    return {
+        shift_id: first.shift_id,
+        shift_label: `${first.day} (${first.date || ""}) - ${first.slot || first.start_time + " - " + first.end_time}`,
+    };
+}
+
+function checkAndExpirePickupRequests(): boolean {
+    const now = Date.now();
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000; // 72 hours
+    let changed = false;
+
+    for (const req of PICKUP_REQUESTS) {
+        const isPending =
+            req.status === "PENDING" || req.status === "Chờ Admin duyệt";
+        if (isPending) {
+            const createdTime =
+                req.created_timestamp ||
+                (req.created_at ? new Date(req.created_at).getTime() : NaN);
+
+            if (!isNaN(createdTime) && now - createdTime >= THREE_DAYS_MS) {
+                req.status = "EXPIRED";
+                req.payment_status = "Tự động hủy (Quá hạn 3 ngày)";
+                if (req.inventory_deducted) {
+                    req.items.forEach((item) => {
+                        const product = INVENTORY_PRODUCTS.find(
+                            (p) => p.id === item.product_id,
+                        );
+                        if (product) {
+                            product.sold_count = Math.max(
+                                0,
+                                (product.sold_count || 0) - item.quantity,
+                            );
+                        }
+                    });
+                    req.inventory_deducted = false;
+                }
+                req.cancelled_at = new Date().toLocaleString("vi-VN", {
+                    timeZone: "Asia/Ho_Chi_Minh",
+                });
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        persist();
+    }
+    return changed;
+}
+
+// Chạy cron kiểm tra tự động hủy đơn sau 3 ngày (định kỳ 5 phút)
+setInterval(checkAndExpirePickupRequests, 5 * 60 * 1000);
+
 function pickupQrUrl(amount: number, requestId: string) {
     const bankId = VIETQR_CONFIG.bank_id || "970422";
     const accountNo = VIETQR_CONFIG.account_no || "0000000000";
@@ -2690,24 +2885,45 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
     const id = `REQ_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const total = requestItems.reduce((sum, item) => sum + item.total_price, 0);
 
-    // Trừ kho ngay lập tức cho từng món
-    requestItems.forEach((item) => {
-        const p = INVENTORY_PRODUCTS.find(
-            (product) => product.id === item.product_id,
-        );
-        if (p) {
-            p.sold_count = (p.sold_count || 0) + item.quantity;
-        }
+    // Thời gian lấy hàng & Ca trực tự động
+    const rawPickupTime = req.body?.pickup_time ? String(req.body.pickup_time).trim() : "";
+    const pickup_time = rawPickupTime || new Date().toISOString();
+    const matchedShift = matchShiftByPickupTime(pickup_time, CURRENT_SHIFTS);
+
+    // Hình thức thanh toán (Chỉ có 2 hình thức: IMMEDIATE_TRANSFER hoặc PAY_LATER)
+    const rawPayment = req.body?.payment_method;
+    const isImmediate =
+        rawPayment === "IMMEDIATE_TRANSFER" ||
+        rawPayment === "qr_now" ||
+        rawPayment === "VietQR" && req.body?.payment_timing !== "later";
+    const payment_method: PickupPaymentMethod = isImmediate ? "IMMEDIATE_TRANSFER" : "PAY_LATER";
+
+    let payment_status = "";
+    let status: PickupRequestStatus = "PENDING";
+    let inventory_deducted = false;
+
+    const nowStr = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
     });
 
-    const payment_method =
-        req.body?.payment_method === "Tiền mặt" ? "Tiền mặt" : "VietQR";
-    const payment_timing = req.body?.payment_timing || "immediate";
-    let payment_status = "Chờ thanh toán";
-    if (payment_method === "Tiền mặt") {
-        payment_status = "Chờ thanh toán (Tiền mặt)";
-    } else if (payment_timing === "later") {
-        payment_status = "Chờ thanh toán (Chuyển sau)";
+    if (payment_method === "IMMEDIATE_TRANSFER") {
+        // 1. Chuyển khoản ngay: Trừ thẳng kho, hoàn thành ngay, KHÔNG cộng doanh số ca trực
+        requestItems.forEach((item) => {
+            const p = INVENTORY_PRODUCTS.find(
+                (product) => product.id === item.product_id,
+            );
+            if (p) {
+                p.sold_count = (p.sold_count || 0) + item.quantity;
+            }
+        });
+        inventory_deducted = true;
+        status = "APPROVED";
+        payment_status = "Đã thanh toán";
+    } else {
+        // 2. Thanh toán sau: Trạng thái PENDING, CHƯA trừ tồn kho, KHÔNG cộng doanh số ca trực
+        inventory_deducted = false;
+        status = "PENDING";
+        payment_status = "Chờ thanh toán";
     }
 
     const request: PickupRequest = {
@@ -2716,25 +2932,33 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
         member_name: member.name,
         items: requestItems,
         total_amount: total,
+        pickup_time,
+        shift_id: matchedShift.shift_id,
+        shift_label: matchedShift.shift_label,
         payment_method,
         payment_status,
-        status: "Chờ Admin duyệt",
+        status,
+        inventory_deducted,
         qr_url: pickupQrUrl(total, id),
         note: req.body?.note ? String(req.body.note).trim() : "",
-        created_at: new Date().toLocaleString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
-        }),
+        created_at: nowStr,
+        created_timestamp: Date.now(),
+        approved_at: isImmediate ? nowStr : undefined,
     };
+
     PICKUP_REQUESTS.unshift(request);
     persist();
     res.json({
         success: true,
         request,
-        message: `Đã tạo yêu cầu lấy hàng ${id} thành công và trừ tồn kho.`,
+        message: isImmediate
+            ? `Đã tạo yêu cầu lấy hàng ${id} thành công và trừ tồn kho ca ${matchedShift.shift_id}.`
+            : `Đã tạo yêu cầu lấy hàng ${id} thành công! Đơn đang chờ Admin duyệt trước khi trừ tồn kho.`,
     });
 });
 
 app.get("/api/pickup-requests", requireMember, (req, res) => {
+    checkAndExpirePickupRequests();
     const memberId = getMemberId(req)!;
     const memberRequests = PICKUP_REQUESTS.filter(
         (request) => request.member_id === memberId,
@@ -2745,21 +2969,21 @@ app.get("/api/pickup-requests", requireMember, (req, res) => {
         0,
     );
     const paidAmount = memberRequests
-        .filter((r) => r.payment_status === "Đã thanh toán")
+        .filter((r) => r.payment_status === "Đã thanh toán" || r.status === "APPROVED" || r.status === "Đã duyệt")
         .reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingAmount = memberRequests
         .filter(
             (r) =>
-                r.payment_status !== "Đã thanh toán" &&
-                r.status !== "Từ chối" &&
-                r.status !== "Đã hủy",
+                r.status === "PENDING" ||
+                r.status === "Chờ Admin duyệt" ||
+                (r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy"),
         )
         .reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingApprovalCount = memberRequests.filter(
-        (r) => r.status === "Chờ Admin duyệt",
+        (r) => r.status === "PENDING" || r.status === "Chờ Admin duyệt",
     ).length;
     const approvedCount = memberRequests.filter(
-        (r) => r.status === "Đã duyệt",
+        (r) => r.status === "APPROVED" || r.status === "Đã duyệt",
     ).length;
 
     res.json({
@@ -2789,22 +3013,20 @@ app.post(
             return res
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy request." });
-        if (request.status === "Từ chối" || request.status === "Đã hủy")
+        if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Từ chối" || request.status === "Đã hủy")
             return res
                 .status(409)
                 .json({
                     success: false,
-                    message: "Request này đã bị từ chối hoặc đã hủy.",
+                    message: "Request này đã bị từ chối, đã hủy hoặc đã hết hạn.",
                 });
 
         const action = req.body?.action;
-        if (action === "paid_cash" || req.body?.payment_method === "Tiền mặt") {
-            request.payment_method = "Tiền mặt";
-            request.payment_status = "Chờ thanh toán (Tiền mặt)";
-        } else if (action === "pay_later") {
+        if (action === "pay_later") {
+            request.payment_method = "PAY_LATER";
             request.payment_status = "Chờ thanh toán (Chuyển sau)";
         } else {
-            request.payment_method = "VietQR";
+            request.payment_method = "IMMEDIATE_TRANSFER";
             request.payment_status = "Đã xác nhận chuyển khoản";
         }
         persist();
@@ -2826,15 +3048,46 @@ app.post("/api/pickup-requests/:id/auto-confirm", requireMember, (req, res) => {
             .status(404)
             .json({ success: false, message: "Không tìm thấy đơn hàng." });
     }
-    if (request.status === "Từ chối" || request.status === "Đã hủy") {
+    if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Từ chối" || request.status === "Đã hủy") {
         return res.status(409).json({
             success: false,
-            message: "Đơn hàng này đã bị từ chối hoặc đã hủy.",
+            message: "Đơn hàng này đã bị từ chối, đã hủy hoặc đã hết hạn.",
         });
     }
+
+    // Nếu chưa trừ kho, thực hiện trừ kho bây giờ
+    if (!request.inventory_deducted) {
+        for (const item of request.items) {
+            const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+            if (!product) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Không thể xác nhận: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
+                });
+            }
+            const available = (product.initial_stock || 0) - (product.sold_count || 0);
+            if (item.quantity > available) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Không thể xác nhận: Sản phẩm "${product.name}" chỉ còn ${available} ${product.unit || "món"} trong kho.`,
+                });
+            }
+        }
+        request.items.forEach((item) => {
+            const product = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+            if (product) {
+                product.sold_count = (product.sold_count || 0) + item.quantity;
+            }
+        });
+        request.inventory_deducted = true;
+    }
+
     request.payment_status = "Đã thanh toán";
-    request.status = "Đã duyệt";
-    addPickupSales(request);
+    request.status = "APPROVED";
+    request.approved_at = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+    });
+    // QUY TẮC: KHÔNG CỘNG DOANH SỐ VÀO CA TRỰC
     persist();
     res.json({
         success: true,
@@ -2858,34 +3111,44 @@ app.post("/api/pickup-requests/:id/cancel", requireMember, (req, res) => {
             .status(404)
             .json({ success: false, message: "Không tìm thấy yêu cầu lấy hàng." });
     }
-    if (request.status === "Đã hủy") {
+    if (request.status === "CANCELLED" || request.status === "Đã hủy") {
         return res.status(409).json({
             success: false,
             message: "Đơn hàng này đã được hủy trước đó.",
         });
     }
 
-    // Hoàn lại kho
-    request.items.forEach((item) => {
-        const product = INVENTORY_PRODUCTS.find(
-            (p) => p.id === item.product_id,
-        );
-        if (product) {
-            product.sold_count = Math.max(
-                0,
-                (product.sold_count || 0) - item.quantity,
+    // Hoàn lại kho nếu đã từng trừ kho
+    let restoredCount = 0;
+    if (request.inventory_deducted) {
+        request.items.forEach((item) => {
+            const product = INVENTORY_PRODUCTS.find(
+                (p) => p.id === item.product_id,
             );
-        }
-    });
+            if (product) {
+                product.sold_count = Math.max(
+                    0,
+                    (product.sold_count || 0) - item.quantity,
+                );
+                restoredCount += item.quantity;
+            }
+        });
+        request.inventory_deducted = false;
+    }
 
-    request.status = "Đã hủy";
+    request.status = "CANCELLED";
     request.payment_status = "Đã hủy";
+    request.cancelled_at = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+    });
     removePickupSales(request.id);
     persist();
     res.json({
         success: true,
         request,
-        message: `Admin đã hủy đơn ${request.id} và hoàn trả ${request.items.reduce((s, i) => s + i.quantity, 0)} sản phẩm vào tồn kho.`,
+        message: restoredCount > 0
+            ? `Admin đã hủy đơn ${request.id} và hoàn trả ${restoredCount} sản phẩm vào tồn kho.`
+            : `Admin đã hủy đơn ${request.id} thành công.`,
     });
 });
 
@@ -2901,23 +3164,124 @@ app.post(
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy đơn hàng." });
         }
-        if (request.status === "Đã hủy" || request.status === "Từ chối") {
+        if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Đã hủy" || request.status === "Từ chối") {
             return res.status(409).json({
                 success: false,
-                message: "Đơn hàng này đã bị hủy hoặc từ chối.",
+                message: "Đơn hàng này đã bị hủy, từ chối hoặc đã hết hạn quá 3 ngày.",
             });
         }
-        request.status = "Đã duyệt";
+        if (request.status === "APPROVED" || request.status === "Đã duyệt") {
+            return res.status(409).json({
+                success: false,
+                message: "Đơn hàng này đã được phê duyệt trước đó.",
+            });
+        }
+
+        // Nếu chưa trừ kho (ví dụ đơn Thanh toán sau), kiểm tra và trừ tồn kho ngay
+        if (!request.inventory_deducted) {
+            for (const item of request.items) {
+                const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                if (!product) {
+                    return res.status(409).json({
+                        success: false,
+                        message: `Không thể duyệt: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
+                    });
+                }
+                const available = (product.initial_stock || 0) - (product.sold_count || 0);
+                if (item.quantity > available) {
+                    return res.status(409).json({
+                        success: false,
+                        message: `Không thể duyệt: Sản phẩm "${product.name}" chỉ còn ${available} ${product.unit || "món"} trong kho (đơn yêu cầu ${item.quantity}).`,
+                    });
+                }
+            }
+
+            request.items.forEach((item) => {
+                const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                if (product) {
+                    product.sold_count = (product.sold_count || 0) + item.quantity;
+                }
+            });
+            request.inventory_deducted = true;
+        }
+
+        request.status = "APPROVED";
         request.payment_status = "Đã thanh toán";
-        addPickupSales(request);
+        request.approved_at = new Date().toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+        });
+        // QUY TẮC QUAN TRỌNG: KHÔNG ĐƯỢC CỘNG VÀO DOANH SỐ CỦA CA TRỰC ĐÓ
         persist();
         res.json({
             success: true,
             request,
-            message: `Admin đã xác nhận giao dịch cho đơn ${request.id} thành công.`,
+            message: `Admin đã phê duyệt đơn ${request.id} thành công và trừ tồn kho ca ${request.shift_id || ""}.`,
         });
     },
 );
+
+// Alias /approve cho admin
+app.post("/api/admin/pickup-requests/:id/approve", requireAdmin, (req, res) => {
+    const request = PICKUP_REQUESTS.find(
+        (item) => item.id === req.params.id,
+    );
+    if (!request) {
+        return res
+            .status(404)
+            .json({ success: false, message: "Không tìm thấy đơn hàng." });
+    }
+    if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Đã hủy" || request.status === "Từ chối") {
+        return res.status(409).json({
+            success: false,
+            message: "Đơn hàng này đã bị hủy, từ chối hoặc đã hết hạn quá 3 ngày.",
+        });
+    }
+    if (request.status === "APPROVED" || request.status === "Đã duyệt") {
+        return res.status(409).json({
+            success: false,
+            message: "Đơn hàng này đã được phê duyệt trước đó.",
+        });
+    }
+
+    if (!request.inventory_deducted) {
+        for (const item of request.items) {
+            const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+            if (!product) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Không thể duyệt: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
+                });
+            }
+            const available = (product.initial_stock || 0) - (product.sold_count || 0);
+            if (item.quantity > available) {
+                return res.status(409).json({
+                    success: false,
+                    message: `Không thể duyệt: Sản phẩm "${product.name}" chỉ còn ${available} ${product.unit || "món"} trong kho (đơn yêu cầu ${item.quantity}).`,
+                });
+            }
+        }
+
+        request.items.forEach((item) => {
+            const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+            if (product) {
+                product.sold_count = (product.sold_count || 0) + item.quantity;
+            }
+        });
+        request.inventory_deducted = true;
+    }
+
+    request.status = "APPROVED";
+    request.payment_status = "Đã thanh toán";
+    request.approved_at = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+    });
+    persist();
+    res.json({
+        success: true,
+        request,
+        message: `Admin đã phê duyệt đơn ${request.id} thành công và trừ tồn kho ca ${request.shift_id || ""}.`,
+    });
+});
 
 app.post(
     "/api/admin/pickup-requests/:id/cancel",
@@ -2931,55 +3295,66 @@ app.post(
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy đơn hàng." });
         }
-        if (request.status === "Đã hủy") {
+        if (request.status === "CANCELLED" || request.status === "Đã hủy") {
             return res.status(409).json({
                 success: false,
                 message: "Đơn hàng này đã được hủy trước đó.",
             });
         }
-        // Hoàn lại kho
-        request.items.forEach((item) => {
-            const product = INVENTORY_PRODUCTS.find(
-                (p) => p.id === item.product_id,
-            );
-            if (product) {
-                product.sold_count = Math.max(
-                    0,
-                    (product.sold_count || 0) - item.quantity,
+        // Hoàn lại kho nếu đã từng trừ kho
+        let restoredCount = 0;
+        if (request.inventory_deducted) {
+            request.items.forEach((item) => {
+                const product = INVENTORY_PRODUCTS.find(
+                    (p) => p.id === item.product_id,
                 );
-            }
-        });
-        request.status = "Đã hủy";
+                if (product) {
+                    product.sold_count = Math.max(
+                        0,
+                        (product.sold_count || 0) - item.quantity,
+                    );
+                    restoredCount += item.quantity;
+                }
+            });
+            request.inventory_deducted = false;
+        }
+        request.status = "CANCELLED";
         request.payment_status = "Đã hủy";
+        request.cancelled_at = new Date().toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+        });
         removePickupSales(request.id);
         persist();
         res.json({
             success: true,
             request,
-            message: `Admin đã hủy đơn ${request.id} và hoàn trả lại ${request.items.reduce((s, i) => s + i.quantity, 0)} sản phẩm vào tồn kho.`,
+            message: restoredCount > 0
+                ? `Admin đã hủy đơn ${request.id} và hoàn trả lại ${restoredCount} sản phẩm vào tồn kho.`
+                : `Admin đã hủy đơn ${request.id} thành công.`,
         });
     },
 );
 
 app.get("/api/admin/pickup-requests", requireAdmin, (_req, res) => {
+    checkAndExpirePickupRequests();
     const totalOrders = PICKUP_REQUESTS.length;
     const totalAmount = PICKUP_REQUESTS.reduce(
         (sum, r) => sum + (r.total_amount || 0),
         0,
     );
     const paidAmount = PICKUP_REQUESTS
-        .filter((r) => r.payment_status === "Đã thanh toán")
+        .filter((r) => r.payment_status === "Đã thanh toán" || r.status === "APPROVED" || r.status === "Đã duyệt")
         .reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingAmount = PICKUP_REQUESTS
         .filter(
             (r) =>
-                r.payment_status !== "Đã thanh toán" &&
-                r.status !== "Từ chối" &&
-                r.status !== "Đã hủy",
+                r.status === "PENDING" ||
+                r.status === "Chờ Admin duyệt" ||
+                (r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy"),
         )
         .reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingApprovalCount = PICKUP_REQUESTS.filter(
-        (r) => r.status === "Chờ Admin duyệt",
+        (r) => r.status === "PENDING" || r.status === "Chờ Admin duyệt",
     ).length;
 
     res.json({
@@ -3006,42 +3381,64 @@ app.post(
             return res
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy request." });
-        if (request.status !== "Chờ Admin duyệt")
+        if (request.status !== "PENDING" && request.status !== "Chờ Admin duyệt")
             return res
                 .status(409)
                 .json({
                     success: false,
-                    message: "Request này đã được xử lý trước đó.",
+                    message: "Request này đã được xử lý trước đó hoặc đã hết hạn.",
                 });
 
         const decision = req.body?.decision;
         if (decision === "approve") {
-            request.status = "Đã duyệt";
-            if (req.body?.payment_status) {
-                request.payment_status = req.body.payment_status;
-            } else if (req.body?.mark_paid === false) {
-                if (request.payment_status === "Chờ thanh toán") {
-                    request.payment_status = "Chờ thanh toán (Chuyển sau)";
+            if (!request.inventory_deducted) {
+                for (const item of request.items) {
+                    const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                    if (!product) {
+                        return res.status(409).json({
+                            success: false,
+                            message: `Không thể duyệt: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
+                        });
+                    }
+                    const available = (product.initial_stock || 0) - (product.sold_count || 0);
+                    if (item.quantity > available) {
+                        return res.status(409).json({
+                            success: false,
+                            message: `Không thể duyệt: Sản phẩm "${product.name}" chỉ còn ${available} ${product.unit || "món"} trong kho.`,
+                        });
+                    }
                 }
-            } else {
-                request.payment_status = "Đã thanh toán";
+                request.items.forEach((item) => {
+                    const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                    if (product) {
+                        product.sold_count = (product.sold_count || 0) + item.quantity;
+                    }
+                });
+                request.inventory_deducted = true;
             }
-
-            if (request.payment_status === "Đã thanh toán") {
-                addPickupSales(request);
-            }
+            request.status = "APPROVED";
+            request.payment_status = "Đã thanh toán";
+            request.approved_at = new Date().toLocaleString("vi-VN", {
+                timeZone: "Asia/Ho_Chi_Minh",
+            });
         } else if (decision === "reject") {
-            request.status = "Từ chối";
-            request.payment_status = "Từ chối";
-            request.items.forEach((item) => {
-                const product = INVENTORY_PRODUCTS.find(
-                    (entry) => entry.id === item.product_id,
-                );
-                if (product)
-                    product.sold_count = Math.max(
-                        0,
-                        product.sold_count - item.quantity,
+            if (request.inventory_deducted) {
+                request.items.forEach((item) => {
+                    const product = INVENTORY_PRODUCTS.find(
+                        (entry) => entry.id === item.product_id,
                     );
+                    if (product)
+                        product.sold_count = Math.max(
+                            0,
+                            (product.sold_count || 0) - item.quantity,
+                        );
+                });
+                request.inventory_deducted = false;
+            }
+            request.status = "CANCELLED";
+            request.payment_status = "Từ chối";
+            request.cancelled_at = new Date().toLocaleString("vi-VN", {
+                timeZone: "Asia/Ho_Chi_Minh",
             });
             removePickupSales(request.id);
         } else {
@@ -6873,4 +7270,5 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
     // Run bootstrap
     bootstrapState();
+    checkAndExpirePickupRequests();
 });

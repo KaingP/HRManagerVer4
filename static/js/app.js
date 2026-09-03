@@ -9478,30 +9478,92 @@ async function renderPickupRequestTab() {
     initKpiGlobalListeners();
     populateKpiQuickMemberSelect();
 
-    if (currentUserRole === "admin") {
-        const adminSec = document.getElementById("kpiAdminSection");
-        if (adminSec) adminSec.style.display = "block";
-        loadAdminKpiDashboard();
-        loadAdminMemberAccounts();
-        loadAdminVietqrConfig();
-    } else {
-        const adminSec = document.getElementById("kpiAdminSection");
-        if (adminSec) adminSec.style.display = "none";
-    }
-
+    const adminSec = document.getElementById("kpiAdminSection");
     const loginPanel = document.getElementById("kpiMemberLoginPanel");
     const workSec = document.getElementById("kpiMemberWorkSection");
 
-    if (pickupMember) {
+    if (currentUserRole === "admin") {
+        // ADMIN MODE:
+        // 1. Hiển thị Bảng Điều Khiển Quản Trị Viên (Admin)
+        if (adminSec) adminSec.style.display = "block";
+        // 2. QUY TẮC: ẨN BẢNG "Lịch Sử Lấy Hàng & Trạng Thái Thanh Toán Của Bạn" và khu vực nhân viên
+        if (workSec) workSec.style.display = "none";
+        if (loginPanel) loginPanel.style.display = "none";
+
+        loadAdminKpiDashboard();
+        loadAdminMemberAccounts();
+        loadAdminVietqrConfig();
+    } else if (pickupMember) {
+        // MEMBER MODE:
+        // Nhân viên đã đăng nhập: hiển thị khối thao tác lấy hàng và lịch sử cá nhân
+        if (adminSec) adminSec.style.display = "none";
         if (loginPanel) loginPanel.style.display = "none";
         if (workSec) workSec.style.display = "block";
+
+        initKpiPickupTimeInput();
         await loadKpiInventoryProducts();
         await loadMemberKpiDashboard();
     } else {
-        // Enforce Login First
+        // GUEST MODE (Chưa đăng nhập):
+        // QUY TẮC: Ẩn toàn bộ component/block "Lịch Sử Lấy Hàng & Trạng Thái Thanh Toán Của Bạn" và tạo đơn
+        if (adminSec) adminSec.style.display = "none";
         if (workSec) workSec.style.display = "none";
         if (loginPanel) loginPanel.style.display = "block";
     }
+}
+
+function initKpiPickupTimeInput() {
+    const timeInput = document.getElementById("inputKpiPickupTime");
+    if (timeInput && !timeInput.value) {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        const localIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        timeInput.value = localIso;
+    }
+    updateKpiDetectedShift();
+}
+
+function updateKpiDetectedShift() {
+    const timeInput = document.getElementById("inputKpiPickupTime");
+    const badgeText = document.getElementById("kpiAutoDetectedShiftText");
+    if (!badgeText) return;
+
+    const val = timeInput ? timeInput.value : "";
+    if (!val) {
+        badgeText.textContent = "Chưa chọn thời gian";
+        return;
+    }
+
+    const d = new Date(val);
+    if (isNaN(d.getTime())) {
+        badgeText.textContent = "Thời gian không hợp lệ";
+        return;
+    }
+
+    const days = ["Chủ Nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+    const dayName = days[d.getDay()];
+    const pad = (n) => String(n).padStart(2, "0");
+    const dateStr = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    const hours = d.getHours();
+    const minutes = d.getMinutes();
+    const timeInMins = hours * 60 + minutes;
+
+    let shiftName = "Ca 1 (07:00 - 09:30)";
+    if (timeInMins < 572) {
+        shiftName = "Ca 1 (07:00 - 09:30)";
+    } else if (timeInMins < 722) {
+        shiftName = "Ca 2 (09:35 - 12:00)";
+    } else if (timeInMins < 842) {
+        shiftName = "Ca 3 (12:05 - 14:00)";
+    } else if (timeInMins < 967) {
+        shiftName = "Ca 4 (14:05 - 16:05)";
+    } else if (timeInMins < 1085) {
+        shiftName = "Ca 5 (16:10 - 18:00)";
+    } else {
+        shiftName = "Ca Ngoài (18:00 - 19:30)";
+    }
+
+    badgeText.innerHTML = `<strong>${shiftName}</strong> · ${dayName} (${dateStr})`;
 }
 
 async function populateKpiQuickMemberSelect() {
@@ -9686,11 +9748,10 @@ function initKpiGlobalListeners() {
         };
     }
 
-    // Payment Tile Selection Interactions
+    // Payment Tile Selection Interactions (Chỉ 2 lựa chọn)
     const paymentTilesConfig = [
-        { tileId: "tile_qr_now", radioId: "radio_qr_now", value: "qr_now" },
-        { tileId: "tile_qr_later", radioId: "radio_qr_later", value: "qr_later" },
-        { tileId: "tile_cash", radioId: "radio_cash", value: "cash" }
+        { tileId: "tile_qr_now", radioId: "radio_qr_now", value: "IMMEDIATE_TRANSFER" },
+        { tileId: "tile_qr_later", radioId: "radio_qr_later", value: "PAY_LATER" }
     ];
 
     function selectPaymentTile(val) {
@@ -9724,6 +9785,12 @@ function initKpiGlobalListeners() {
             radio.onchange = () => selectPaymentTile(cfg.value);
         }
     });
+
+    const timeInputEl = document.getElementById("inputKpiPickupTime");
+    if (timeInputEl) {
+        timeInputEl.onchange = updateKpiDetectedShift;
+        timeInputEl.oninput = updateKpiDetectedShift;
+    }
 
     // Add Order Item Button
     const btnAddItem = document.getElementById("btnKpiAddOrderItem");
@@ -10092,27 +10159,15 @@ async function handleKpiSubmitOrder() {
         return;
     }
 
-    const payOption = document.querySelector('input[name="kpiPaymentOption"]:checked')?.value || "qr_now";
+    const payOption = document.querySelector('input[name="kpiPaymentOption"]:checked')?.value || "IMMEDIATE_TRANSFER";
+    const payment_method = (payOption === "IMMEDIATE_TRANSFER" || payOption === "qr_now") ? "IMMEDIATE_TRANSFER" : "PAY_LATER";
+    const pickup_time = document.getElementById("inputKpiPickupTime")?.value || "";
     const note = document.getElementById("inputKpiOrderNote")?.value || "";
-
-    let payment_method = "VietQR";
-    let payment_timing = "immediate";
-
-    if (payOption === "cash") {
-        payment_method = "Tiền mặt";
-        payment_timing = "later";
-    } else if (payOption === "qr_later") {
-        payment_method = "VietQR";
-        payment_timing = "later";
-    } else {
-        payment_method = "VietQR";
-        payment_timing = "immediate";
-    }
 
     const btnSubmit = document.getElementById("btnKpiSubmitOrder");
     if (btnSubmit) {
         btnSubmit.disabled = true;
-        btnSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang tạo đơn và trừ tồn kho...`;
+        btnSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Đang tạo đơn và đồng bộ kho...`;
     }
 
     try {
@@ -10121,8 +10176,8 @@ async function handleKpiSubmitOrder() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 items,
+                pickup_time,
                 payment_method,
-                payment_timing,
                 note
             })
         });
@@ -10142,13 +10197,13 @@ async function handleKpiSubmitOrder() {
         await loadKpiInventoryProducts();
         await loadMemberKpiDashboard();
 
-        // If choosing QR Now, immediately open QR popup for instant payment & confirmation
-        if (payOption === "qr_now" && data.request && data.request.qr_url) {
-            showToast(`Đã tạo yêu cầu lấy hàng (${data.request.id})! Quét mã QR để chuyển khoản.`, "success");
+        // If choosing IMMEDIATE_TRANSFER, immediately open QR popup for instant payment & confirmation
+        if (payment_method === "IMMEDIATE_TRANSFER" && data.request && data.request.qr_url) {
+            showToast(`Đã tạo đơn lấy hàng (${data.request.id}) thành công! Quét mã QR để chuyển khoản.`, "success");
             showActiveKpiQr(data.request);
             openKpiQrZoomModal(data.request);
         } else {
-            showToast(`Đã tạo yêu cầu lấy hàng thành công (Mã: ${data.request.id})! Đơn hàng được lưu vào lịch sử bên dưới.`, "success");
+            showToast(`Đã tạo yêu cầu lấy hàng thành công (Mã: ${data.request.id})! Đơn đang chờ Admin duyệt.`, "success");
             showActiveKpiQr(data.request);
         }
 
@@ -10206,18 +10261,18 @@ function renderMemberKpiOrders(requests) {
     let filtered = requests || [];
 
     if (filter === "pending") {
-        filtered = filtered.filter(r => !(r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán") && r.status !== "Đã hủy" && r.status !== "Từ chối");
+        filtered = filtered.filter(r => r.status === "PENDING" || r.status === "Chờ Admin duyệt" || (!(r.status === "APPROVED" || r.status === "Đã duyệt") && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Đã hủy" && r.status !== "Từ chối"));
     } else if (filter === "approved") {
-        filtered = filtered.filter(r => r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
+        filtered = filtered.filter(r => r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán"));
     } else if (filter === "unpaid") {
-        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "Từ chối" && r.status !== "Đã hủy");
+        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy");
     } else if (filter === "paid") {
-        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán");
+        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán" || r.status === "APPROVED");
     }
 
     if (filtered.length === 0) {
         tbody.innerHTML = `<tr>
-            <td colspan="8" class="text-center py-4 text-muted">
+            <td colspan="9" class="text-center py-4 text-muted">
                 <i class="fa-solid fa-box-archive"></i> Không có đơn lấy hàng nào phù hợp với bộ lọc.
             </td>
         </tr>`;
@@ -10225,40 +10280,49 @@ function renderMemberKpiOrders(requests) {
     }
 
     tbody.innerHTML = filtered.map(r => {
-        const isConfirmed = r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán";
-        const isCancelled = r.status === "Đã hủy" || r.status === "Từ chối";
+        const isApproved = r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
+        const isCancelled = r.status === "CANCELLED" || r.status === "Đã hủy" || r.status === "Từ chối";
+        const isExpired = r.status === "EXPIRED" || (r.payment_status && r.payment_status.includes("Tự động hủy"));
 
-        // Status Badge & Confirmation Badge
+        const pickupTimeText = r.pickup_time ? (r.pickup_time.includes("T") ? r.pickup_time.replace("T", " ") : r.pickup_time) : (r.created_at || "---");
+        const shiftLabel = r.shift_label || (r.shift_id ? `Ca ${r.shift_id}` : "Ca trực mặc định");
+
+        // Status Badge: Đã duyệt / Chờ duyệt / Đã hủy / Tự động hủy
         let statusBadge = "";
-        if (isConfirmed) {
-            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã xác nhận</span>`;
+        if (isApproved) {
+            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</span>`;
         } else if (isCancelled) {
             statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+        } else if (isExpired) {
+            statusBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-clock-rotate-left"></i> Tự động hủy</span>`;
         } else {
-            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chưa xác nhận</span>`;
+            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ duyệt</span>`;
         }
 
         // Payment detail badge
         let payBadge = "";
-        if (isConfirmed) {
+        if (isApproved || r.payment_status === "Đã thanh toán") {
             payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
         } else if (isCancelled) {
             payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        } else if (r.payment_method === "Tiền mặt") {
-            payBadge = `<span class="badge badge-gold"><i class="fa-solid fa-hand-holding-dollar"></i> Tiền mặt (Chưa xác nhận)</span>`;
-        } else if (r.payment_timing === "later" || r.payment_status === "Chờ thanh toán (Chuyển sau)") {
-            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-hourglass-end"></i> Chuyển sau</span>`;
+        } else if (isExpired) {
+            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn (Tự hủy)</span>`;
         } else {
-            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-qrcode"></i> VietQR (Chưa xác nhận)</span>`;
+            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-hourglass-half"></i> Chờ thanh toán</span>`;
+        }
+
+        let methodText = "Chuyển khoản ngay";
+        if (r.payment_method === "PAY_LATER" || r.payment_timing === "later" || (r.payment_status && r.payment_status.includes("sau"))) {
+            methodText = "Thanh toán sau";
         }
 
         // Items summary
         const itemsSummary = (r.items || []).map(i => `${i.product_name} <b>x${i.quantity}</b>`).join(", ");
 
-        // Action buttons (Thành viên không được hủy đơn, chỉ có thể xem QR chuyển sau hoặc xem QR)
+        // Action buttons
         let actions = ``;
-        if (r.qr_url && !isCancelled) {
-            if (!isConfirmed) {
+        if (r.qr_url && !isCancelled && !isExpired) {
+            if (!isApproved) {
                 actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" style="color: var(--goldleaf); border-color: rgba(212,168,83,0.4);" title="Xem mã VietQR để chuyển khoản">
                     <i class="fa-solid fa-qrcode"></i> Xem QR chuyển sau
                 </button>`;
@@ -10267,18 +10331,21 @@ function renderMemberKpiOrders(requests) {
                     <i class="fa-solid fa-qrcode"></i> Xem QR
                 </button>`;
             }
+        } else if (isExpired) {
+            actions += `<span class="text-muted" style="font-size:0.8rem; color:#c084fc;">Hết hạn</span>`;
         } else if (isCancelled) {
             actions += `<span class="text-muted" style="font-size:0.8rem;">Đã hủy</span>`;
         } else {
-            actions += `<span class="text-muted" style="font-size:0.8rem;">Tiền mặt</span>`;
+            actions += `<span class="text-muted" style="font-size:0.8rem;">---</span>`;
         }
 
         return `<tr>
             <td><strong class="text-gold" style="cursor:pointer;" onclick="viewMemberRequestQr('${r.id}')">${r.id}</strong></td>
-            <td class="text-muted" style="font-size:0.8rem;">${r.created_at || "---"}</td>
+            <td class="text-muted" style="font-size:0.8rem; white-space:nowrap;">${pickupTimeText}</td>
+            <td><span class="badge badge-gold" style="font-size:0.75rem; white-space:nowrap;"><i class="fa-solid fa-calendar-check"></i> ${shiftLabel}</span></td>
             <td style="max-width: 200px; font-size: 0.85rem;">${itemsSummary}</td>
             <td><strong class="text-gold">${formatVND(r.total_amount)}</strong></td>
-            <td><span class="badge" style="background: rgba(0,0,0,0.3);">${r.payment_method}</span></td>
+            <td><span class="badge" style="background: rgba(0,0,0,0.3); font-size:0.75rem;">${methodText}</span></td>
             <td>${statusBadge}</td>
             <td>${payBadge}</td>
             <td class="text-right" style="white-space: nowrap;">${actions}</td>
@@ -10515,18 +10582,18 @@ function filterAndRenderAdminRequests() {
 
     // Filter by confirmation / approval status
     if (filterApproval === "pending") {
-        filtered = filtered.filter(r => !(r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán") && r.status !== "Đã hủy" && r.status !== "Từ chối");
+        filtered = filtered.filter(r => r.status === "PENDING" || r.status === "Chờ Admin duyệt" || (!(r.status === "APPROVED" || r.status === "Đã duyệt") && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Đã hủy" && r.status !== "Từ chối"));
     } else if (filterApproval === "approved") {
-        filtered = filtered.filter(r => r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
+        filtered = filtered.filter(r => r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán"));
     } else if (filterApproval === "rejected") {
-        filtered = filtered.filter(r => r.status === "Từ chối" || r.status === "Đã hủy");
+        filtered = filtered.filter(r => r.status === "CANCELLED" || r.status === "EXPIRED" || r.status === "Từ chối" || r.status === "Đã hủy");
     }
 
     // Filter by payment status
     if (filterPayment === "unpaid") {
-        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "Từ chối" && r.status !== "Đã hủy");
+        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy");
     } else if (filterPayment === "paid") {
-        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán");
+        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán" || r.status === "APPROVED");
     } else if (filterPayment === "confirmed_transfer") {
         filtered = filtered.filter(r => r.payment_status === "Đã xác nhận chuyển khoản");
     }
@@ -10554,7 +10621,7 @@ function renderAdminKpiRequests(requests) {
 
     if (!requests || requests.length === 0) {
         tbody.innerHTML = `<tr>
-            <td colspan="9" class="text-center py-4 text-muted">
+            <td colspan="10" class="text-center py-4 text-muted">
                 <i class="fa-solid fa-list-check"></i> Không có yêu cầu lấy hàng nào phù hợp với bộ lọc.
             </td>
         </tr>`;
@@ -10562,43 +10629,52 @@ function renderAdminKpiRequests(requests) {
     }
 
     tbody.innerHTML = requests.map(r => {
-        const isConfirmed = r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán";
-        const isCancelled = r.status === "Đã hủy" || r.status === "Từ chối";
+        const isApproved = r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
+        const isCancelled = r.status === "CANCELLED" || r.status === "Đã hủy" || r.status === "Từ chối";
+        const isExpired = r.status === "EXPIRED" || (r.payment_status && r.payment_status.includes("Tự động hủy"));
 
-        // Status badge: Đã xác nhận / Chưa xác nhận / Đã hủy
+        const pickupTimeText = r.pickup_time ? (r.pickup_time.includes("T") ? r.pickup_time.replace("T", " ") : r.pickup_time) : (r.created_at || "---");
+        const shiftLabel = r.shift_label || (r.shift_id ? `Ca ${r.shift_id}` : "Ca trực mặc định");
+
+        // Status badge: Đã duyệt / Chờ duyệt / Đã hủy / Tự động hủy
         let statusBadge = "";
-        if (isConfirmed) {
-            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã xác nhận</span>`;
+        if (isApproved) {
+            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</span>`;
         } else if (isCancelled) {
             statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+        } else if (isExpired) {
+            statusBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-clock-rotate-left"></i> Tự động hủy</span>`;
         } else {
-            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chưa xác nhận</span>`;
+            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ duyệt</span>`;
         }
 
         // Payment status badge
         let payBadge = "";
-        if (isConfirmed) {
-            payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã TT</span>`;
+        if (isApproved || r.payment_status === "Đã thanh toán") {
+            payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
         } else if (isCancelled) {
             payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        } else if (r.payment_method === "Tiền mặt") {
-            payBadge = `<span class="badge badge-gold"><i class="fa-solid fa-hand-holding-dollar"></i> Tiền mặt</span>`;
-        } else if (r.payment_timing === "later" || r.payment_status === "Chờ thanh toán (Chuyển sau)") {
-            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-hourglass-end"></i> Chuyển sau</span>`;
+        } else if (isExpired) {
+            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn (Tự hủy)</span>`;
         } else {
-            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-qrcode"></i> VietQR</span>`;
+            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-hourglass-half"></i> Chờ thanh toán</span>`;
+        }
+
+        let methodText = "Chuyển khoản ngay";
+        if (r.payment_method === "PAY_LATER" || r.payment_timing === "later" || (r.payment_status && r.payment_status.includes("sau"))) {
+            methodText = "Thanh toán sau";
         }
 
         const itemsSummary = (r.items || []).map(i => `${i.product_name} <b>x${i.quantity}</b>`).join(", ");
 
-        // Admin Actions: Admin có quyền "Xác nhận giao dịch" + "Hủy đơn & hoàn kho"
+        // Admin Actions: Admin có quyền "Xác nhận (Approve)" + "Hủy đơn (Cancel)"
         let decisionHtml = `<div class="d-flex align-items-center justify-content-center gap-1 flex-wrap">`;
         
-        if (!isConfirmed && !isCancelled) {
-            decisionHtml += `<button type="button" class="btn-primary btn-sm admin-btn-confirm-trans" data-id="${r.id}" style="background: #059669; border-color: #059669; font-size: 0.78rem; padding: 0.35rem 0.6rem;" title="Xác nhận giao dịch (Đã duyệt &amp; Đã thanh toán)">
-                <i class="fa-solid fa-circle-check"></i> Xác nhận giao dịch
+        if (!isApproved && !isCancelled && !isExpired) {
+            decisionHtml += `<button type="button" class="btn-primary btn-sm admin-btn-confirm-trans" data-id="${r.id}" style="background: #059669; border-color: #059669; font-size: 0.78rem; padding: 0.35rem 0.6rem;" title="Xác nhận &amp; Phê duyệt đơn (Trừ tồn kho)">
+                <i class="fa-solid fa-check"></i> Xác nhận
             </button>`;
-            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn kho">
+            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn lấy hàng">
                 <i class="fa-solid fa-ban"></i> Hủy đơn
             </button>`;
             if (r.qr_url) {
@@ -10606,8 +10682,8 @@ function renderAdminKpiRequests(requests) {
                     <i class="fa-solid fa-qrcode"></i>
                 </button>`;
             }
-        } else if (isConfirmed) {
-            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn tồn kho">
+        } else if (isApproved) {
+            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn trả tồn kho">
                 <i class="fa-solid fa-ban"></i> Hủy đơn
             </button>`;
             if (r.qr_url) {
@@ -10615,18 +10691,21 @@ function renderAdminKpiRequests(requests) {
                     <i class="fa-solid fa-qrcode"></i>
                 </button>`;
             }
+        } else if (isExpired) {
+            decisionHtml += `<span class="text-muted" style="font-size:0.8rem; color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn 3 ngày</span>`;
         } else {
-            decisionHtml += `<span class="text-muted" style="font-size:0.8rem;"><i class="fa-solid fa-rotate-left"></i> Đã hoàn kho</span>`;
+            decisionHtml += `<span class="text-muted" style="font-size:0.8rem;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
         }
         decisionHtml += `</div>`;
 
         return `<tr>
             <td><strong class="text-gold" style="cursor:pointer;" onclick="viewMemberRequestQr('${r.id}')">${r.id}</strong></td>
             <td><strong>${r.member_name}</strong> <span class="text-muted" style="font-size:0.75rem;">(${r.member_id})</span></td>
-            <td class="text-muted" style="font-size:0.8rem;">${r.created_at || "---"}</td>
+            <td class="text-muted" style="font-size:0.8rem; white-space:nowrap;">${pickupTimeText}</td>
+            <td><span class="badge badge-gold" style="font-size:0.75rem; white-space:nowrap;"><i class="fa-solid fa-calendar-check"></i> ${shiftLabel}</span></td>
             <td style="max-width: 180px; font-size: 0.82rem;">${itemsSummary}</td>
             <td><strong class="text-gold">${formatVND(r.total_amount)}</strong></td>
-            <td><span class="badge" style="background: rgba(0,0,0,0.3); font-size:0.75rem;">${r.payment_method}</span></td>
+            <td><span class="badge" style="background: rgba(0,0,0,0.3); font-size:0.75rem;">${methodText}</span></td>
             <td>${statusBadge}</td>
             <td>${payBadge}</td>
             <td>${decisionHtml}</td>

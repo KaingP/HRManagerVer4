@@ -2956,6 +2956,27 @@
                                     <span class="badge badge-gold" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;"><i class="fa-solid fa-warehouse"></i> Trừ Tồn Kho Tức Thì</span>
                                 </div>
                                 <div class="card-body" style="padding-top: 1.25rem;">
+                                    <!-- Khung Chọn Thời Gian Lấy Hàng & Tự Động Phân Định Ca Trực -->
+                                    <div class="glass-card mb-3" style="background: var(--surface-hover); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.85rem 1rem;">
+                                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                                            <div style="flex: 1; min-width: 240px;">
+                                                <label for="inputKpiPickupTime" style="display: block; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.35rem; color: var(--goldleaf);">
+                                                    <i class="fa-solid fa-clock text-gold"></i> Thời Gian Lấy Hàng:
+                                                </label>
+                                                <input type="datetime-local" id="inputKpiPickupTime" class="custom-input w-full" style="font-size: 0.95rem; font-weight: 600; padding: 0.5rem 0.75rem;" />
+                                            </div>
+                                            <div style="flex: 1; min-width: 240px; display: flex; flex-direction: column; justify-content: flex-end;">
+                                                <span style="font-size: 0.82rem; color: var(--ink-dim); margin-bottom: 0.35rem; font-weight: 600;">Ca Trực Được Tự Động Phân Định:</span>
+                                                <div id="kpiAutoDetectedShiftBadge" class="badge badge-gold" style="font-size: 0.88rem; padding: 0.55rem 0.85rem; display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-start; border-radius: 6px;">
+                                                    <i class="fa-solid fa-calendar-check"></i> <span id="kpiAutoDetectedShiftText">Đang xác định ca trực...</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-2 text-muted" style="font-size: 0.78rem; line-height: 1.35;">
+                                            <i class="fa-solid fa-circle-info text-gold"></i> Số lượng hàng lấy sẽ được trừ trực tiếp vào tồn kho của ca trực này (không cộng vào doanh số bán của ca).
+                                        </div>
+                                    </div>
+
                                     <!-- Container Danh Sách Món -->
                                     <div id="kpiOrderItemsContainer" class="d-flex flex-column gap-2 mb-3">
                                         <!-- Dynamically populated item rows -->
@@ -2971,78 +2992,55 @@
                                         </div>
                                     </div>
 
-                                    <!-- Phương Thức & Hình Thức Thanh Toán (Giao diện Card Trực Quan) -->
+                                    <!-- Phương Thức & Hình Thức Thanh Toán (Chỉ còn đúng 2 lựa chọn) -->
                                     <div class="form-group mb-4">
                                         <label style="display: block; font-weight: 700; margin-bottom: 0.75rem; font-size: 0.95rem; color: var(--goldleaf);">
-                                            <i class="fa-solid fa-wallet"></i> Chọn Hình Thức Thanh Toán:
+                                            <i class="fa-solid fa-wallet"></i> Chọn Hình Thức Thanh Toán (Chỉ 2 lựa chọn):
                                         </label>
                                         
                                         <div class="kpi-payment-options-grid" style="display: flex; flex-direction: column; gap: 0.75rem;">
                                             
-                                            <!-- Option 1: VietQR Chuyển Khoản Ngay -->
+                                            <!-- Option 1: Chuyển Khoản Ngay -->
                                             <div class="kpi-payment-tile active" id="tile_qr_now" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 2px solid var(--goldleaf); background: rgba(212, 168, 83, 0.12); transition: all 0.2s ease;">
                                                 <div class="d-flex align-items-center gap-3">
-                                                    <input type="radio" id="radio_qr_now" name="kpiPaymentOption" value="qr_now" checked style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
+                                                    <input type="radio" id="radio_qr_now" name="kpiPaymentOption" value="IMMEDIATE_TRANSFER" checked style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
                                                     <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(212, 168, 83, 0.2); display: flex; align-items: center; justify-content: center; color: var(--goldleaf); font-size: 1.2rem; flex-shrink: 0;">
-                                                        <i class="fa-solid fa-qrcode"></i>
+                                                        <i class="fa-solid fa-bolt"></i>
                                                     </div>
                                                     <div style="flex: 1;">
                                                         <div class="d-flex align-items-center justify-content-between flex-wrap gap-1 mb-1">
                                                             <strong class="text-gold" style="font-size: 0.95rem;">
-                                                                VietQR - Chuyển Khoản Ngay
+                                                                Chuyển Khoản Ngay (VietQR)
                                                             </strong>
                                                             <span class="badge badge-gold" style="font-size: 0.72rem; padding: 0.2rem 0.5rem; font-weight: 600;">
-                                                                <i class="fa-solid fa-bolt"></i> Tự Động Xác Nhận
+                                                                <i class="fa-solid fa-warehouse"></i> Trừ Kho Ngay &amp; Hoàn Thành
                                                             </span>
                                                         </div>
                                                         <p class="text-muted" style="font-size: 0.82rem; margin: 0; line-height: 1.35;">
-                                                            Mở mã VietQR quét thanh toán tức thì &amp; hệ thống tự động xác nhận sau khi quét mã xong.
+                                                            Trừ thẳng vào số lượng hàng tồn kho của ca trực tương ứng. Đơn hoàn thành ngay, KHÔNG cộng vào doanh số ca.
                                                         </p>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <!-- Option 2: VietQR Chuyển Khoản Sau -->
+                                            <!-- Option 2: Thanh Toán Sau -->
                                             <div class="kpi-payment-tile" id="tile_qr_later" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--border-color); background: var(--bg-card-alt); transition: all 0.2s ease;">
                                                 <div class="d-flex align-items-center gap-3">
-                                                    <input type="radio" id="radio_qr_later" name="kpiPaymentOption" value="qr_later" style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
+                                                    <input type="radio" id="radio_qr_later" name="kpiPaymentOption" value="PAY_LATER" style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
                                                     <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(168, 85, 247, 0.15); display: flex; align-items: center; justify-content: center; color: #c084fc; font-size: 1.2rem; flex-shrink: 0;">
                                                         <i class="fa-solid fa-clock-rotate-left"></i>
                                                     </div>
                                                     <div style="flex: 1;">
                                                         <div class="d-flex align-items-center justify-content-between flex-wrap gap-1 mb-1">
                                                             <strong style="color: #c084fc; font-size: 0.95rem;">
-                                                                VietQR - Chuyển Khoản Sau
+                                                                Thanh Toán Sau
                                                             </strong>
                                                             <span class="badge" style="background: rgba(168, 85, 247, 0.18); color: #c084fc; font-size: 0.72rem; padding: 0.2rem 0.5rem;">
-                                                                Ghi nhận công nợ
+                                                                Chờ Admin Duyệt (Hạn 3 ngày)
                                                             </span>
                                                         </div>
                                                         <p class="text-muted" style="font-size: 0.82rem; margin: 0; line-height: 1.35;">
-                                                            Lấy hàng trước, đơn lưu vào lịch sử và bấm nút <em>"Xem QR chuyển sau"</em> để chuyển khoản bất kỳ lúc nào.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <!-- Option 3: Tiền Mặt Trực Tiếp -->
-                                            <div class="kpi-payment-tile" id="tile_cash" style="cursor: pointer; border-radius: 10px; padding: 1rem 1.15rem; border: 1px solid var(--border-color); background: var(--bg-card-alt); transition: all 0.2s ease;">
-                                                <div class="d-flex align-items-center gap-3">
-                                                    <input type="radio" id="radio_cash" name="kpiPaymentOption" value="cash" style="accent-color: var(--goldleaf); width: 20px; height: 20px; cursor: pointer; flex-shrink: 0;" />
-                                                    <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; color: #34d399; font-size: 1.2rem; flex-shrink: 0;">
-                                                        <i class="fa-solid fa-hand-holding-dollar"></i>
-                                                    </div>
-                                                    <div style="flex: 1;">
-                                                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-1 mb-1">
-                                                            <strong style="color: #34d399; font-size: 0.95rem;">
-                                                                Tiền Mặt Trực Tiếp
-                                                            </strong>
-                                                            <span class="badge" style="background: rgba(16, 185, 129, 0.18); color: #34d399; font-size: 0.72rem; padding: 0.2rem 0.5rem;">
-                                                                Tại quầy
-                                                            </span>
-                                                        </div>
-                                                        <p class="text-muted" style="font-size: 0.82rem; margin: 0; line-height: 1.35;">
-                                                            Đưa tiền mặt trực tiếp cho Quản lý / Ban tổ chức tại bàn điều hành để được xác nhận.
+                                                            Đơn vào trạng thái <em>"Chờ duyệt"</em>. Chưa trừ kho cho đến khi Admin phê duyệt. Quá 3 ngày không duyệt sẽ tự động hủy.
                                                         </p>
                                                     </div>
                                                 </div>
@@ -3136,6 +3134,7 @@
                                                 <tr>
                                                     <th>Mã Request</th>
                                                     <th>Thời Gian Lấy</th>
+                                                    <th>Ca Trực</th>
                                                     <th>Chi Tiết Món</th>
                                                     <th>Tổng Tiền</th>
                                                     <th>Hình Thức</th>
@@ -3146,7 +3145,7 @@
                                             </thead>
                                             <tbody id="tbodyKpiMemberOrders">
                                                 <tr>
-                                                    <td colspan="8" class="text-center py-4 text-muted">
+                                                    <td colspan="9" class="text-center py-4 text-muted">
                                                         <i class="fa-solid fa-spinner fa-spin"></i> Đang tải danh sách đơn lấy hàng...
                                                     </td>
                                                 </tr>
@@ -3239,7 +3238,8 @@
                                                 <tr>
                                                     <th>Mã Request</th>
                                                     <th>Thành Viên</th>
-                                                    <th>Thời Gian</th>
+                                                    <th>Thời Gian Lấy</th>
+                                                    <th>Ca Trực</th>
                                                     <th>Món Lấy</th>
                                                     <th>Tổng Tiền</th>
                                                     <th>Phương Thức</th>
@@ -3250,7 +3250,7 @@
                                             </thead>
                                             <tbody id="tbodyKpiAdminRequests">
                                                 <tr>
-                                                    <td colspan="9" class="text-center py-4 text-muted">
+                                                    <td colspan="10" class="text-center py-4 text-muted">
                                                         <i class="fa-solid fa-spinner fa-spin"></i> Đang tải dữ liệu request toàn hệ thống...
                                                     </td>
                                                 </tr>
