@@ -20,7 +20,8 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY templates ./templates
 COPY static ./static
-COPY data ./data
+COPY db ./db
+COPY scripts ./scripts
 
 # Expose server port
 EXPOSE 3000

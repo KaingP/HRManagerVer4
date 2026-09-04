@@ -1191,6 +1191,44 @@ body.light-theme .topbar {
     align-items: start;
 }
 
+.daily-day-tab {
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 8px;
+    padding: 8px 14px;
+    background: transparent;
+    color: var(--ink-hi);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.daily-day-tab:hover,
+.daily-day-tab.active {
+    border-color: #3b82f6;
+    background: #3b82f6;
+    color: #fff;
+}
+
+#tableDailyShiftConfig {
+    min-width: 760px;
+}
+
+.daily-active-toggle {
+    min-width: 96px;
+    white-space: nowrap;
+}
+
+.daily-active-toggle[data-active="true"] {
+    border-color: #10b981 !important;
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+}
+
+.daily-active-toggle[data-active="false"] {
+    border-color: #ef4444 !important;
+    background: rgba(239, 68, 68, 0.12) !important;
+    color: #fca5a5 !important;
+}
+
 .disabled-panel {
     opacity: 0.42;
     pointer-events: none;
@@ -2202,6 +2240,10 @@ body.light-theme .risk-table tbody tr:hover {
     gap: var(--gap, 16px);
     align-items: start;
 }
+
+.outside-grid > .glass-card {
+    min-width: 0;
+}
 @media (max-width: 960px) {
     .outside-grid {
         grid-template-columns: 1fr;
@@ -2210,7 +2252,7 @@ body.light-theme .risk-table tbody tr:hover {
 
 .outside-table {
     width: 100%;
-    min-width: 100%;
+    min-width: 720px;
     border-collapse: collapse;
 }
 .outside-table th {
@@ -2228,8 +2270,49 @@ body.light-theme .risk-table tbody tr:hover {
 .outside-table-box {
     max-height: 440px;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto;
     border-radius: var(--radius-sm);
+}
+
+.outside-table td:last-child,
+.outside-table td:last-child button {
+    white-space: nowrap;
+}
+
+.audit-active-header {
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+}
+
+.audit-active-header > div:first-child {
+    min-width: 0;
+}
+
+.audit-active-header h3,
+.audit-active-header p {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.audit-active-controls {
+    flex-wrap: nowrap !important;
+    flex: 0 0 auto;
+}
+
+#auditHistoryTable {
+    min-width: 1120px;
+}
+
+@media (max-width: 1100px) {
+    .audit-active-header {
+        flex-wrap: wrap !important;
+        align-items: flex-start !important;
+    }
+
+    .audit-active-controls {
+        flex-wrap: wrap !important;
+    }
 }
 @media (max-width: 768px) {
     .outside-table {
@@ -3809,6 +3892,117 @@ body.light-theme .pos-product-card:hover {
     flex-wrap: wrap;
 }
 
+.kpi-admin-summary {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    margin-bottom: 12px !important;
+}
+
+.kpi-admin-summary .kpi-card {
+    min-height: 92px;
+    padding: 14px;
+}
+
+.kpi-admin-filters {
+    display: grid !important;
+    grid-template-columns: minmax(190px, 1.35fr) repeat(
+            3,
+            minmax(145px, 1fr)
+        ) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.kpi-admin-filter-fields {
+    display: contents;
+}
+
+.kpi-admin-filter-fields input,
+.kpi-admin-filter-fields select {
+    min-width: 0;
+    width: 100%;
+    font-size: 12px !important;
+    min-height: 38px;
+}
+
+#tableKpiAdminRequests {
+    min-width: 1180px;
+}
+
+@media (max-width: 900px) {
+    .kpi-admin-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .kpi-admin-filters input {
+        grid-column: 1 / -1;
+    }
+
+    .kpi-admin-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+@media (max-width: 520px) {
+    .kpi-admin-filters,
+    .kpi-admin-summary {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+.audit-history-controls {
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap !important;
+}
+
+.audit-history-controls .custom-select {
+    min-width: 150px;
+}
+
+@media (max-width: 1100px) {
+    .audit-history-controls {
+        justify-content: flex-start;
+        flex-wrap: wrap !important;
+    }
+}
+
+body.staff-mode #tab-shift-audit > .kpi-grid,
+body.staff-mode #auditActiveCard .audit-active-controls,
+body.staff-mode #auditActiveCard .audit-admin-input-area,
+body.staff-mode #auditHistoryTable .audit-admin-only,
+body.staff-mode #auditHistoryTableBody .audit-admin-only {
+    display: none !important;
+}
+
+#tab-inventory .header-actions-group {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+}
+
+#tab-inventory .header-actions-group .btn-export {
+    width: auto;
+}
+
+#tab-inventory #inventoryTable {
+    min-width: 920px;
+}
+
+#tab-inventory .header-actions-group > * {
+    white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+    #tab-inventory .header-actions-group > * {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+}
+
 .btn-action-sm {
     padding: 5px 10px;
     font-size: 12px;
@@ -4222,7 +4416,9 @@ body.staff-mode .nav-item[data-tab="tab-optimizer"]::after {
     border: 1px solid var(--rule);
     border-radius: var(--radius);
     box-shadow: var(--lift-panel);
-    transition: transform var(--speed) var(--ease), border-color var(--speed) var(--ease);
+    transition:
+        transform var(--speed) var(--ease),
+        border-color var(--speed) var(--ease);
 }
 
 .order-stat-card:hover {
@@ -4388,7 +4584,10 @@ body:not(.admin-mode) .admin-only-cell {
     border-radius: var(--radius);
     background: var(--lacquer-2);
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+    transition:
+        border-color 0.15s,
+        background 0.15s,
+        transform 0.15s;
 }
 
 .comp-cycle-card:hover {
@@ -5298,4 +5497,3 @@ body:not(.admin-mode) .admin-only-cell {
         flex-basis: 100px;
     }
 }
-

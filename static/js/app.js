@@ -63,7 +63,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     initModals();
     initEventListeners();
     await checkAuthStatus();
-    loadSavedOptimizerConfig();
+    initDailyShiftControls();
+    await loadSavedOptimizerConfig();
     loadCurrentSchedule();
     loadCaNgoaiList();
     loadHeatmapData();
@@ -85,7 +86,13 @@ let globalIncidentLogs = [];
 let currentEditingShift = null;
 
 // Ba tab này không nằm ở thanh đáy trên điện thoại; chúng ở trong bảng "Thêm".
-const MORE_TABS = ["tab-inventory", "tab-shift-audit", "tab-audit", "tab-protocols", "tab-kpi"];
+const MORE_TABS = [
+    "tab-inventory",
+    "tab-shift-audit",
+    "tab-audit",
+    "tab-protocols",
+    "tab-kpi",
+];
 
 // AUTHENTICATION & RBAC HELPERS
 async function authFetch(url, options = {}) {
@@ -325,20 +332,20 @@ function initTabs() {
     const moreBtn = document.getElementById("btnMoreMenu");
 
     const titles = {
-        "tab-schedule": "Lịch Trực Toàn Bộ Các Ngày Trong Tuần",
-        "tab-optimizer":
-            "Tinh Chỉnh Tham Số, Tối Ưu Hóa & Ca Bán Ngoài (OR-Tools)",
-        "tab-inventory": "Kho Hàng & Quản Lý Doanh Thu F&B",
-        "tab-shift-audit": "Kiểm Kê & Đối Chiếu Tồn Kho Hàng Hóa Sau Ca Trực",
+        "tab-analytics": "Tổng Hợp Lịch Rảnh",
+        "tab-schedule": "Phân Công Ca Trực",
+        "tab-optimizer": "Cơ Cấu Ca Trực",
+        "tab-contingency": "Điều Phối Ca Vắng, Vi Phạm Nhân Sự",
+        "tab-discipline": "Cộng Điểm Kỷ Luật",
+        "tab-live-shift": "Thu Ngân",
+        "tab-shift-audit": "Kiểm Kê Ca Trực",
+        "tab-inventory": "Kho Hàng, Doanh Thu",
+        "tab-kpi": "Best Seller",
+        "tab-competition": "Thi Đua F&B",
         "tab-ca-ngoai": "Quản Lý & Phân Bổ Ca Bán Ngoài",
-        "tab-analytics": "Báo Cáo Thống Kê Phân Bổ Nhân Sự",
-        "tab-kpi": "Chạy KPI Lấy Hàng & Quản Lý Doanh Thu",
-        "tab-competition": "Bảng Vàng Thi Đua Cá Nhân & Nhóm",
         "tab-audit": "Kiểm Tra Tính Hợp Lệ & Thẩm Định Quy Chuẩn",
-        "tab-contingency": "Quản Lý Ca Vắng, Đi Trễ & Nhân Sự Dự Phòng",
         "tab-protocols":
             "Quy Trình Quản Trị Nhân Sự & Dự Trù Rủi Ro (Nhiệm Vụ 2)",
-        "tab-live-shift": "Ca-Live & POS Bán Hàng Realtime",
     };
 
     navItems.forEach((item) => {
@@ -868,12 +875,16 @@ function initEventListeners() {
     document
         .getElementById("btnCloseRestockDetailModal")
         ?.addEventListener("click", () => {
-            document.getElementById("restockDetailModal")?.classList.remove("active");
+            document
+                .getElementById("restockDetailModal")
+                ?.classList.remove("active");
         });
     document
         .getElementById("btnOkRestockDetailModal")
         ?.addEventListener("click", () => {
-            document.getElementById("restockDetailModal")?.classList.remove("active");
+            document
+                .getElementById("restockDetailModal")
+                ?.classList.remove("active");
         });
     document
         .getElementById("btnOpenRecordSaleModal")
@@ -944,18 +955,36 @@ function initEventListeners() {
                 dp: dp,
             };
 
+            const editingId = e.currentTarget.dataset.editingId;
             const res = await authFetch("/api/ca-ngoai", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "add", item: newItem }),
+                body: JSON.stringify({
+                    action: editingId ? "update" : "add",
+                    id: editingId,
+                    item: newItem,
+                }),
             });
             const data = await res.json();
             if (data.success) {
                 globalCaNgoai = data.list;
                 renderCaNgoaiTable();
-                document.getElementById("inputNgoaiName").value = "";
+                resetCaNgoaiForm();
+                await loadCurrentSchedule();
+            } else {
+                showToast(data.message || "Không thể lưu ca ngoài.", "error");
             }
         });
+
+    document.querySelectorAll(".daily-day-tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+            const current =
+                document.querySelector(".daily-day-tab.active")?.dataset
+                    .dayGroup || "weekday";
+            rememberDailyShiftConfig(current);
+            showDailyShiftConfig(tab.dataset.dayGroup);
+        });
+    });
 
     // Clear all Ca Ngoài with 2-step confirmation modal
     document
@@ -1272,6 +1301,10 @@ function updateCaNgoaiPanelState(enabled) {
 
 // Load Initial Schedule
 async function loadCurrentSchedule() {
+    // Clear the previous in-memory view before reading the server again.
+    globalMembers = [];
+    globalShifts = [];
+    globalScheduleData = null;
     try {
         const [resSched, resShifts, resMembers] = await Promise.all([
             fetch("/api/schedule/current").then((r) => r.json()),
@@ -1279,20 +1312,50 @@ async function loadCurrentSchedule() {
             fetch("/api/members").then((r) => r.json()),
         ]);
 
-        if (resShifts.success) globalShifts = resShifts.shifts;
-        if (resMembers.success) globalMembers = resMembers.members;
+        if (resShifts.success) globalShifts = resShifts.shifts || [];
+        if (resMembers.success) globalMembers = resMembers.members || [];
+        const incidentShiftFilter = document.getElementById(
+            "selectIncidentShiftFilter",
+        );
+        if (incidentShiftFilter)
+            delete incidentShiftFilter.dataset.optionsBuilt;
 
-        if (resSched.success) {
+        if (resSched.success && resSched.result) {
             globalScheduleData = resSched.result;
-            if (globalScheduleData && globalScheduleData.start_date) {
-                const dateInp = document.getElementById("cfgStartDate");
-                if (dateInp) dateInp.value = globalScheduleData.start_date;
-            }
             populateUI();
+        } else {
+            renderEmptyScheduleState(
+                globalMembers.length === 0 && globalShifts.length === 0
+                    ? "Chưa tìm thấy dữ liệu lịch trực hoặc thành viên. Hãy đăng nhập Admin và tải file Excel lịch rảnh."
+                    : "Chưa có kết quả phân ca. Hãy tải file lịch rảnh hoặc chạy tối ưu lịch trực.",
+            );
         }
     } catch (err) {
         console.error("Error loading schedule:", err);
+        renderEmptyScheduleState(
+            "Không thể tải dữ liệu lịch trực. Vui lòng kiểm tra máy chủ rồi thử lại.",
+        );
     }
+}
+
+function renderEmptyScheduleState(message) {
+    const scheduleGrid = document.getElementById("scheduleGrid");
+    const memberTableBody = document.getElementById("memberTableBody");
+    if (scheduleGrid) {
+        scheduleGrid.innerHTML = `<div class="table-empty" style="padding: 48px 20px; text-align: center; color: var(--ink-dim);"><i class="fa-solid fa-file-circle-question" style="font-size: 2rem; display: block; margin-bottom: 12px;"></i>${message}</div>`;
+    }
+    if (memberTableBody) {
+        memberTableBody.innerHTML = `<tr><td colspan="12" class="table-empty" style="padding: 32px 12px; text-align: center; color: var(--ink-dim);">${message}</td></tr>`;
+    }
+    [
+        "kpiTotalMembers",
+        "kpiTotalShifts",
+        "kpiAvgShifts",
+        "kpiFairness",
+    ].forEach((id) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = "0";
+    });
 }
 
 // Load Ca Ngoài List
@@ -1336,7 +1399,10 @@ function renderCaNgoaiTable() {
                 <td class="cell-center mk-lead" style="text-align: center; padding: 8px 6px; white-space: nowrap; font-weight: 700;">${item.chinh}</td>
                 <td class="cell-center mk-dp" style="text-align: center; padding: 8px 6px; white-space: nowrap; font-weight: 700;">${item.dp}</td>
                 <td class="cell-center" style="text-align: center; padding: 8px 6px; white-space: nowrap;">
-                    <button class="btn-delete-row" onclick="deleteCaNgoaiItem('${item.id}')" style="padding: 3px 8px; font-size: 0.75rem; min-height: 26px; border-radius: 4px;" title="Xóa ca ngoài này">
+                    <button type="button" class="btn-action-sm" data-edit-ca-ngoai="${esc(String(item.id))}" style="padding: 3px 8px; font-size: 0.75rem; min-height: 26px; border-radius: 4px;" title="Chỉnh sửa ca ngoài này">
+                        <i class="fa-solid fa-pen"></i> Sửa
+                    </button>
+                    <button type="button" class="btn-delete-row" data-delete-ca-ngoai="${esc(String(item.id))}" style="padding: 3px 8px; font-size: 0.75rem; min-height: 26px; border-radius: 4px;" title="Xóa ca ngoài này">
                         <i class="fa-solid fa-trash-can"></i> Xóa
                     </button>
                 </td>
@@ -1344,10 +1410,43 @@ function renderCaNgoaiTable() {
         `;
     });
     tbody.innerHTML = html;
+    tbody.querySelectorAll("[data-edit-ca-ngoai]").forEach((button) => {
+        button.addEventListener("click", () =>
+            editCaNgoaiItem(button.dataset.editCaNgoai),
+        );
+    });
+    tbody.querySelectorAll("[data-delete-ca-ngoai]").forEach((button) => {
+        button.addEventListener("click", () =>
+            deleteCaNgoaiItem(button.dataset.deleteCaNgoai),
+        );
+    });
+}
+
+function resetCaNgoaiForm() {
+    const form = document.getElementById("formAddCaNgoai");
+    if (!form) return;
+    form.reset();
+    document.getElementById("selectNgoaiDay").value = "Thứ 7";
+    document.getElementById("inputNgoaiStart").value = "17:00";
+    document.getElementById("inputNgoaiEnd").value = "19:30";
+    document.getElementById("selectNgoaiChinh").value = "2";
+    document.getElementById("selectNgoaiDP").value = "1";
+    delete form.dataset.editingId;
+    const button = document.getElementById("btnAddCaNgoaiBtn");
+    if (button)
+        button.innerHTML =
+            '<i class="fa-solid fa-plus"></i> Thêm vào danh sách';
 }
 
 window.deleteCaNgoaiItem = async function (id) {
-    const res = await fetch("/api/ca-ngoai", {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal(
+            "Bạn cần đăng nhập quyền Quản trị viên để xóa ca bán ngoài!",
+        );
+        return;
+    }
+    if (!window.confirm("Xóa ca bán ngoài này?")) return;
+    const res = await authFetch("/api/ca-ngoai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete", id: id }),
@@ -1356,8 +1455,50 @@ window.deleteCaNgoaiItem = async function (id) {
     if (data.success) {
         globalCaNgoai = data.list;
         renderCaNgoaiTable();
+        await loadCurrentSchedule();
+    } else {
+        showToast(data.message || "Không thể xóa ca ngoài.", "error");
     }
 };
+
+window.editCaNgoaiItem = function (id) {
+    const item = globalCaNgoai.find((entry) => String(entry.id) === String(id));
+    if (!item) return;
+    document.getElementById("inputNgoaiName").value = item.name || "";
+    document.getElementById("selectNgoaiDay").value = item.day || "Thứ 7";
+    document.getElementById("inputNgoaiStart").value =
+        item.start_time || "17:00";
+    document.getElementById("inputNgoaiEnd").value = item.end_time || "19:30";
+    document.getElementById("selectNgoaiChinh").value = String(item.chinh ?? 2);
+    document.getElementById("selectNgoaiDP").value = String(item.dp ?? 1);
+    document.getElementById("formAddCaNgoai").dataset.editingId = String(id);
+    const button = document.getElementById("btnAddCaNgoaiBtn");
+    if (button)
+        button.innerHTML =
+            '<i class="fa-solid fa-floppy-disk"></i> Lưu thay đổi';
+    document
+        .getElementById("formAddCaNgoai")
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+};
+
+function initDailyShiftControls() {
+    document
+        .querySelectorAll("#tableDailyShiftConfig tbody tr")
+        .forEach((row, index) => {
+            const cell = row.lastElementChild;
+            if (!cell || cell.dataset.toggleReady) return;
+            cell.dataset.toggleReady = "true";
+            cell.innerHTML = `<button type="button" class="daily-active-toggle" data-shift-num="${index + 1}" data-active="true" style="border:1px solid #10b981; background:rgba(16,185,129,.15); color:#34d399; border-radius:6px; padding:5px 10px; cursor:pointer; font-weight:700;">Hoạt động</button>`;
+            cell.querySelector("button").addEventListener("click", (event) => {
+                const button = event.currentTarget;
+                const active = button.dataset.active !== "true";
+                button.dataset.active = String(active);
+                button.textContent = active ? "Hoạt động" : "Không hoạt động";
+                button.style.borderColor = active ? "#10b981" : "#ef4444";
+                button.style.color = active ? "#34d399" : "#fca5a5";
+            });
+        });
+}
 
 // ---------------------------------------------------------------------------
 // Trạng thái chờ giải.
@@ -1413,6 +1554,14 @@ const solveUI = {
 // Optimizer Config Data Helpers
 function getDailyShiftConfigsFromUI() {
     const configs = [];
+    const dayGroups = {
+        weekday: ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6"],
+        saturday: ["Thứ 7"],
+        sunday: ["Chủ Nhật"],
+    };
+    const activeGroup =
+        document.querySelector(".daily-day-tab.active")?.dataset.dayGroup ||
+        "weekday";
     for (let i = 1; i <= 5; i++) {
         const start =
             document.getElementById(`shift${i}Start`)?.value || "07:00";
@@ -1426,6 +1575,9 @@ function getDailyShiftConfigsFromUI() {
             document.getElementById(`shift${i}DP`)?.value || "1",
             10,
         );
+        const toggle = document.querySelector(
+            `.daily-active-toggle[data-shift-num="${i}"]`,
+        );
         configs.push({
             shift_num: i,
             start_time: start,
@@ -1433,10 +1585,25 @@ function getDailyShiftConfigsFromUI() {
             note: note,
             chinh_count: chinh,
             dp_count: dp,
-            active: true,
+            active: toggle ? toggle.dataset.active !== "false" : true,
+            active_days: dayGroups[activeGroup],
         });
     }
     return configs;
+}
+
+const dailyShiftConfigByGroup = {};
+
+function rememberDailyShiftConfig(group) {
+    dailyShiftConfigByGroup[group] = getDailyShiftConfigsFromUI();
+}
+
+function showDailyShiftConfig(group) {
+    const configs = dailyShiftConfigByGroup[group];
+    if (configs) applyDailyShiftConfigsToUI(configs);
+    document.querySelectorAll(".daily-day-tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.dayGroup === group);
+    });
 }
 
 function applyDailyShiftConfigsToUI(configs) {
@@ -1455,12 +1622,23 @@ function applyDailyShiftConfigsToUI(configs) {
         if (chinhInput && c.chinh_count !== undefined)
             chinhInput.value = c.chinh_count;
         if (dpInput && c.dp_count !== undefined) dpInput.value = c.dp_count;
+        const toggle = document.querySelector(
+            `.daily-active-toggle[data-shift-num="${num}"]`,
+        );
+        if (toggle && c.active !== undefined) {
+            toggle.dataset.active = String(c.active !== false);
+            toggle.textContent =
+                c.active !== false ? "Hoạt động" : "Không hoạt động";
+        }
+        if (Array.isArray(c.active_days)) {
+            document.querySelectorAll(".daily-active-day").forEach((input) => {
+                input.checked = c.active_days.includes(input.value);
+            });
+        }
     });
 }
 
 function getOptimizerFullConfigFromUI() {
-    const startDate =
-        document.getElementById("cfgStartDate")?.value || "2026-08-24";
     const minShifts = parseInt(
         document.getElementById("cfgMinShifts")?.value || "3",
         10,
@@ -1476,10 +1654,13 @@ function getOptimizerFullConfigFromUI() {
     const enableCaNgoai = document.getElementById("chkMasterNgoai")
         ? document.getElementById("chkMasterNgoai").checked
         : true;
-    const dailyConfigs = getDailyShiftConfigsFromUI();
+    const activeGroup =
+        document.querySelector(".daily-day-tab.active")?.dataset.dayGroup ||
+        "weekday";
+    rememberDailyShiftConfig(activeGroup);
+    const dailyConfigs = Object.values(dailyShiftConfigByGroup).flat();
 
     return {
-        start_date: startDate,
         min_shifts: minShifts,
         max_shifts: maxShifts,
         max_shifts_per_day: maxDaily,
@@ -1491,10 +1672,6 @@ function getOptimizerFullConfigFromUI() {
 
 function applyOptimizerConfigToUI(config) {
     if (!config) return;
-    if (config.start_date) {
-        const inp = document.getElementById("cfgStartDate");
-        if (inp) inp.value = config.start_date;
-    }
     if (config.phong_chinh_count !== undefined) {
         const inp = document.getElementById("cfgPhongChinh");
         if (inp) inp.value = config.phong_chinh_count;
@@ -1523,7 +1700,31 @@ function applyOptimizerConfigToUI(config) {
         }
     }
     if (config.daily_shift_configs) {
-        applyDailyShiftConfigsToUI(config.daily_shift_configs);
+        Object.keys(dailyShiftConfigByGroup).forEach(
+            (key) => delete dailyShiftConfigByGroup[key],
+        );
+        config.daily_shift_configs.forEach((item) => {
+            const group =
+                item.active_days?.[0] === "Thứ 7"
+                    ? "saturday"
+                    : item.active_days?.[0] === "Chủ Nhật"
+                      ? "sunday"
+                      : "weekday";
+            dailyShiftConfigByGroup[group] =
+                dailyShiftConfigByGroup[group] || [];
+            dailyShiftConfigByGroup[group].push(item);
+        });
+        const weekdayConfigs = dailyShiftConfigByGroup.weekday || [];
+        ["saturday", "sunday"].forEach((group) => {
+            if (!dailyShiftConfigByGroup[group]?.length) {
+                dailyShiftConfigByGroup[group] = weekdayConfigs.map((item) => ({
+                    ...item,
+                    active_days:
+                        group === "saturday" ? ["Thứ 7"] : ["Chủ Nhật"],
+                }));
+            }
+        });
+        showDailyShiftConfig("weekday");
     }
 }
 
@@ -2296,7 +2497,7 @@ window.openShiftEditModal = function (shiftId) {
         : `<i class="fa-solid fa-eye"></i> Chi Tiết Ca Trực ${esc(s.shift_id)} (${esc(s.day)} - ${esc(s.slot)}) <span style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(255,255,255,0.15); margin-left:8px;">Chỉ Xem</span>`;
 
     let leaderOptions = `<option value="Chưa chỉ định" ${!s.shift_leader || s.shift_leader === "Chưa chỉ định" ? "selected" : ""}>-- Chưa chỉ định Trưởng ca --</option>`;
-    
+
     // Group 1: Members assigned to current shift
     if (s.assigned_members && s.assigned_members.length > 0) {
         leaderOptions += `<optgroup label="Nhân sự trong ca ${esc(s.shift_id)}">`;
@@ -2313,7 +2514,9 @@ window.openShiftEditModal = function (shiftId) {
     if (globalMembers && globalMembers.length > 0) {
         leaderOptions += `<optgroup label="Toàn bộ danh sách nhân sự">`;
         globalMembers.forEach((m) => {
-            const isAssigned = (s.assigned_members || []).some(am => am && am.name === m.name);
+            const isAssigned = (s.assigned_members || []).some(
+                (am) => am && am.name === m.name,
+            );
             if (!isAssigned) {
                 const sel = s.shift_leader === m.name ? "selected" : "";
                 leaderOptions += `<option value="${esc(m.name)}" ${sel}>⭐ ${esc(m.name)} (${esc(m.department || "")})</option>`;
@@ -2341,7 +2544,9 @@ window.openShiftEditModal = function (shiftId) {
                 : idx === 1
                   ? "🥤 Pha chế & Chuẩn bị"
                   : "🛵 Phục vụ / Giao hàng";
-        const posRole = isLeader ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)" : (m.position_role || defaultRole);
+        const posRole = isLeader
+            ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)"
+            : m.position_role || defaultRole;
 
         const removeBtn = isAdmin
             ? `<button type="button" class="btn-action-sm btn-action-delete" style="padding: 2px 7px; font-size: 11px; margin-left: 6px; background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" onclick="handleCancelMemberInShift('${m.member_id}', '${esc(mName)}')" title="Rút nhân sự này khỏi ca trực"><i class="fa-solid fa-user-minus"></i> Hủy</button>`
@@ -2467,7 +2672,8 @@ window.handleLeaderChangeInModal = function (leaderSelect) {
         if (nameEl && nameEl.textContent.trim() === selectedLeaderName) {
             const badgeSpan = document.createElement("span");
             badgeSpan.className = "mer-lead-badge";
-            badgeSpan.innerHTML = '<i class="fa-solid fa-crown text-gold"></i> Trưởng ca';
+            badgeSpan.innerHTML =
+                '<i class="fa-solid fa-crown text-gold"></i> Trưởng ca';
             nameEl.after(badgeSpan);
         }
     });
@@ -2759,15 +2965,17 @@ function renderKPIs() {
     const summary = globalScheduleData.summary || {};
     const audit = globalScheduleData.audit_results || {};
 
-    document.getElementById("kpiTotalMembers").textContent =
-        summary.total_members || 50;
-    document.getElementById("kpiTotalShifts").textContent =
-        summary.total_active_shifts || 70;
+    document.getElementById("kpiTotalMembers").textContent = String(
+        summary.total_members ?? 0,
+    );
+    document.getElementById("kpiTotalShifts").textContent = String(
+        summary.total_active_shifts ?? 0,
+    );
     document.getElementById("kpiAvgShifts").textContent = (
-        summary.avg_shifts_per_member || 3.9
+        summary.avg_shifts_per_member ?? 0
     ).toFixed(1);
     document.getElementById("kpiFairness").textContent =
-        `${audit.fairness_metrics?.fairness_score || 97}%`;
+        `${audit.fairness_metrics?.fairness_score ?? 0}%`;
 }
 
 // Member Workload Table
@@ -3095,20 +3303,47 @@ function renderIncidentLogs(incidents) {
     // Bind search & filter event listeners if not already bound
     const inputSearch = document.getElementById("inputSearchIncident");
     const selectFilter = document.getElementById("selectIncidentTypeFilter");
+    const selectShiftFilter = document.getElementById(
+        "selectIncidentShiftFilter",
+    );
+    if (selectShiftFilter && !selectShiftFilter.dataset.optionsBuilt) {
+        const shifts = globalScheduleData?.assigned_shifts || [];
+        selectShiftFilter.innerHTML =
+            '<option value="all">📅 Tất cả các ca</option>' +
+            shifts
+                .map(
+                    (shift) =>
+                        `<option value="${esc(shift.shift_id)}">${esc(shift.shift_id)} • ${esc(shift.day || "")}</option>`,
+                )
+                .join("");
+        selectShiftFilter.dataset.optionsBuilt = "true";
+    }
     if (inputSearch && !inputSearch.dataset.listenerBound) {
         inputSearch.dataset.listenerBound = "true";
-        inputSearch.addEventListener("input", () => renderIncidentLogs(globalIncidentLogs));
+        inputSearch.addEventListener("input", () =>
+            renderIncidentLogs(globalIncidentLogs),
+        );
     }
     if (selectFilter && !selectFilter.dataset.listenerBound) {
         selectFilter.dataset.listenerBound = "true";
-        selectFilter.addEventListener("change", () => renderIncidentLogs(globalIncidentLogs));
+        selectFilter.addEventListener("change", () =>
+            renderIncidentLogs(globalIncidentLogs),
+        );
+    }
+    if (selectShiftFilter && !selectShiftFilter.dataset.listenerBound) {
+        selectShiftFilter.dataset.listenerBound = "true";
+        selectShiftFilter.addEventListener("change", () =>
+            renderIncidentLogs(globalIncidentLogs),
+        );
     }
 
     // Filter table records according to Admin search and filter selections
     const searchVal = (inputSearch?.value || "").trim().toLowerCase();
     const typeFilter = selectFilter?.value || "all";
+    const shiftFilter = selectShiftFilter?.value || "all";
 
     let tableFilteredIncidents = displayedIncidents.filter((inc) => {
+        if (shiftFilter !== "all" && inc.shift_id !== shiftFilter) return false;
         let matchesSearch = true;
         if (searchVal) {
             const shiftId = (inc.shift_id || "").toLowerCase();
@@ -3143,11 +3378,18 @@ function renderIncidentLogs(incidents) {
             if (typeFilter === "late") {
                 matchesType = status.includes("trễ");
             } else if (typeFilter === "absent") {
-                matchesType = status.includes("vắng") || status.includes("nghỉ") || status.includes("không gọi được");
+                matchesType =
+                    status.includes("vắng") ||
+                    status.includes("nghỉ") ||
+                    status.includes("không gọi được");
             } else if (typeFilter === "replaced") {
                 matchesType = Boolean(hasRep);
             } else if (typeFilter === "unreplaced") {
-                matchesType = (status.includes("vắng") || status.includes("nghỉ") || status.includes("không gọi được")) && !hasRep;
+                matchesType =
+                    (status.includes("vắng") ||
+                        status.includes("nghỉ") ||
+                        status.includes("không gọi được")) &&
+                    !hasRep;
             }
         }
 
@@ -3161,106 +3403,112 @@ function renderIncidentLogs(incidents) {
         } else {
             let tableRows = "";
             tableFilteredIncidents.forEach((inc, idx) => {
-            let badgeClass = "badge-secondary";
-            let statusLabel = inc.status_type || "Ghi nhận";
+                let badgeClass = "badge-secondary";
+                let statusLabel = inc.status_type || "Ghi nhận";
 
-            if (inc.status_type === "Đi trễ") {
-                badgeClass = "badge-warning";
-                statusLabel = "⏰ Đi trễ (-3đ)";
-            } else if (inc.status_type === "Mất tập trung") {
-                badgeClass = "badge-warning";
-                statusLabel = "📱 Mất tập trung (-5đ)";
-            } else if (inc.status_type === "Bỏ quầy") {
-                badgeClass = "badge-danger";
-                statusLabel = "🚶 Bỏ quầy (-5đ)";
-            } else if (
-                inc.status_type === "Vắng không phép" ||
-                inc.status_type === "Vắng đột xuất" ||
-                inc.status_type === "Vắng mặt"
-            ) {
-                badgeClass = "badge-danger";
-                statusLabel = "🚨 Vắng không phép (-10đ)";
-            } else if (inc.status_type === "Xin nghỉ trước") {
-                badgeClass = "badge-info";
-                statusLabel = "📝 Xin nghỉ trước";
-            } else if (inc.status_type === "Có mặt") {
-                badgeClass = "badge-success";
-                statusLabel = "✅ Có mặt đúng giờ";
-            } else if (
-                inc.status_type &&
-                inc.status_type.includes("Đã gọi dự phòng")
-            ) {
-                badgeClass = "badge-success";
-                statusLabel = "📞 Đã gọi dự phòng";
-            } else if (
-                inc.status_type &&
-                inc.status_type.includes("Không gọi được")
-            ) {
-                badgeClass = "badge-danger";
-                statusLabel = "⚠️ Không gọi được DP (Chờ Admin)";
-            }
-
-            const repName =
-                inc.replacement_member &&
-                inc.replacement_member !== "none" &&
-                inc.replacement_member !== "no_replacement"
-                    ? inc.replacement_member
-                    : "Không thay thế";
-
-            let repBadge = "";
-            if (repName !== "Không thay thế") {
-                repBadge = `<strong style="color: var(--patina-lt);"><i class="fa-solid fa-user-shield" style="margin-right: 4px;"></i>${esc(repName)}</strong>`;
-            } else if (
-                inc.status_type &&
-                inc.status_type.includes("Không gọi được")
-            ) {
-                repBadge = `<span style="color: #F87171; font-size: 11.5px; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ Admin gán</span>`;
-            } else {
-                repBadge = `<span style="color: var(--ink-dim); font-size: 11.5px;">Không thay thế</span>`;
-            }
-
-            const isAbsentStatus = (type) => {
-                if (!type) return false;
-                const t = String(type).toLowerCase();
-                return (
-                    t.includes("vắng") ||
-                    t.includes("nghỉ") ||
-                    t.includes("không gọi được") ||
-                    t.includes("có phép") ||
-                    t.includes("không phép")
-                );
-            };
-
-            let shiftLeader = inc.shift_leader;
-            if (!shiftLeader || shiftLeader === "Chưa chỉ định") {
-                const sObj = (globalScheduleData?.assigned_shifts || []).find((s) => s.shift_id === inc.shift_id) ||
-                             (globalShifts || []).find((s) => s.shift_id === inc.shift_id);
-                if (sObj && sObj.shift_leader) {
-                    shiftLeader = sObj.shift_leader;
+                if (inc.status_type === "Đi trễ") {
+                    badgeClass = "badge-warning";
+                    statusLabel = `⏰ Đi trễ ${inc.late_minutes ? `(${inc.late_minutes} phút)` : ""} (-3đ)`;
+                } else if (inc.status_type === "Mất tập trung") {
+                    badgeClass = "badge-warning";
+                    statusLabel = "📱 Mất tập trung (-5đ)";
+                } else if (inc.status_type === "Bỏ quầy") {
+                    badgeClass = "badge-danger";
+                    statusLabel = "🚶 Bỏ quầy (-5đ)";
+                } else if (
+                    inc.status_type === "Vắng không phép" ||
+                    inc.status_type === "Vắng đột xuất" ||
+                    inc.status_type === "Vắng mặt"
+                ) {
+                    badgeClass = "badge-danger";
+                    statusLabel = "🚨 Vắng không phép (-10đ)";
+                } else if (inc.status_type === "Xin nghỉ trước") {
+                    badgeClass = "badge-info";
+                    statusLabel = "📝 Xin nghỉ trước";
+                } else if (inc.status_type === "Có mặt") {
+                    badgeClass = "badge-success";
+                    statusLabel = "✅ Có mặt đúng giờ";
+                } else if (
+                    inc.status_type &&
+                    inc.status_type.includes("Đã gọi dự phòng")
+                ) {
+                    badgeClass = "badge-success";
+                    statusLabel = "📞 Đã gọi dự phòng";
+                } else if (
+                    inc.status_type &&
+                    inc.status_type.includes("Không gọi được")
+                ) {
+                    badgeClass = "badge-danger";
+                    statusLabel = "⚠️ Không gọi được DP (Chờ Admin)";
                 }
-            }
-            const leaderDisplay = shiftLeader && shiftLeader !== "Chưa chỉ định"
-                ? `<span style="color: #FBBF24; font-weight: 700;"><i class="fa-solid fa-crown" style="font-size: 10px;"></i> ${esc(shiftLeader)}</span>`
-                : `<span style="color: var(--ink-dim); font-style: italic;">Chưa chỉ định</span>`;
 
-            let actionBtn = "";
-            if (isAdmin) {
-                const showChangeBtn = isAbsentStatus(inc.status_type);
-                const changeBtnHtml = showChangeBtn
-                    ? `<button type="button" class="btn-action-sm btn-action-edit" onclick="openAdminAssignReplacementModal('${esc(inc.id || "")}', '${esc(inc.timestamp || "")}', '${esc(inc.shift_id || "")}', '${esc(inc.absent_member || "")}', '${esc(inc.replacement_member || "")}', '${esc(inc.status_type || "")}', '${esc(inc.note || "")}')" title="Gán / Đổi người thay thế cho ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
+                const repName =
+                    inc.replacement_member &&
+                    inc.replacement_member !== "none" &&
+                    inc.replacement_member !== "no_replacement"
+                        ? inc.replacement_member
+                        : "Không thay thế";
+
+                let repBadge = "";
+                if (repName !== "Không thay thế") {
+                    repBadge = `<strong style="color: var(--patina-lt);"><i class="fa-solid fa-user-shield" style="margin-right: 4px;"></i>${esc(repName)}</strong>`;
+                } else if (
+                    inc.status_type &&
+                    inc.status_type.includes("Không gọi được")
+                ) {
+                    repBadge = `<span style="color: #F87171; font-size: 11.5px; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ Admin gán</span>`;
+                } else {
+                    repBadge = `<span style="color: var(--ink-dim); font-size: 11.5px;">Không thay thế</span>`;
+                }
+
+                const isAbsentStatus = (type) => {
+                    if (!type) return false;
+                    const t = String(type).toLowerCase();
+                    return (
+                        t.includes("vắng") ||
+                        t.includes("nghỉ") ||
+                        t.includes("không gọi được") ||
+                        t.includes("có phép") ||
+                        t.includes("không phép")
+                    );
+                };
+
+                let shiftLeader = inc.shift_leader;
+                if (!shiftLeader || shiftLeader === "Chưa chỉ định") {
+                    const sObj =
+                        (globalScheduleData?.assigned_shifts || []).find(
+                            (s) => s.shift_id === inc.shift_id,
+                        ) ||
+                        (globalShifts || []).find(
+                            (s) => s.shift_id === inc.shift_id,
+                        );
+                    if (sObj && sObj.shift_leader) {
+                        shiftLeader = sObj.shift_leader;
+                    }
+                }
+                const leaderDisplay =
+                    shiftLeader && shiftLeader !== "Chưa chỉ định"
+                        ? `<span style="color: #FBBF24; font-weight: 700;"><i class="fa-solid fa-crown" style="font-size: 10px;"></i> ${esc(shiftLeader)}</span>`
+                        : `<span style="color: var(--ink-dim); font-style: italic;">Chưa chỉ định</span>`;
+
+                let actionBtn = "";
+                if (isAdmin) {
+                    const showChangeBtn = isAbsentStatus(inc.status_type);
+                    const changeBtnHtml = showChangeBtn
+                        ? `<button type="button" class="btn-action-sm btn-action-edit" onclick="openAdminAssignReplacementModal('${esc(inc.id || "")}', '${esc(inc.timestamp || "")}', '${esc(inc.shift_id || "")}', '${esc(inc.absent_member || "")}', '${esc(inc.replacement_member || "")}', '${esc(inc.status_type || "")}', '${esc(inc.note || "")}')" title="Gán / Đổi người thay thế cho ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="fa-solid fa-user-pen"></i> Đổi người
                     </button>`
-                    : "";
+                        : "";
 
-                actionBtn = `<div style="display: inline-flex; gap: 4px; align-items: center;">
+                    actionBtn = `<div style="display: inline-flex; gap: 4px; align-items: center;">
                     ${changeBtnHtml}
                     <button type="button" class="btn-action-sm btn-danger-red" onclick="deleteSingleIncident('${esc(inc.id || "")}', '${esc(inc.timestamp || "")}', '${esc(inc.shift_id || "")}', '${esc(inc.absent_member || "")}')" title="Xóa lịch sử ghi nhận ca này" style="padding: 4px 8px; font-size: 11px; border-radius: 4px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">
                         <i class="fa-solid fa-trash-can"></i> Xóa
                     </button>
                 </div>`;
-            }
+                }
 
-            tableRows += `
+                tableRows += `
                 <tr>
                     <td class="cell-center mk-num">${idx + 1}</td>
                     <td class="cell-center mk-num" style="font-size: 11.5px; white-space: nowrap;">${esc(inc.timestamp || "")}</td>
@@ -3416,7 +3664,11 @@ async function handleSyncGoogleSheet() {
         const res = await authFetch("/api/upload-data", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ google_sheet_url: url }),
+            body: JSON.stringify({
+                google_sheet_url: url,
+                mode:
+                    document.getElementById("uploadDataMode")?.value || "merge",
+            }),
         });
         const data = await res.json();
         if (data.success) {
@@ -3447,6 +3699,7 @@ async function handleSyncGoogleSheet() {
 async function handleUploadFile() {
     const fileInput = document.getElementById("inputFileUpload");
     const msg = document.getElementById("uploadStatusMsg");
+    const mode = document.getElementById("uploadDataMode")?.value || "merge";
     if (!fileInput.files.length) {
         if (msg) {
             msg.className = "swap-msg error";
@@ -3455,8 +3708,16 @@ async function handleUploadFile() {
         return;
     }
 
+    if (mode === "replace_all") {
+        const confirmed = window.confirm(
+            "Tạo mới hoàn toàn sẽ xóa dữ liệu điểm danh, sự cố, kho, bán hàng, đơn hàng, kỷ luật và lịch trực cũ. Bạn có chắc muốn tiếp tục?",
+        );
+        if (!confirmed) return;
+    }
+
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
+    formData.append("mode", mode);
 
     if (msg) {
         msg.className = "swap-msg";
@@ -4368,11 +4629,18 @@ function addRestockItemRow(selectedProdId = "") {
         return;
     }
 
-    const rowId = "restockRow_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4);
+    const rowId =
+        "restockRow_" +
+        Date.now() +
+        "_" +
+        Math.random().toString(36).substr(2, 4);
 
     let optionsHtml = '<option value="">-- Chọn sản phẩm --</option>';
     prods.forEach((p) => {
-        const curStock = p.current_stock !== undefined ? p.current_stock : (p.initial_stock - p.sold_count);
+        const curStock =
+            p.current_stock !== undefined
+                ? p.current_stock
+                : p.initial_stock - p.sold_count;
         const sel = p.id === selectedProdId ? "selected" : "";
         optionsHtml += `<option value="${esc(p.id)}" data-unit="${esc(p.unit)}" data-stock="${curStock}" data-price="${p.price}" ${sel}>${esc(p.name)} (${esc(p.id)}) [Hiện có: ${curStock} ${esc(p.unit)}]</option>`;
     });
@@ -4467,7 +4735,8 @@ function updateRestockSummary() {
     const countEl = document.getElementById("restockTotalItemsCount");
     const costEl = document.getElementById("restockTotalCostDisplay");
 
-    if (countEl) countEl.textContent = `${totalQty.toLocaleString("vi-VN")} món`;
+    if (countEl)
+        countEl.textContent = `${totalQty.toLocaleString("vi-VN")} món`;
     if (costEl) costEl.textContent = formatVND(totalCost);
 }
 
@@ -4477,9 +4746,14 @@ async function handleSubmitRestockForm(e) {
     const msg = document.getElementById("restockModalMsg");
     const btnSubmit = document.getElementById("btnSubmitRestock");
 
-    const creator = document.getElementById("inputRestockCreator")?.value.trim() || "Quản trị viên / Thủ kho";
-    const supplier = document.getElementById("inputRestockSupplier")?.value.trim() || "";
-    const reason = document.getElementById("inputRestockReason")?.value.trim() || "Nhập bổ sung giữa tuần";
+    const creator =
+        document.getElementById("inputRestockCreator")?.value.trim() ||
+        "Quản trị viên / Thủ kho";
+    const supplier =
+        document.getElementById("inputRestockSupplier")?.value.trim() || "";
+    const reason =
+        document.getElementById("inputRestockReason")?.value.trim() ||
+        "Nhập bổ sung giữa tuần";
 
     const rows = tbody ? tbody.querySelectorAll("tr") : [];
     const items = [];
@@ -4507,14 +4781,16 @@ async function handleSubmitRestockForm(e) {
         if (msg) {
             msg.style.display = "block";
             msg.className = "swap-msg error";
-            msg.textContent = "Vui lòng chọn ít nhất 1 sản phẩm và nhập số lượng > 0!";
+            msg.textContent =
+                "Vui lòng chọn ít nhất 1 sản phẩm và nhập số lượng > 0!";
         }
         return;
     }
 
     if (btnSubmit) {
         btnSubmit.disabled = true;
-        btnSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý nhập kho...';
+        btnSubmit.innerHTML =
+            '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý nhập kho...';
     }
 
     try {
@@ -4550,7 +4826,8 @@ async function handleSubmitRestockForm(e) {
     } finally {
         if (btnSubmit) {
             btnSubmit.disabled = false;
-            btnSubmit.innerHTML = '<i class="fa-solid fa-check"></i> Xác Nhận Nhập Kho';
+            btnSubmit.innerHTML =
+                '<i class="fa-solid fa-check"></i> Xác Nhận Nhập Kho';
         }
     }
 }
@@ -4570,9 +4847,12 @@ function renderRestockReceiptsTable(receipts) {
 
     let html = "";
     list.forEach((rc) => {
-        let itemsHtml = '<div style="display: flex; flex-direction: column; gap: 3px;">';
+        let itemsHtml =
+            '<div style="display: flex; flex-direction: column; gap: 3px;">';
         (rc.items || []).forEach((it) => {
-            const costText = it.unit_cost ? ` • Vốn: ${formatVND(it.unit_cost)}` : "";
+            const costText = it.unit_cost
+                ? ` • Vốn: ${formatVND(it.unit_cost)}`
+                : "";
             itemsHtml += `
                 <div style="font-size: 12px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 2px 6px; border-radius: 4px;">
                     <span><strong>${esc(it.product_name || it.product_id)}</strong></span>
@@ -4582,8 +4862,13 @@ function renderRestockReceiptsTable(receipts) {
         });
         itemsHtml += "</div>";
 
-        const supplierText = rc.supplier ? `<div style="font-size: 11px; color: #38bdf8;"><i class="fa-solid fa-truck-field"></i> ${esc(rc.supplier)}</div>` : "";
-        const costDisplay = rc.total_cost > 0 ? formatVND(rc.total_cost) : `<span style="color: var(--ink-dim); font-size: 11.5px;">-</span>`;
+        const supplierText = rc.supplier
+            ? `<div style="font-size: 11px; color: #38bdf8;"><i class="fa-solid fa-truck-field"></i> ${esc(rc.supplier)}</div>`
+            : "";
+        const costDisplay =
+            rc.total_cost > 0
+                ? formatVND(rc.total_cost)
+                : `<span style="color: var(--ink-dim); font-size: 11.5px;">-</span>`;
 
         html += `
             <tr>
@@ -4633,7 +4918,8 @@ function renderRestockReceiptsTable(receipts) {
 }
 
 window.viewRestockReceiptDetail = function (receiptId) {
-    const receipts = (globalInventoryData && globalInventoryData.restock_receipts) || [];
+    const receipts =
+        (globalInventoryData && globalInventoryData.restock_receipts) || [];
     const rc = receipts.find((r) => r.id === receiptId);
     if (!rc) return;
 
@@ -4920,6 +5206,7 @@ window.handleContingencyShiftSearch = function (keyword) {
 
 // Global state for live attendance screen
 let localAttendanceState = {}; // Key: member_id, Value: { status: string|null, replacementId: string|null, isModified: boolean }
+let attendanceLocks = {};
 let currentShiftCandidates = []; // Suggested backup candidates
 
 async function loadLiveShiftDetailsAndCandidates(shiftId) {
@@ -5000,6 +5287,8 @@ async function loadLiveShiftDetailsAndCandidates(shiftId) {
                     replacedAbsentMemberName: repLog
                         ? repLog.absent_member
                         : "",
+                    locked: !!attendanceLocks[`${shiftId}|${m.member_id}`],
+                    lateMinutes: lastLog?.late_minutes || 0,
                     isModified: false,
                 };
             });
@@ -5105,6 +5394,7 @@ function renderLiveShiftDetails(shiftId) {
                 (localState.unreachable === true ||
                     localState.status === "Không gọi được dự phòng");
             const currentStatus = localState.status;
+            const isAttendanceLocked = !isAdmin && localState.locked;
             const memberRep = getMemberReputationScore(m.member_id, mName);
 
             let cardBg = "rgba(255,255,255,0.03)";
@@ -5271,7 +5561,18 @@ function renderLiveShiftDetails(shiftId) {
             // Action controls: Có mặt, Vắng mặt, Đi trễ, List sổ ra sai phạm khác, Đặt lại
             let buttonsHtml = "";
             if (!isDp || isBackupActivated) {
-                buttonsHtml = `
+                buttonsHtml = isAttendanceLocked
+                    ? `
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06); align-items:center;">
+                        <span style="font-size:12px; color:#86efac;">🔒 Đã chốt điểm danh. Chỉ ghi nhận sai phạm phát sinh:</span>
+                        <select class="custom-select" onchange="setLocalAttendanceStatus('${esc(m.member_id)}', this.value)" style="height:32px; font-size:12px; padding:4px 10px;">
+                            <option value="">⚠️ Chọn sai phạm</option>
+                            <option value="Mất tập trung">📱 Mất tập trung (-5đ)</option>
+                            <option value="Bỏ quầy">🚶 Bỏ quầy (-5đ)</option>
+                        </select>
+                    </div>
+                `
+                    : `
                     <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); align-items: center;">
                         <button type="button" class="btn-action-sm" onclick="setLocalAttendanceStatus('${esc(m.member_id)}', 'Có mặt')" style="background: ${currentStatus === "Có mặt" ? "#059669" : "rgba(16,185,129,0.15)"}; color: ${currentStatus === "Có mặt" ? "#FFF" : "#34D399"}; border: 1px solid #059669; padding: 6px 14px; font-weight: 600; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Điểm danh có mặt đúng giờ (Không trừ điểm uy tín)">
                             <i class="fa-solid fa-circle-check"></i> Có mặt
@@ -5473,9 +5774,10 @@ function renderLiveShiftDetails(shiftId) {
             if (histCountBadge) {
                 histCountBadge.textContent = `${shiftIncidents.length} ghi nhận`;
             }
-            const shiftLeaderName = shift.shift_leader && shift.shift_leader !== "Chưa chỉ định"
-                ? shift.shift_leader
-                : "Chưa chỉ định";
+            const shiftLeaderName =
+                shift.shift_leader && shift.shift_leader !== "Chưa chỉ định"
+                    ? shift.shift_leader
+                    : "Chưa chỉ định";
 
             let histHtml = "";
             shiftIncidents.forEach((inc) => {
@@ -5495,13 +5797,22 @@ function renderLiveShiftDetails(shiftId) {
                     inc.replacement_member !== "no_replacement" &&
                     inc.replacement_member !== "";
 
-                let badgeStyle = "background: rgba(255, 255, 255, 0.08); color: var(--ink-hi); border: 1px solid rgba(255, 255, 255, 0.12);";
+                let badgeStyle =
+                    "background: rgba(255, 255, 255, 0.08); color: var(--ink-hi); border: 1px solid rgba(255, 255, 255, 0.12);";
                 if (inc.status_type === "Đi trễ") {
-                    badgeStyle = "background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3);";
-                } else if (inc.status_type && (inc.status_type.includes("Vắng") || inc.status_type.includes("Nghỉ") || isUnreach)) {
-                    badgeStyle = "background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.3);";
+                    badgeStyle =
+                        "background: rgba(245, 158, 11, 0.15); color: #FBBF24; border: 1px solid rgba(245, 158, 11, 0.3);";
+                } else if (
+                    inc.status_type &&
+                    (inc.status_type.includes("Vắng") ||
+                        inc.status_type.includes("Nghỉ") ||
+                        isUnreach)
+                ) {
+                    badgeStyle =
+                        "background: rgba(239, 68, 68, 0.15); color: #F87171; border: 1px solid rgba(239, 68, 68, 0.3);";
                 } else if (inc.status_type === "Có mặt") {
-                    badgeStyle = "background: rgba(16, 185, 129, 0.15); color: #34D399; border: 1px solid rgba(16, 185, 129, 0.3);";
+                    badgeStyle =
+                        "background: rgba(16, 185, 129, 0.15); color: #34D399; border: 1px solid rgba(16, 185, 129, 0.3);";
                 }
 
                 const repBadge = hasRep
@@ -5564,6 +5875,44 @@ window.setLocalAttendanceStatus = function (memberId, status) {
             isModified: false,
         };
     }
+    if (
+        currentUserRole !== "admin" &&
+        localAttendanceState[memberId].locked &&
+        [
+            "Có mặt",
+            "Vắng không phép",
+            "Vắng đột xuất",
+            "Vắng mặt",
+            "Xin nghỉ trước",
+            "Đi trễ",
+        ].includes(status)
+    ) {
+        showToast(
+            "Điểm danh đã chốt; chỉ được ghi nhận sai phạm phát sinh.",
+            "info",
+        );
+        return;
+    }
+
+    let lateMinutes = localAttendanceState[memberId].lateMinutes || 0;
+    if (status === "Đi trễ") {
+        const answer = window.prompt(
+            "Nhập số phút đi trễ:",
+            String(lateMinutes || 15),
+        );
+        if (answer === null) return;
+        lateMinutes = Number.parseInt(answer, 10);
+        if (
+            !Number.isFinite(lateMinutes) ||
+            lateMinutes < 1 ||
+            lateMinutes > 1440
+        ) {
+            showToast("Số phút đi trễ phải từ 1 đến 1440.", "error");
+            return;
+        }
+    }
+    localAttendanceState[memberId].lateMinutes =
+        status === "Đi trễ" ? lateMinutes : 0;
     localAttendanceState[memberId].status = status || null;
     localAttendanceState[memberId].isModified = true;
 
@@ -5820,6 +6169,7 @@ window.submitLiveAttendanceBatch = async function () {
                             shift_id: currentSelectedLiveShiftId,
                             absent_member_id: k,
                             status_type: mState.status || "Có mặt",
+                            late_minutes: mState.lateMinutes || 0,
                             note: `Điểm danh ca-live: ${mState.status || "Có mặt"}`,
                         };
 
@@ -5930,7 +6280,12 @@ window.openCallBackupModal = function (
         if (shift && shift.assigned_members) {
             shift.assigned_members.forEach((m) => {
                 if (!m || m.member_id === backupMemberId) return; // Do not replace self
-                if (shift.shift_leader && (m.name === shift.shift_leader || m.member_id === shift.shift_leader)) return; // Exclude shift leader
+                if (
+                    shift.shift_leader &&
+                    (m.name === shift.shift_leader ||
+                        m.member_id === shift.shift_leader)
+                )
+                    return; // Exclude shift leader
                 const mName = m.name || m.member_id;
                 const mState = localAttendanceState[m.member_id];
                 const isMarkedAbsent =
@@ -6204,7 +6559,12 @@ window.openUnreachableBackupModal = function (backupMemberId, backupName) {
 
             shift.assigned_members.forEach((m) => {
                 if (!m || m.member_id === backupMemberId) return;
-                if (shift.shift_leader && (m.name === shift.shift_leader || m.member_id === shift.shift_leader)) return; // Exclude shift leader
+                if (
+                    shift.shift_leader &&
+                    (m.name === shift.shift_leader ||
+                        m.member_id === shift.shift_leader)
+                )
+                    return; // Exclude shift leader
                 const mName = m.name || m.member_id;
                 const mState = localAttendanceState[m.member_id];
                 const isMarkedAbsent =
@@ -7383,7 +7743,11 @@ let currentSelectedAuditTabShiftId = null;
 let currentAuditTabRollovers = [];
 
 window.initTabShiftAudit = async function () {
-    if (!globalInventoryData || !globalInventoryData.products || globalInventoryData.products.length === 0) {
+    if (
+        !globalInventoryData ||
+        !globalInventoryData.products ||
+        globalInventoryData.products.length === 0
+    ) {
         await loadInventoryData();
     }
     populateTabAuditShiftDropdown();
@@ -7415,9 +7779,19 @@ window.populateTabAuditShiftDropdown = function () {
     } else {
         allShifts.forEach((s) => {
             const isLive = s.shift_id === currentSelectedLiveShiftId;
-            const leaderName = s.shift_leader && s.shift_leader !== "Chưa chỉ định" ? `👑 ${s.shift_leader}` : "Chưa có Trưởng ca";
+            const shiftDay = s.day || s.day_of_week || "Ca trực";
+            const shiftTime =
+                s.slot ||
+                s.time_slot ||
+                (s.start_time && s.end_time
+                    ? `${s.start_time} - ${s.end_time}`
+                    : "");
+            const leaderName =
+                s.shift_leader && s.shift_leader !== "Chưa chỉ định"
+                    ? `👑 ${s.shift_leader}`
+                    : "Chưa có Trưởng ca";
             const liveMarker = isLive ? "🔴 [ĐANG TRỰC] " : "";
-            optHtml += `<option value="${esc(s.shift_id)}">${liveMarker}${esc(s.shift_name || s.day_of_week + " - " + s.shift_id)} (${esc(s.time_slot || "")}) - ${esc(leaderName)}</option>`;
+            optHtml += `<option value="${esc(s.shift_id)}">${liveMarker}${esc(s.shift_name || `${shiftDay} - ${s.shift_id}`)} (${esc(shiftTime)}) - ${esc(leaderName)}</option>`;
         });
     }
 
@@ -7438,6 +7812,10 @@ window.populateTabAuditShiftDropdown = function () {
             histOptHtml += `<option value="${esc(s.shift_id)}">${esc(s.shift_name || s.shift_id)}</option>`;
         });
         histShiftSelect.innerHTML = histOptHtml;
+        if (currentUserRole !== "admin" && currentSelectedLiveShiftId) {
+            histShiftSelect.value = currentSelectedLiveShiftId;
+            histShiftSelect.disabled = true;
+        }
     }
 };
 
@@ -7448,12 +7826,23 @@ window.onTabAuditShiftChange = async function (shiftId) {
 
     // Fetch pending rollover items for this shift
     try {
-        const res = await fetch(`/api/inventory/audit-shift/pending-rollover?shift_id=${encodeURIComponent(shiftId)}`).then((r) => r.json());
-        if (res.success && res.pending_rollovers && res.pending_rollovers.length > 0) {
+        const res = await fetch(
+            `/api/inventory/audit-shift/pending-rollover?shift_id=${encodeURIComponent(shiftId)}`,
+        ).then((r) => r.json());
+        if (
+            res.success &&
+            res.pending_rollovers &&
+            res.pending_rollovers.length > 0
+        ) {
             currentAuditTabRollovers = res.pending_rollovers;
             if (noticeEl && noticeText) {
                 noticeEl.style.display = "block";
-                const summaryNames = res.pending_rollovers.map((it) => `<b>${esc(it.product_name)}</b> (${it.diff > 0 ? "+" + it.diff : it.diff} ${esc(it.unit)})`).join(", ");
+                const summaryNames = res.pending_rollovers
+                    .map(
+                        (it) =>
+                            `<b>${esc(it.product_name)}</b> (${it.diff > 0 ? "+" + it.diff : it.diff} ${esc(it.unit)})`,
+                    )
+                    .join(", ");
                 noticeText.innerHTML = `<strong><i class="fa-solid fa-arrows-spin text-gold"></i> Tiếp nhận cộng dồn từ ca trước:</strong> Đã tiếp nhận ${res.pending_rollovers.length} mặt hàng nợ/chênh lệch: ${summaryNames}. Số lượng đã được tự động kết chuyển vào Tồn Lý Thuyết!`;
             }
         } else {
@@ -7469,7 +7858,8 @@ window.onTabAuditShiftChange = async function (shiftId) {
 };
 
 window.openShiftEditFromAuditTab = function () {
-    const shiftId = currentSelectedAuditTabShiftId || currentSelectedLiveShiftId;
+    const shiftId =
+        currentSelectedAuditTabShiftId || currentSelectedLiveShiftId;
     if (shiftId) {
         openShiftEditModal(shiftId);
     } else {
@@ -7489,9 +7879,11 @@ window.renderTabActiveShiftAudit = function (shiftId) {
         ...(globalCaNgoai || []),
     ];
     const currentShift = allShifts.find((s) => s.shift_id === shiftId);
-    const shiftLeader = currentShift?.shift_leader && currentShift.shift_leader !== "Chưa chỉ định"
-        ? currentShift.shift_leader
-        : null;
+    const shiftLeader =
+        currentShift?.shift_leader &&
+        currentShift.shift_leader !== "Chưa chỉ định"
+            ? currentShift.shift_leader
+            : null;
 
     if (subtitleEl) {
         if (shiftLeader) {
@@ -7529,7 +7921,9 @@ window.renderTabActiveShiftAudit = function (shiftId) {
         }
 
         if (!shiftLeader) {
-            optHtml = `<option value="Bộ phận kiểm hàng" selected>-- Chọn người kiểm hàng --</option>` + optHtml;
+            optHtml =
+                `<option value="Bộ phận kiểm hàng" selected>-- Chọn người kiểm hàng --</option>` +
+                optHtml;
         }
 
         auditorSelect.innerHTML = optHtml;
@@ -7540,16 +7934,21 @@ window.renderTabActiveShiftAudit = function (shiftId) {
     const allSales = globalInventoryData?.sales_logs || [];
 
     const currentShiftSales = allSales.filter(
-        (l) => !l.refunded && (l.channel || "").includes(shiftId),
+        (l) =>
+            !l.refunded &&
+            (String(l.shift_id || "") === String(shiftId) ||
+                (!l.shift_id && (l.channel || "").includes(shiftId))),
     );
     const shiftSalesMap = {};
     currentShiftSales.forEach((l) => {
-        shiftSalesMap[l.product_id] = (shiftSalesMap[l.product_id] || 0) + (l.quantity || 0);
+        shiftSalesMap[l.product_id] =
+            (shiftSalesMap[l.product_id] || 0) + (l.quantity || 0);
     });
 
     const rolloverMap = {};
     (currentAuditTabRollovers || []).forEach((ro) => {
-        rolloverMap[ro.product_id] = (rolloverMap[ro.product_id] || 0) + (ro.diff || 0);
+        rolloverMap[ro.product_id] =
+            (rolloverMap[ro.product_id] || 0) + (ro.diff || 0);
     });
 
     if (products.length === 0) {
@@ -7564,11 +7963,15 @@ window.renderTabActiveShiftAudit = function (shiftId) {
         const initialStock = p.initial_stock || 0;
         const totalSoldAll = p.sold_count || 0;
         const carriedFromPrev = rolloverMap[p.id] || 0;
-        const theoreticalStock = Math.max(0, initialStock - totalSoldAll + carriedFromPrev);
+        const theoreticalStock = Math.max(
+            0,
+            initialStock - totalSoldAll + carriedFromPrev,
+        );
 
-        const carriedHtml = carriedFromPrev !== 0
-            ? `<span style="font-weight: 700; color: ${carriedFromPrev > 0 ? 'var(--goldleaf)' : '#EF4444'};" title="Chuyển giao nợ/dư từ ca trước">${carriedFromPrev > 0 ? '+' + carriedFromPrev : carriedFromPrev}</span>`
-            : `<span style="color: var(--ink-dim); font-size: 11px;">0</span>`;
+        const carriedHtml =
+            carriedFromPrev !== 0
+                ? `<span style="font-weight: 700; color: ${carriedFromPrev > 0 ? "var(--goldleaf)" : "#EF4444"};" title="Chuyển giao nợ/dư từ ca trước">${carriedFromPrev > 0 ? "+" + carriedFromPrev : carriedFromPrev}</span>`
+                : `<span style="color: var(--ink-dim); font-size: 11px;">0</span>`;
 
         html += `
             <tr id="tabAuditRow_${p.id}">
@@ -7586,7 +7989,7 @@ window.renderTabActiveShiftAudit = function (shiftId) {
                            id="tabAuditActual_${p.id}"
                            data-pid="${p.id}"
                            data-pname="${esc(p.name)}"
-                           data-unit="${p.unit || 'món'}"
+                           data-unit="${p.unit || "món"}"
                            data-price="${p.price || 0}"
                            data-expected="${theoreticalStock}"
                            data-carried="${carriedFromPrev}"
@@ -7662,8 +8065,12 @@ window.updateTabAuditFooterStats = function () {
     products.forEach((p) => {
         const input = document.getElementById(`tabAuditActual_${p.id}`);
         if (!input) return;
-        const expected = parseInt(input.getAttribute("data-expected") || "0", 10);
-        const actual = input.value === "" ? expected : parseInt(input.value, 10);
+        const expected = parseInt(
+            input.getAttribute("data-expected") || "0",
+            10,
+        );
+        const actual =
+            input.value === "" ? expected : parseInt(input.value, 10);
         const diff = actual - expected;
         const price = parseInt(input.getAttribute("data-price") || "0", 10);
 
@@ -7686,7 +8093,9 @@ window.updateTabAuditFooterStats = function () {
     if (elMatched) elMatched.textContent = matched;
     if (elMissing) elMissing.textContent = missing;
     if (elSurplus) elSurplus.textContent = surplus;
-    if (elDiffAmount) elDiffAmount.textContent = totalDiffAmount.toLocaleString("vi-VN") + " ₫";
+    if (elDiffAmount)
+        elDiffAmount.textContent =
+            totalDiffAmount.toLocaleString("vi-VN") + " ₫";
 };
 
 window.markAllAuditItemsImmediateResolved = function () {
@@ -7696,14 +8105,21 @@ window.markAllAuditItemsImmediateResolved = function () {
         const input = document.getElementById(`tabAuditActual_${p.id}`);
         const resSelect = document.getElementById(`tabAuditResolution_${p.id}`);
         if (!input || !resSelect) return;
-        const expected = parseInt(input.getAttribute("data-expected") || "0", 10);
-        const actual = input.value === "" ? expected : parseInt(input.value, 10);
+        const expected = parseInt(
+            input.getAttribute("data-expected") || "0",
+            10,
+        );
+        const actual =
+            input.value === "" ? expected : parseInt(input.value, 10);
         if (actual !== expected) {
             resSelect.value = "Đã bù ngay";
             changed++;
         }
     });
-    showToast(`Đã gán hướng xử lý "Đã bù ngay trong ca" cho ${changed} mặt hàng lệch!`, "success");
+    showToast(
+        `Đã gán hướng xử lý "Đã bù ngay trong ca" cho ${changed} mặt hàng lệch!`,
+        "success",
+    );
 };
 
 window.markAllAuditItemsRollover = function () {
@@ -7713,14 +8129,21 @@ window.markAllAuditItemsRollover = function () {
         const input = document.getElementById(`tabAuditActual_${p.id}`);
         const resSelect = document.getElementById(`tabAuditResolution_${p.id}`);
         if (!input || !resSelect) return;
-        const expected = parseInt(input.getAttribute("data-expected") || "0", 10);
-        const actual = input.value === "" ? expected : parseInt(input.value, 10);
+        const expected = parseInt(
+            input.getAttribute("data-expected") || "0",
+            10,
+        );
+        const actual =
+            input.value === "" ? expected : parseInt(input.value, 10);
         if (actual !== expected) {
             resSelect.value = "Cộng dồn chuyển ca sau";
             changed++;
         }
     });
-    showToast(`Đã gán hướng xử lý "Cộng dồn chuyển ca sau" cho ${changed} mặt hàng lệch!`, "info");
+    showToast(
+        `Đã gán hướng xử lý "Cộng dồn chuyển ca sau" cho ${changed} mặt hàng lệch!`,
+        "info",
+    );
 };
 
 window.handleSaveTabShiftAudit = async function () {
@@ -7743,14 +8166,27 @@ window.handleSaveTabShiftAudit = async function () {
         const inputActual = document.getElementById(`tabAuditActual_${p.id}`);
         const inputNote = document.getElementById(`tabAuditNote_${p.id}`);
         const resSelect = document.getElementById(`tabAuditResolution_${p.id}`);
-        const expected = parseInt(inputActual?.getAttribute("data-expected") || "0", 10);
-        const carried = parseInt(inputActual?.getAttribute("data-carried") || "0", 10);
-        const price = parseInt(inputActual?.getAttribute("data-price") || "0", 10);
+        const expected = parseInt(
+            inputActual?.getAttribute("data-expected") || "0",
+            10,
+        );
+        const carried = parseInt(
+            inputActual?.getAttribute("data-carried") || "0",
+            10,
+        );
+        const price = parseInt(
+            inputActual?.getAttribute("data-price") || "0",
+            10,
+        );
         const actualStr = inputActual?.value;
-        const actual = actualStr === "" || actualStr === undefined ? expected : parseInt(actualStr, 10);
+        const actual =
+            actualStr === "" || actualStr === undefined
+                ? expected
+                : parseInt(actualStr, 10);
         const diff = actual - expected;
         const note = inputNote?.value.trim() || "";
-        const resType = resSelect?.value || (diff === 0 ? "Khớp kho" : "Chưa xử lý");
+        const resType =
+            resSelect?.value || (diff === 0 ? "Khớp kho" : "Chưa xử lý");
 
         items.push({
             product_id: p.id,
@@ -7807,15 +8243,69 @@ window.handleSaveTabShiftAudit = async function () {
 };
 
 window.loadTabAuditHistory = async function () {
+    const refreshButton = document.getElementById("btnRefreshAuditHistory");
+    const originalRefreshHtml = refreshButton?.innerHTML;
+    if (refreshButton) {
+        refreshButton.disabled = true;
+        refreshButton.innerHTML =
+            '<i class="fa-solid fa-circle-notch fa-spin"></i> Đang tải lịch sử...';
+    }
     try {
-        const res = await fetch("/api/inventory/audit-shift").then((r) => r.json());
+        const res = await fetch("/api/inventory/audit-shift").then((r) =>
+            r.json(),
+        );
         if (res.success && Array.isArray(res.audits)) {
             globalTabAudits = res.audits;
             updateAuditKpiCards(globalTabAudits);
             filterAuditHistory();
+            showToast(
+                `Đã cập nhật lịch sử kiểm kê: ${res.audits.length} báo cáo.`,
+                "success",
+            );
         }
     } catch (err) {
         console.error("Failed to load audit history:", err);
+        showToast("Không thể tải lịch sử kiểm kê. Vui lòng thử lại.", "error");
+    } finally {
+        if (refreshButton) {
+            refreshButton.disabled = false;
+            refreshButton.innerHTML =
+                originalRefreshHtml ||
+                '<i class="fa-solid fa-rotate"></i> Tải Lại Lịch Sử';
+        }
+    }
+};
+
+window.clearAllAuditHistory = async function () {
+    if (currentUserRole !== "admin") {
+        openAdminLoginModal("Bạn cần đăng nhập Admin để xóa lịch sử kiểm kê.");
+        return;
+    }
+    if (
+        !confirm(
+            "Xóa toàn bộ dữ liệu kiểm kê ca? Dữ liệu hàng hóa và giao dịch bán không bị xóa.",
+        )
+    )
+        return;
+
+    const button = document.getElementById("btnClearAuditHistory");
+    if (button) button.disabled = true;
+    try {
+        const res = await authFetch("/api/inventory/audit-shift", {
+            method: "DELETE",
+        }).then((response) => response.json());
+        if (!res.success) {
+            showToast(res.message || "Không thể xóa lịch sử kiểm kê.", "error");
+            return;
+        }
+        globalTabAudits = [];
+        updateAuditKpiCards([]);
+        filterAuditHistory();
+        showToast(res.message, "success");
+    } catch (err) {
+        showToast("Lỗi xóa lịch sử kiểm kê: " + err.message, "error");
+    } finally {
+        if (button) button.disabled = false;
     }
 };
 
@@ -7840,7 +8330,9 @@ function updateAuditKpiCards(audits) {
                 if (it.diff !== 0) {
                     if (it.is_resolved) {
                         resolvedRolledCount += Math.abs(it.diff);
-                    } else if (it.resolution_type === "Cộng dồn chuyển ca sau") {
+                    } else if (
+                        it.resolution_type === "Cộng dồn chuyển ca sau"
+                    ) {
                         resolvedRolledCount += Math.abs(it.diff);
                     } else {
                         pendingDiffCount += Math.abs(it.diff);
@@ -7850,34 +8342,68 @@ function updateAuditKpiCards(audits) {
         }
     });
 
-    const matchRate = totalAudits > 0 ? Math.round((perfectAudits / totalAudits) * 100) : 100;
+    const matchRate =
+        totalAudits > 0 ? Math.round((perfectAudits / totalAudits) * 100) : 100;
 
     if (elTotal) elTotal.textContent = `${totalAudits} ca`;
-    if (elMatched) elMatched.textContent = `${perfectAudits} / ${totalAudits} (${matchRate}%)`;
+    if (elMatched)
+        elMatched.textContent = `${perfectAudits} / ${totalAudits} (${matchRate}%)`;
     if (elPending) elPending.textContent = `${pendingDiffCount} món`;
     if (elResolved) elResolved.textContent = `${resolvedRolledCount} món`;
 }
 
 window.filterAuditHistory = function () {
-    const statusFilter = document.getElementById("filterAuditHistoryStatus")?.value || "ALL";
-    const shiftFilter = document.getElementById("filterAuditHistoryShift")?.value || "ALL";
+    const statusFilter =
+        document.getElementById("filterAuditHistoryStatus")?.value || "ALL";
+    const shiftFilter =
+        document.getElementById("filterAuditHistoryShift")?.value || "ALL";
+    const resultFilter =
+        document.getElementById("filterAuditHistoryResult")?.value || "ALL";
 
     let filtered = globalTabAudits || [];
+
+    if (currentUserRole !== "admin") {
+        const liveShiftId =
+            currentSelectedLiveShiftId || currentSelectedAuditTabShiftId;
+        filtered = liveShiftId
+            ? filtered.filter((a) => a.shift_id === liveShiftId)
+            : [];
+    }
 
     if (shiftFilter !== "ALL") {
         filtered = filtered.filter((a) => a.shift_id === shiftFilter);
     }
 
+    if (resultFilter === "MATCHED") {
+        filtered = filtered.filter(
+            (a) => !(a.items || []).some((i) => i.diff !== 0),
+        );
+    } else if (resultFilter === "DIFF") {
+        filtered = filtered.filter((a) =>
+            (a.items || []).some((i) => i.diff !== 0),
+        );
+    }
+
     if (statusFilter === "HAS_DIFF") {
-        filtered = filtered.filter((a) => (a.items || []).some((i) => i.diff !== 0));
+        filtered = filtered.filter((a) =>
+            (a.items || []).some((i) => i.diff !== 0),
+        );
     } else if (statusFilter === "UNRESOLVED") {
         filtered = filtered.filter((a) => (a.unresolved_count || 0) > 0);
     } else if (statusFilter === "ROLLED_OVER") {
-        filtered = filtered.filter((a) => a.overall_status === "CỘNG DỒN CHUYỂN CA" || (a.items || []).some((i) => i.resolution_type === "Cộng dồn chuyển ca sau"));
+        filtered = filtered.filter(
+            (a) =>
+                a.overall_status === "CỘNG DỒN CHUYỂN CA" ||
+                (a.items || []).some(
+                    (i) => i.resolution_type === "Cộng dồn chuyển ca sau",
+                ),
+        );
     } else if (statusFilter === "RESOLVED") {
         filtered = filtered.filter((a) => a.overall_status === "ĐÃ XỬ LÝ XONG");
     } else if (statusFilter === "PERFECT") {
-        filtered = filtered.filter((a) => !(a.items || []).some((i) => i.diff !== 0));
+        filtered = filtered.filter(
+            (a) => !(a.items || []).some((i) => i.diff !== 0),
+        );
     }
 
     renderAuditHistoryTable(filtered);
@@ -7887,8 +8413,9 @@ window.renderAuditHistoryTable = function (audits) {
     const tbody = document.getElementById("auditHistoryTableBody");
     if (!tbody) return;
 
+    const isAdmin = currentUserRole === "admin";
     if (!audits || audits.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="table-empty">Không có báo cáo kiểm kê nào phù hợp với bộ lọc.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${isAdmin ? 8 : 7}" class="table-empty">Không có báo cáo kiểm kê nào phù hợp với bộ lọc.</td></tr>`;
         return;
     }
 
@@ -7901,8 +8428,11 @@ window.renderAuditHistoryTable = function (audits) {
         // Result badge
         let resultBadge = `<span class="badge-status badge-success" style="font-size: 11.5px;"><i class="fa-solid fa-circle-check"></i> Khớp 100% (${items.length} SP)</span>`;
         if (hasDiff) {
-            const totalDiffQty = diffItems.reduce((acc, it) => acc + it.diff, 0);
-            resultBadge = `<span class="badge-status badge-warning" style="font-size: 11.5px;"><i class="fa-solid fa-triangle-exclamation"></i> Lệch ${diffItems.length} SP (${totalDiffQty > 0 ? '+' + totalDiffQty : totalDiffQty})</span>`;
+            const totalDiffQty = diffItems.reduce(
+                (acc, it) => acc + it.diff,
+                0,
+            );
+            resultBadge = `<span class="badge-status badge-warning" style="font-size: 11.5px;"><i class="fa-solid fa-triangle-exclamation"></i> Lệch ${diffItems.length} SP (${totalDiffQty > 0 ? "+" + totalDiffQty : totalDiffQty})</span>`;
         }
 
         // Status badge
@@ -7924,43 +8454,68 @@ window.renderAuditHistoryTable = function (audits) {
             diffItems.forEach((it) => {
                 const isLoss = it.diff < 0;
                 const sign = it.diff > 0 ? `+${it.diff}` : `${it.diff}`;
-                const diffColor = isLoss ? '#EF4444' : '#F59E0B';
+                const diffColor = isLoss ? "#EF4444" : "#F59E0B";
 
-                let resTagColor = 'var(--ink-dim)';
-                let resIcon = 'fa-tag';
-                if (it.resolution_type === 'Đã bù ngay' || it.resolution_type === 'Đã trừ quỹ ca') {
-                    resTagColor = '#10B981';
-                    resIcon = 'fa-circle-check';
-                } else if (it.resolution_type === 'Bù sau') {
-                    resTagColor = '#F59E0B';
-                    resIcon = 'fa-clock';
-                } else if (it.resolution_type === 'Cộng dồn chuyển ca sau') {
-                    resTagColor = '#06B6D4';
-                    resIcon = 'fa-forward-step';
-                } else if (it.resolution_type === 'Hao hụt cho phép') {
-                    resTagColor = '#8B5CF6';
-                    resIcon = 'fa-shield';
+                let resTagColor = "var(--ink-dim)";
+                let resIcon = "fa-tag";
+                if (
+                    it.resolution_type === "Đã bù ngay" ||
+                    it.resolution_type === "Đã trừ quỹ ca"
+                ) {
+                    resTagColor = "#10B981";
+                    resIcon = "fa-circle-check";
+                } else if (it.resolution_type === "Bù sau") {
+                    resTagColor = "#F59E0B";
+                    resIcon = "fa-clock";
+                } else if (it.resolution_type === "Cộng dồn chuyển ca sau") {
+                    resTagColor = "#06B6D4";
+                    resIcon = "fa-forward-step";
+                } else if (it.resolution_type === "Hao hụt cho phép") {
+                    resTagColor = "#8B5CF6";
+                    resIcon = "fa-shield";
                 }
 
-                const carryNote = it.carry_to_shift ? ` [Chuyển ca ${esc(it.carry_to_shift)}]` : '';
-                const itemNote = it.resolution_note ? ` (${esc(it.resolution_note)})` : '';
+                const carryNote = it.carry_to_shift
+                    ? ` [Chuyển ca ${esc(it.carry_to_shift)}]`
+                    : "";
+                const itemNote = it.resolution_note
+                    ? ` (${esc(it.resolution_note)})`
+                    : "";
 
                 diffItemsHtml += `
                     <div style="font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255, 255, 255, 0.03); padding: 3px 6px; border-radius: 4px;">
                         <span><strong>${esc(it.product_name)}</strong>: <b style="color: ${diffColor};">${sign} ${esc(it.unit)}</b></span>
                         <div style="display: flex; align-items: center; gap: 4px;">
                             <span style="font-size: 11px; color: ${resTagColor}; font-weight: 600;">
-                                <i class="fa-solid ${resIcon}"></i> ${esc(it.resolution_type || 'Chưa xử lý')}${carryNote}${itemNote}
+                                <i class="fa-solid ${resIcon}"></i> ${esc(it.resolution_type || "Chưa xử lý")}${carryNote}${itemNote}
                             </span>
-                            <button type="button" class="btn-action-sm btn-action-secondary" style="font-size: 10px; padding: 1px 4px;" onclick="openAuditResolutionModal('${a.id}', '${it.product_id}')" title="Cập nhật hướng xử lý cho món này">
+                            ${
+                                isAdmin
+                                    ? `<button type="button" class="btn-action-sm btn-action-secondary" style="font-size: 10px; padding: 1px 4px;" onclick="openAuditResolutionModal('${a.id}', '${it.product_id}')" title="Cập nhật hướng xử lý cho món này">
                                 <i class="fa-solid fa-pen"></i>
-                            </button>
+                            </button>`
+                                    : ""
+                            }
                         </div>
                     </div>
                 `;
             });
             diffItemsHtml += `</div>`;
         }
+
+        const actionHtml =
+            isAdmin && hasDiff
+                ? `<td class="cell-center"><div style="display: inline-flex; gap: 4px;">
+                <button type="button" class="btn-action-sm btn-action-secondary" style="font-size: 11px; padding: 3px 6px;" onclick="openAuditResolutionModal('${a.id}', '')" title="Cập nhật hướng xử lý cho toàn ca">
+                    <i class="fa-solid fa-sliders text-gold"></i> Xử lý
+                </button>
+                <button type="button" class="btn-action-sm btn-action-secondary admin-only-elem" style="font-size: 11px; padding: 3px 6px; color: #EF4444;" onclick="deleteAuditRecord('${a.id}')" title="Xóa phiếu kiểm kê">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div></td>`
+                : isAdmin
+                  ? `<td class="cell-center"></td>`
+                  : "";
 
         html += `
             <tr>
@@ -7971,16 +8526,7 @@ window.renderAuditHistoryTable = function (audits) {
                 <td class="cell-center">${resultBadge}</td>
                 <td>${diffItemsHtml}</td>
                 <td class="cell-center">${statusBadge}</td>
-                <td class="cell-center">
-                    <div style="display: inline-flex; gap: 4px;">
-                        <button type="button" class="btn-action-sm btn-action-secondary" style="font-size: 11px; padding: 3px 6px;" onclick="openAuditResolutionModal('${a.id}', '')" title="Cập nhật hướng xử lý cho toàn ca">
-                            <i class="fa-solid fa-sliders text-gold"></i> Xử lý
-                        </button>
-                        <button type="button" class="btn-action-sm btn-action-secondary admin-only-elem" style="font-size: 11px; padding: 3px 6px; color: #EF4444;" onclick="deleteAuditRecord('${a.id}')" title="Xóa phiếu kiểm kê">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                    </div>
-                </td>
+                ${actionHtml}
             </tr>
         `;
     });
@@ -7996,8 +8542,12 @@ window.openAuditResolutionModal = function (auditId, productId) {
     const typeSelect = document.getElementById("modalResTypeSelect");
     const personInput = document.getElementById("modalResPersonInput");
     const noteInput = document.getElementById("modalResNoteInput");
-    const targetShiftGroup = document.getElementById("modalResTargetShiftGroup");
-    const targetShiftSelect = document.getElementById("modalResTargetShiftSelect");
+    const targetShiftGroup = document.getElementById(
+        "modalResTargetShiftGroup",
+    );
+    const targetShiftSelect = document.getElementById(
+        "modalResTargetShiftSelect",
+    );
 
     if (!modal) return;
 
@@ -8024,15 +8574,19 @@ window.openAuditResolutionModal = function (auditId, productId) {
     if (targetShiftSelect) targetShiftSelect.innerHTML = optHtml;
 
     if (productId) {
-        const item = (audit.items || []).find((i) => i.product_id === productId);
+        const item = (audit.items || []).find(
+            (i) => i.product_id === productId,
+        );
         if (item) {
             infoBox.innerHTML = `
                 <div><strong>Mã phiếu:</strong> ${audit.id} | <strong>Ca trực:</strong> ${audit.shift_id} | <strong>Ca trưởng:</strong> ${esc(audit.auditor)}</div>
                 <div style="margin-top: 4px;"><strong>Sản phẩm:</strong> <span style="color: var(--goldleaf);">${esc(item.product_name)}</span> (Mã: ${item.product_id})</div>
-                <div style="margin-top: 4px;"><strong>Chênh lệch:</strong> <b style="color: ${item.diff < 0 ? '#EF4444' : '#F59E0B'};">${item.diff > 0 ? '+' + item.diff : item.diff} ${esc(item.unit)}</b> (Tồn lý thuyết: ${item.expected_stock} vs Thực tế: ${item.actual_stock})</div>
+                <div style="margin-top: 4px;"><strong>Chênh lệch:</strong> <b style="color: ${item.diff < 0 ? "#EF4444" : "#F59E0B"};">${item.diff > 0 ? "+" + item.diff : item.diff} ${esc(item.unit)}</b> (Tồn lý thuyết: ${item.expected_stock} vs Thực tế: ${item.actual_stock})</div>
             `;
-            if (typeSelect) typeSelect.value = item.resolution_type || "Đã bù ngay";
-            if (personInput) personInput.value = item.resolved_by || audit.auditor || "";
+            if (typeSelect)
+                typeSelect.value = item.resolution_type || "Đã bù ngay";
+            if (personInput)
+                personInput.value = item.resolved_by || audit.auditor || "";
             if (noteInput) noteInput.value = item.resolution_note || "";
         }
     } else {
@@ -8059,7 +8613,8 @@ window.closeAuditResolutionModal = function () {
 window.onModalResTypeChange = function (type) {
     const targetGroup = document.getElementById("modalResTargetShiftGroup");
     if (targetGroup) {
-        targetGroup.style.display = type === "Cộng dồn chuyển ca sau" ? "block" : "none";
+        targetGroup.style.display =
+            type === "Cộng dồn chuyển ca sau" ? "block" : "none";
     }
 };
 
@@ -8067,25 +8622,35 @@ window.submitAuditResolutionModal = async function () {
     const auditId = document.getElementById("modalResAuditId")?.value;
     const productId = document.getElementById("modalResProductId")?.value;
     const resType = document.getElementById("modalResTypeSelect")?.value;
-    const resolvedBy = document.getElementById("modalResPersonInput")?.value.trim();
+    const resolvedBy = document
+        .getElementById("modalResPersonInput")
+        ?.value.trim();
     const note = document.getElementById("modalResNoteInput")?.value.trim();
-    const targetShift = document.getElementById("modalResTargetShiftSelect")?.value;
+    const targetShift = document.getElementById(
+        "modalResTargetShiftSelect",
+    )?.value;
 
     if (!auditId) return;
 
     try {
-        const res = await fetch("/api/inventory/audit-shift/update-resolution", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                audit_id: auditId,
-                product_id: productId || undefined,
-                resolution_type: resType,
-                resolution_note: note,
-                resolved_by: resolvedBy,
-                carry_to_shift: resType === "Cộng dồn chuyển ca sau" ? targetShift : undefined,
-            }),
-        }).then((r) => r.json());
+        const res = await fetch(
+            "/api/inventory/audit-shift/update-resolution",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    audit_id: auditId,
+                    product_id: productId || undefined,
+                    resolution_type: resType,
+                    resolution_note: note,
+                    resolved_by: resolvedBy,
+                    carry_to_shift:
+                        resType === "Cộng dồn chuyển ca sau"
+                            ? targetShift
+                            : undefined,
+                }),
+            },
+        ).then((r) => r.json());
 
         if (res.success) {
             showToast(res.message, "success");
@@ -8110,7 +8675,8 @@ window.openRolloverModalForActiveShift = function () {
 
     if (!modal) return;
 
-    const fromShiftId = currentSelectedAuditTabShiftId || currentSelectedLiveShiftId || "Live";
+    const fromShiftId =
+        currentSelectedAuditTabShiftId || currentSelectedLiveShiftId || "Live";
     if (inputFromShift) inputFromShift.value = fromShiftId;
 
     const allShifts = [
@@ -8126,7 +8692,8 @@ window.openRolloverModalForActiveShift = function () {
     });
 
     if (shiftSelect) shiftSelect.innerHTML = optHtml;
-    if (noteInput) noteInput.value = `Chuyển giao cộng dồn các mặt hàng chênh lệch từ ca ${fromShiftId} sang ca tiếp theo.`;
+    if (noteInput)
+        noteInput.value = `Chuyển giao cộng dồn các mặt hàng chênh lệch từ ca ${fromShiftId} sang ca tiếp theo.`;
 
     modal.classList.add("active");
 };
@@ -8137,8 +8704,12 @@ window.closeAuditRolloverModal = function () {
 };
 
 window.submitAuditRolloverModal = async function () {
-    const fromShiftId = document.getElementById("modalRolloverFromShiftId")?.value;
-    const toShiftId = document.getElementById("modalRolloverToShiftSelect")?.value;
+    const fromShiftId = document.getElementById(
+        "modalRolloverFromShiftId",
+    )?.value;
+    const toShiftId = document.getElementById(
+        "modalRolloverToShiftSelect",
+    )?.value;
     const note = document.getElementById("modalRolloverNote")?.value.trim();
 
     if (!toShiftId) {
@@ -8147,15 +8718,18 @@ window.submitAuditRolloverModal = async function () {
     }
 
     try {
-        const res = await fetch("/api/inventory/audit-shift/rollover-to-shift", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                from_shift_id: fromShiftId,
-                to_shift_id: toShiftId,
-                note: note,
-            }),
-        }).then((r) => r.json());
+        const res = await fetch(
+            "/api/inventory/audit-shift/rollover-to-shift",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    from_shift_id: fromShiftId,
+                    to_shift_id: toShiftId,
+                    note: note,
+                }),
+            },
+        ).then((r) => r.json());
 
         if (res.success) {
             showToast(res.message, "success");
@@ -8173,11 +8747,15 @@ window.submitAuditRolloverModal = async function () {
 };
 
 window.deleteAuditRecord = async function (auditId) {
-    if (!confirm(`Bạn có chắc chắn muốn xóa báo cáo kiểm kê ${auditId}?`)) return;
+    if (!confirm(`Bạn có chắc chắn muốn xóa báo cáo kiểm kê ${auditId}?`))
+        return;
     try {
-        const res = await authFetch(`/api/inventory/audit-shift/${encodeURIComponent(auditId)}`, {
-            method: "DELETE",
-        }).then((r) => r.json());
+        const res = await authFetch(
+            `/api/inventory/audit-shift/${encodeURIComponent(auditId)}`,
+            {
+                method: "DELETE",
+            },
+        ).then((r) => r.json());
         if (res.success) {
             showToast(res.message, "success");
             await loadTabAuditHistory();
@@ -8201,9 +8779,11 @@ function renderShiftAuditTable(shiftId) {
         ...(globalCaNgoai || []),
     ];
     const currentShift = allShifts.find((s) => s.shift_id === shiftId);
-    const shiftLeader = currentShift?.shift_leader && currentShift.shift_leader !== "Chưa chỉ định"
-        ? currentShift.shift_leader
-        : null;
+    const shiftLeader =
+        currentShift?.shift_leader &&
+        currentShift.shift_leader !== "Chưa chỉ định"
+            ? currentShift.shift_leader
+            : null;
 
     if (subtitleEl) {
         if (shiftLeader) {
@@ -8243,7 +8823,9 @@ function renderShiftAuditTable(shiftId) {
         }
 
         if (!shiftLeader) {
-            optHtml = `<option value="Bộ phận kiểm hàng" selected>-- Chọn người kiểm hàng --</option>` + optHtml;
+            optHtml =
+                `<option value="Bộ phận kiểm hàng" selected>-- Chọn người kiểm hàng --</option>` +
+                optHtml;
         }
 
         auditorSelect.innerHTML = optHtml;
@@ -9540,7 +10122,15 @@ function updateKpiDetectedShift() {
         return;
     }
 
-    const days = ["Chủ Nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+    const days = [
+        "Chủ Nhật",
+        "Thứ 2",
+        "Thứ 3",
+        "Thứ 4",
+        "Thứ 5",
+        "Thứ 6",
+        "Thứ 7",
+    ];
     const dayName = days[d.getDay()];
     const pad = (n) => String(n).padStart(2, "0");
     const dateStr = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
@@ -9574,10 +10164,11 @@ async function populateKpiQuickMemberSelect() {
         const res = await fetch("/api/members");
         const data = await res.json();
         const members = data.members || [];
-        members.forEach(m => {
+        members.forEach((m) => {
+            const memberId = m.member_id || m.id || "";
             const opt = document.createElement("option");
-            opt.value = m.id;
-            opt.textContent = `${m.id} - ${m.name} (${m.department || "Thành viên"})`;
+            opt.value = memberId;
+            opt.textContent = `${memberId} - ${m.name} (${m.department || "Thành viên"})`;
             select.appendChild(opt);
         });
 
@@ -9602,7 +10193,7 @@ function updateKpiAccountBar() {
     if (!bar) return;
 
     let html = "";
-    if (pickupMember) {
+    if (currentUserRole !== "admin" && pickupMember) {
         const memId = pickupMember.member_id || pickupMember.id || "TV";
         html += `<span class="badge badge-gold" style="font-size:0.85rem; padding: 0.4rem 0.75rem;">
             <i class="fa-solid fa-id-card"></i> ${memId} - ${pickupMember.name} (${pickupMember.department || "Thành viên"})
@@ -9612,11 +10203,6 @@ function updateKpiAccountBar() {
         </button>`;
         html += `<button type="button" id="btnKpiLogout" class="btn-secondary btn-sm" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3);">
             <i class="fa-solid fa-right-from-bracket"></i> Đăng Xuất
-        </button>`;
-    } else {
-        html += `<span class="text-muted" style="font-size:0.85rem;">Chưa đăng nhập TV</span>`;
-        html += `<button type="button" id="btnKpiOpenLogin" class="btn-primary btn-sm">
-            <i class="fa-solid fa-right-to-bracket"></i> Đăng Nhập
         </button>`;
     }
 
@@ -9651,23 +10237,14 @@ function updateKpiAccountBar() {
             if (errBox) errBox.style.display = "none";
             const curInput = document.getElementById("inputKpiCurrentPwd");
             const newInput = document.getElementById("inputKpiNewMemberPwd");
-            const confInput = document.getElementById("inputKpiConfirmNewMemberPwd");
+            const confInput = document.getElementById(
+                "inputKpiConfirmNewMemberPwd",
+            );
             if (curInput) curInput.value = "";
             if (newInput) newInput.value = "";
             if (confInput) confInput.value = "";
             const modal = document.getElementById("modalKpiChangeMemberPwd");
             if (modal) modal.classList.add("active");
-        };
-    }
-
-    const btnOpenLogin = document.getElementById("btnKpiOpenLogin");
-    if (btnOpenLogin) {
-        btnOpenLogin.onclick = () => {
-            const panel = document.getElementById("kpiMemberLoginPanel");
-            if (panel) {
-                panel.style.display = "block";
-                panel.scrollIntoView({ behavior: "smooth" });
-            }
         };
     }
 }
@@ -9709,14 +10286,18 @@ function initKpiGlobalListeners() {
             if (m) m.classList.remove("active");
         };
     }
-    const btnCloseChangePwd = document.getElementById("btnCloseKpiChangePwdModal");
+    const btnCloseChangePwd = document.getElementById(
+        "btnCloseKpiChangePwdModal",
+    );
     if (btnCloseChangePwd) {
         btnCloseChangePwd.onclick = () => {
             const m = document.getElementById("modalKpiChangeMemberPwd");
             if (m) m.classList.remove("active");
         };
     }
-    const btnCloseAdminReset = document.getElementById("btnCloseKpiAdminResetPwdModal");
+    const btnCloseAdminReset = document.getElementById(
+        "btnCloseKpiAdminResetPwdModal",
+    );
     if (btnCloseAdminReset) {
         btnCloseAdminReset.onclick = () => {
             const m = document.getElementById("modalKpiAdminResetPwd");
@@ -9725,13 +10306,17 @@ function initKpiGlobalListeners() {
     }
 
     // Member Submit Change Password
-    const btnSubmitChangePwd = document.getElementById("btnSubmitKpiMemberChangePwd");
+    const btnSubmitChangePwd = document.getElementById(
+        "btnSubmitKpiMemberChangePwd",
+    );
     if (btnSubmitChangePwd) {
         btnSubmitChangePwd.onclick = handleMemberSubmitChangePwd;
     }
 
     // Admin Reset Password Submit
-    const btnSubmitAdminReset = document.getElementById("btnSubmitKpiAdminResetPwd");
+    const btnSubmitAdminReset = document.getElementById(
+        "btnSubmitKpiAdminResetPwd",
+    );
     if (btnSubmitAdminReset) {
         btnSubmitAdminReset.onclick = handleAdminSubmitResetPwd;
     }
@@ -9740,22 +10325,32 @@ function initKpiGlobalListeners() {
     const btnFillDefault = document.getElementById("btnKpiFillDefaultPwd");
     if (btnFillDefault) {
         btnFillDefault.onclick = () => {
-            const mId = document.getElementById("inputAdminResetMemberId")?.value;
+            const mId = document.getElementById(
+                "inputAdminResetMemberId",
+            )?.value;
             const inputNew = document.getElementById("inputAdminResetNewPwd");
             if (mId && inputNew) {
-                inputNew.value = `HV@${mId}`;
+                inputNew.value = `HVC@${mId}`;
             }
         };
     }
 
     // Payment Tile Selection Interactions (Chỉ 2 lựa chọn)
     const paymentTilesConfig = [
-        { tileId: "tile_qr_now", radioId: "radio_qr_now", value: "IMMEDIATE_TRANSFER" },
-        { tileId: "tile_qr_later", radioId: "radio_qr_later", value: "PAY_LATER" }
+        {
+            tileId: "tile_qr_now",
+            radioId: "radio_qr_now",
+            value: "IMMEDIATE_TRANSFER",
+        },
+        {
+            tileId: "tile_qr_later",
+            radioId: "radio_qr_later",
+            value: "PAY_LATER",
+        },
     ];
 
     function selectPaymentTile(val) {
-        paymentTilesConfig.forEach(cfg => {
+        paymentTilesConfig.forEach((cfg) => {
             const tile = document.getElementById(cfg.tileId);
             const radio = document.getElementById(cfg.radioId);
             if (cfg.value === val) {
@@ -9775,7 +10370,7 @@ function initKpiGlobalListeners() {
         });
     }
 
-    paymentTilesConfig.forEach(cfg => {
+    paymentTilesConfig.forEach((cfg) => {
         const tile = document.getElementById(cfg.tileId);
         const radio = document.getElementById(cfg.radioId);
         if (tile) {
@@ -9805,7 +10400,9 @@ function initKpiGlobalListeners() {
     }
 
     // Active QR Box Actions
-    const btnConfirmTrans = document.getElementById("btnKpiConfirmTransferAction");
+    const btnConfirmTrans = document.getElementById(
+        "btnKpiConfirmTransferAction",
+    );
     if (btnConfirmTrans) {
         btnConfirmTrans.onclick = () => {
             if (kpiCurrentActiveQr) {
@@ -9833,9 +10430,14 @@ function initKpiGlobalListeners() {
     // Modal QR Zoom Buttons
     const btnModalClose = document.getElementById("btnModalKpiClose");
     if (btnModalClose) {
-        btnModalClose.onclick = () => document.getElementById("modalKpiQrZoom")?.classList.remove("active");
+        btnModalClose.onclick = () =>
+            document
+                .getElementById("modalKpiQrZoom")
+                ?.classList.remove("active");
     }
-    const btnModalConfirm = document.getElementById("btnModalKpiConfirmTransfer");
+    const btnModalConfirm = document.getElementById(
+        "btnModalKpiConfirmTransfer",
+    );
     if (btnModalConfirm) {
         btnModalConfirm.onclick = () => {
             if (kpiCurrentActiveQr) {
@@ -9845,28 +10447,40 @@ function initKpiGlobalListeners() {
     }
 
     // Refresh member orders
-    const btnRefreshMember = document.getElementById("btnRefreshKpiMemberOrders");
+    const btnRefreshMember = document.getElementById(
+        "btnRefreshKpiMemberOrders",
+    );
     if (btnRefreshMember) {
         btnRefreshMember.onclick = () => loadMemberKpiDashboard();
     }
-    const filterMemberStatus = document.getElementById("selectKpiFilterMemberStatus");
+    const filterMemberStatus = document.getElementById(
+        "selectKpiFilterMemberStatus",
+    );
     if (filterMemberStatus) {
-        filterMemberStatus.onchange = () => renderMemberKpiOrders(kpiMemberAllRequests);
+        filterMemberStatus.onchange = () =>
+            renderMemberKpiOrders(kpiMemberAllRequests);
     }
 
     // Admin subtabs
-    document.querySelectorAll(".kpi-admin-subtab").forEach(btn => {
+    document.querySelectorAll(".kpi-admin-subtab").forEach((btn) => {
         btn.onclick = () => {
-            document.querySelectorAll(".kpi-admin-subtab").forEach(b => b.classList.remove("active"));
+            document
+                .querySelectorAll(".kpi-admin-subtab")
+                .forEach((b) => b.classList.remove("active"));
             btn.classList.add("active");
             const target = btn.dataset.subtab;
-            document.querySelectorAll(".kpi-subtab-content").forEach(c => c.style.display = "none");
+            document
+                .querySelectorAll(".kpi-subtab-content")
+                .forEach((c) => (c.style.display = "none"));
             if (target === "kpi-subtab-requests") {
-                document.getElementById("kpiSubtabRequests").style.display = "block";
+                document.getElementById("kpiSubtabRequests").style.display =
+                    "block";
             } else if (target === "kpi-subtab-accounts") {
-                document.getElementById("kpiSubtabAccounts").style.display = "block";
+                document.getElementById("kpiSubtabAccounts").style.display =
+                    "block";
             } else if (target === "kpi-subtab-vietqr") {
-                document.getElementById("kpiSubtabVietqr").style.display = "block";
+                document.getElementById("kpiSubtabVietqr").style.display =
+                    "block";
             }
         };
     });
@@ -9876,11 +10490,15 @@ function initKpiGlobalListeners() {
     if (adminSearch) {
         adminSearch.oninput = () => filterAndRenderAdminRequests();
     }
-    const adminFilterApprove = document.getElementById("selectKpiAdminFilterApproval");
+    const adminFilterApprove = document.getElementById(
+        "selectKpiAdminFilterApproval",
+    );
     if (adminFilterApprove) {
         adminFilterApprove.onchange = () => filterAndRenderAdminRequests();
     }
-    const adminFilterPayment = document.getElementById("selectKpiAdminFilterPayment");
+    const adminFilterPayment = document.getElementById(
+        "selectKpiAdminFilterPayment",
+    );
     if (adminFilterPayment) {
         adminFilterPayment.onchange = () => filterAndRenderAdminRequests();
     }
@@ -9890,13 +10508,21 @@ function initKpiGlobalListeners() {
     }
     const btnRefreshAdmin = document.getElementById("btnRefreshAdminRequests");
     if (btnRefreshAdmin) {
-        btnRefreshAdmin.onclick = () => loadAdminKpiDashboard();
+        btnRefreshAdmin.onclick = async () => {
+            await loadAdminKpiDashboard();
+            await loadCompetitionStats(compViewWeek);
+            showToast(
+                "Đã làm mới đơn KPI và thành tích thi đua cá nhân.",
+                "success",
+            );
+        };
     }
 
     // Admin account search
     const accountSearch = document.getElementById("inputKpiSearchAccount");
     if (accountSearch) {
-        accountSearch.oninput = () => renderAdminMemberAccounts(kpiAdminAllAccounts);
+        accountSearch.oninput = () =>
+            renderAdminMemberAccounts(kpiAdminAllAccounts);
     }
 
     // Admin save VietQR config
@@ -9917,7 +10543,8 @@ async function handleKpiMemberLogin() {
 
     if (!member_id || !password) {
         if (errBox) {
-            errBox.textContent = "Vui lòng nhập đầy đủ Mã thành viên và Mật khẩu!";
+            errBox.textContent =
+                "Vui lòng nhập đầy đủ Mã thành viên và Mật khẩu!";
             errBox.style.display = "block";
         }
         return;
@@ -9927,12 +10554,15 @@ async function handleKpiMemberLogin() {
         const res = await fetch("/api/member-auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ member_id, password })
+            body: JSON.stringify({ member_id, password }),
         });
         const data = await res.json();
         if (!data.success) {
             if (errBox) {
-                errBox.textContent = data.message || "Đăng nhập thất bại. Kiểm tra lại ID hoặc Mật khẩu.";
+                attendanceLocks = data.attendance_locks || {};
+                errBox.textContent =
+                    data.message ||
+                    "Đăng nhập thất bại. Kiểm tra lại ID hoặc Mật khẩu.";
                 errBox.style.display = "block";
             }
             return;
@@ -9958,7 +10588,9 @@ async function handleKpiMemberLogin() {
 async function handleMemberSubmitChangePwd() {
     const curPwd = document.getElementById("inputKpiCurrentPwd")?.value;
     const newPwd = document.getElementById("inputKpiNewMemberPwd")?.value;
-    const confPwd = document.getElementById("inputKpiConfirmNewMemberPwd")?.value;
+    const confPwd = document.getElementById(
+        "inputKpiConfirmNewMemberPwd",
+    )?.value;
     const errBox = document.getElementById("boxKpiChangePwdError");
 
     if (!curPwd || !newPwd || !confPwd) {
@@ -9977,18 +10609,25 @@ async function handleMemberSubmitChangePwd() {
     }
     if (newPwd !== confPwd) {
         if (errBox) {
-            errBox.textContent = "Mật khẩu mới và xác nhận mật khẩu không khớp!";
+            errBox.textContent =
+                "Mật khẩu mới và xác nhận mật khẩu không khớp!";
             errBox.style.display = "block";
         }
         return;
     }
 
     try {
-        const res = await pickupMemberFetch("/api/member-auth/change-password", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ current_password: curPwd, new_password: newPwd })
-        });
+        const res = await pickupMemberFetch(
+            "/api/member-auth/change-password",
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    current_password: curPwd,
+                    new_password: newPwd,
+                }),
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             if (errBox) {
@@ -9998,8 +10637,13 @@ async function handleMemberSubmitChangePwd() {
             return;
         }
 
-        showToast("Đổi mật khẩu thành công! Hãy lưu lại mật khẩu mới.", "success");
-        document.getElementById("modalKpiChangeMemberPwd")?.classList.remove("active");
+        showToast(
+            "Đổi mật khẩu thành công! Hãy lưu lại mật khẩu mới.",
+            "success",
+        );
+        document
+            .getElementById("modalKpiChangeMemberPwd")
+            ?.classList.remove("active");
     } catch (err) {
         if (errBox) {
             errBox.textContent = "Lỗi: " + err.message;
@@ -10013,16 +10657,21 @@ async function loadKpiInventoryProducts() {
         const res = await fetch("/api/inventory");
         const data = await res.json();
         const prods = data.products || [];
-        kpiActiveProducts = prods.map(p => {
-            const stock = Math.max(0, (p.initial_stock || 0) - (p.sold_count || 0));
-            return {
-                id: p.id,
-                name: p.name,
-                price: Number(p.price || 0),
-                unit: p.unit || "món",
-                stock
-            };
-        }).filter(p => p.stock > 0);
+        kpiActiveProducts = prods
+            .map((p) => {
+                const stock = Math.max(
+                    0,
+                    (p.initial_stock || 0) - (p.sold_count || 0),
+                );
+                return {
+                    id: p.id,
+                    name: p.name,
+                    price: Number(p.price || 0),
+                    unit: p.unit || "món",
+                    stock,
+                };
+            })
+            .filter((p) => p.stock > 0);
 
         const container = document.getElementById("kpiOrderItemsContainer");
         if (container && container.children.length === 0) {
@@ -10046,13 +10695,17 @@ function addKpiOrderItemRow() {
 
     const row = document.createElement("div");
     row.className = "kpi-order-row d-flex align-items-center gap-3 mb-2";
-    row.style.cssText = "background: var(--bg-card-alt); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-color); display: flex; flex-wrap: nowrap; align-items: center;";
+    row.style.cssText =
+        "background: var(--bg-card-alt); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-color); display: flex; flex-wrap: nowrap; align-items: center;";
 
-    let optionsHtml = kpiActiveProducts.map(p => 
-        `<option value="${p.id}" data-price="${p.price}" data-unit="${p.unit}" data-stock="${p.stock}">
+    let optionsHtml = kpiActiveProducts
+        .map(
+            (p) =>
+                `<option value="${p.id}" data-price="${p.price}" data-unit="${p.unit}" data-stock="${p.stock}">
             ${p.name} - ${formatVND(p.price)} (Còn: ${p.stock} ${p.unit})
-        </option>`
-    ).join("");
+        </option>`,
+        )
+        .join("");
 
     row.innerHTML = `
         <div style="flex: 1; min-width: 0;">
@@ -10117,7 +10770,7 @@ function addKpiOrderItemRow() {
 function calculateKpiOrderTotal() {
     let total = 0;
     const rows = document.querySelectorAll(".kpi-order-row");
-    rows.forEach(r => {
+    rows.forEach((r) => {
         const selectProd = r.querySelector(".kpi-row-prod");
         const inputQty = r.querySelector(".kpi-row-qty");
         if (selectProd && inputQty) {
@@ -10135,14 +10788,17 @@ function calculateKpiOrderTotal() {
 
 async function handleKpiSubmitOrder() {
     if (!pickupMember) {
-        showToast("Vui lòng đăng nhập tài khoản thành viên để lấy hàng!", "error");
+        showToast(
+            "Vui lòng đăng nhập tài khoản thành viên để lấy hàng!",
+            "error",
+        );
         return;
     }
 
     const rows = document.querySelectorAll(".kpi-order-row");
     const items = [];
 
-    rows.forEach(r => {
+    rows.forEach((r) => {
         const selectProd = r.querySelector(".kpi-row-prod");
         const inputQty = r.querySelector(".kpi-row-qty");
         if (selectProd && inputQty) {
@@ -10159,9 +10815,15 @@ async function handleKpiSubmitOrder() {
         return;
     }
 
-    const payOption = document.querySelector('input[name="kpiPaymentOption"]:checked')?.value || "IMMEDIATE_TRANSFER";
-    const payment_method = (payOption === "IMMEDIATE_TRANSFER" || payOption === "qr_now") ? "IMMEDIATE_TRANSFER" : "PAY_LATER";
-    const pickup_time = document.getElementById("inputKpiPickupTime")?.value || "";
+    const payOption =
+        document.querySelector('input[name="kpiPaymentOption"]:checked')
+            ?.value || "IMMEDIATE_TRANSFER";
+    const payment_method =
+        payOption === "IMMEDIATE_TRANSFER" || payOption === "qr_now"
+            ? "IMMEDIATE_TRANSFER"
+            : "PAY_LATER";
+    const pickup_time =
+        document.getElementById("inputKpiPickupTime")?.value || "";
     const note = document.getElementById("inputKpiOrderNote")?.value || "";
 
     const btnSubmit = document.getElementById("btnKpiSubmitOrder");
@@ -10178,12 +10840,15 @@ async function handleKpiSubmitOrder() {
                 items,
                 pickup_time,
                 payment_method,
-                note
-            })
+                note,
+            }),
         });
         const data = await res.json();
         if (!data.success) {
-            showToast(data.message || "Tạo yêu cầu lấy hàng thất bại!", "error");
+            showToast(
+                data.message || "Tạo yêu cầu lấy hàng thất bại!",
+                "error",
+            );
             return;
         }
 
@@ -10198,12 +10863,22 @@ async function handleKpiSubmitOrder() {
         await loadMemberKpiDashboard();
 
         // If choosing IMMEDIATE_TRANSFER, immediately open QR popup for instant payment & confirmation
-        if (payment_method === "IMMEDIATE_TRANSFER" && data.request && data.request.qr_url) {
-            showToast(`Đã tạo đơn lấy hàng (${data.request.id}) thành công! Quét mã QR để chuyển khoản.`, "success");
+        if (
+            payment_method === "IMMEDIATE_TRANSFER" &&
+            data.request &&
+            data.request.qr_url
+        ) {
+            showToast(
+                `Đã tạo đơn lấy hàng (${data.request.id}) thành công! Quét mã QR để chuyển khoản.`,
+                "success",
+            );
             showActiveKpiQr(data.request);
             openKpiQrZoomModal(data.request);
         } else {
-            showToast(`Đã tạo yêu cầu lấy hàng thành công (Mã: ${data.request.id})! Đơn đang chờ Admin duyệt.`, "success");
+            showToast(
+                `Đã tạo yêu cầu lấy hàng thành công (Mã: ${data.request.id})! Đơn đang chờ Admin duyệt.`,
+                "success",
+            );
             showActiveKpiQr(data.request);
         }
 
@@ -10239,7 +10914,8 @@ async function loadMemberKpiDashboard() {
 
         if (elOrders) elOrders.textContent = `${stats.total_orders || 0} đơn`;
         if (elTotal) elTotal.textContent = formatVND(stats.total_amount || 0);
-        if (elPending) elPending.textContent = formatVND(stats.pending_amount || 0);
+        if (elPending)
+            elPending.textContent = formatVND(stats.pending_amount || 0);
         if (elPaid) elPaid.textContent = formatVND(stats.paid_amount || 0);
 
         renderMemberKpiOrders(kpiMemberAllRequests);
@@ -10257,17 +10933,42 @@ function renderMemberKpiOrders(requests) {
     const tbody = document.getElementById("tbodyKpiMemberOrders");
     if (!tbody) return;
 
-    const filter = document.getElementById("selectKpiFilterMemberStatus")?.value || "all";
+    const filter =
+        document.getElementById("selectKpiFilterMemberStatus")?.value || "all";
     let filtered = requests || [];
 
     if (filter === "pending") {
-        filtered = filtered.filter(r => r.status === "PENDING" || r.status === "Chờ Admin duyệt" || (!(r.status === "APPROVED" || r.status === "Đã duyệt") && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Đã hủy" && r.status !== "Từ chối"));
+        filtered = filtered.filter(
+            (r) =>
+                r.status === "PENDING" ||
+                r.status === "Chờ Admin duyệt" ||
+                (!(r.status === "APPROVED" || r.status === "Đã duyệt") &&
+                    r.status !== "CANCELLED" &&
+                    r.status !== "EXPIRED" &&
+                    r.status !== "Đã hủy" &&
+                    r.status !== "Từ chối"),
+        );
     } else if (filter === "approved") {
-        filtered = filtered.filter(r => r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán"));
+        filtered = filtered.filter(
+            (r) =>
+                r.status === "APPROVED" ||
+                (r.status === "Đã duyệt" &&
+                    r.payment_status === "Đã thanh toán"),
+        );
     } else if (filter === "unpaid") {
-        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy");
+        filtered = filtered.filter(
+            (r) =>
+                r.payment_status !== "Đã thanh toán" &&
+                r.status !== "CANCELLED" &&
+                r.status !== "EXPIRED" &&
+                r.status !== "Từ chối" &&
+                r.status !== "Đã hủy",
+        );
     } else if (filter === "paid") {
-        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán" || r.status === "APPROVED");
+        filtered = filtered.filter(
+            (r) =>
+                r.payment_status === "Đã thanh toán" || r.status === "APPROVED",
+        );
     }
 
     if (filtered.length === 0) {
@@ -10279,67 +10980,88 @@ function renderMemberKpiOrders(requests) {
         return;
     }
 
-    tbody.innerHTML = filtered.map(r => {
-        const isApproved = r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
-        const isCancelled = r.status === "CANCELLED" || r.status === "Đã hủy" || r.status === "Từ chối";
-        const isExpired = r.status === "EXPIRED" || (r.payment_status && r.payment_status.includes("Tự động hủy"));
+    tbody.innerHTML = filtered
+        .map((r) => {
+            const isApproved =
+                r.status === "APPROVED" ||
+                (r.status === "Đã duyệt" &&
+                    r.payment_status === "Đã thanh toán");
+            const isCancelled =
+                r.status === "CANCELLED" ||
+                r.status === "Đã hủy" ||
+                r.status === "Từ chối";
+            const isExpired =
+                r.status === "EXPIRED" ||
+                (r.payment_status && r.payment_status.includes("Tự động hủy"));
 
-        const pickupTimeText = r.pickup_time ? (r.pickup_time.includes("T") ? r.pickup_time.replace("T", " ") : r.pickup_time) : (r.created_at || "---");
-        const shiftLabel = r.shift_label || (r.shift_id ? `Ca ${r.shift_id}` : "Ca trực mặc định");
+            const pickupTimeText = r.pickup_time
+                ? r.pickup_time.includes("T")
+                    ? r.pickup_time.replace("T", " ")
+                    : r.pickup_time
+                : r.created_at || "---";
+            const shiftLabel =
+                r.shift_label ||
+                (r.shift_id ? `Ca ${r.shift_id}` : "Ca trực mặc định");
 
-        // Status Badge: Đã duyệt / Chờ duyệt / Đã hủy / Tự động hủy
-        let statusBadge = "";
-        if (isApproved) {
-            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</span>`;
-        } else if (isCancelled) {
-            statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        } else if (isExpired) {
-            statusBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-clock-rotate-left"></i> Tự động hủy</span>`;
-        } else {
-            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ duyệt</span>`;
-        }
+            // Status Badge: Đã duyệt / Chờ duyệt / Đã hủy / Tự động hủy
+            let statusBadge = "";
+            if (isApproved) {
+                statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</span>`;
+            } else if (isCancelled) {
+                statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+            } else if (isExpired) {
+                statusBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-clock-rotate-left"></i> Tự động hủy</span>`;
+            } else {
+                statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ duyệt</span>`;
+            }
 
-        // Payment detail badge
-        let payBadge = "";
-        if (isApproved || r.payment_status === "Đã thanh toán") {
-            payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
-        } else if (isCancelled) {
-            payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        } else if (isExpired) {
-            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn (Tự hủy)</span>`;
-        } else {
-            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-hourglass-half"></i> Chờ thanh toán</span>`;
-        }
+            // Payment detail badge
+            let payBadge = "";
+            if (isApproved || r.payment_status === "Đã thanh toán") {
+                payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
+            } else if (isCancelled) {
+                payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+            } else if (isExpired) {
+                payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn (Tự hủy)</span>`;
+            } else {
+                payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-hourglass-half"></i> Chờ thanh toán</span>`;
+            }
 
-        let methodText = "Chuyển khoản ngay";
-        if (r.payment_method === "PAY_LATER" || r.payment_timing === "later" || (r.payment_status && r.payment_status.includes("sau"))) {
-            methodText = "Thanh toán sau";
-        }
+            let methodText = "Chuyển khoản ngay";
+            if (
+                r.payment_method === "PAY_LATER" ||
+                r.payment_timing === "later" ||
+                (r.payment_status && r.payment_status.includes("sau"))
+            ) {
+                methodText = "Thanh toán sau";
+            }
 
-        // Items summary
-        const itemsSummary = (r.items || []).map(i => `${i.product_name} <b>x${i.quantity}</b>`).join(", ");
+            // Items summary
+            const itemsSummary = (r.items || [])
+                .map((i) => `${i.product_name} <b>x${i.quantity}</b>`)
+                .join(", ");
 
-        // Action buttons
-        let actions = ``;
-        if (r.qr_url && !isCancelled && !isExpired) {
-            if (!isApproved) {
-                actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" style="color: var(--goldleaf); border-color: rgba(212,168,83,0.4);" title="Xem mã VietQR để chuyển khoản">
+            // Action buttons
+            let actions = ``;
+            if (r.qr_url && !isCancelled && !isExpired) {
+                if (!isApproved) {
+                    actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" style="color: var(--goldleaf); border-color: rgba(212,168,83,0.4);" title="Xem mã VietQR để chuyển khoản">
                     <i class="fa-solid fa-qrcode"></i> Xem QR chuyển sau
                 </button>`;
-            } else {
-                actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" title="Xem lại mã VietQR">
+                } else {
+                    actions += `<button type="button" class="btn-secondary btn-sm kpi-btn-show-qr" data-id="${r.id}" title="Xem lại mã VietQR">
                     <i class="fa-solid fa-qrcode"></i> Xem QR
                 </button>`;
+                }
+            } else if (isExpired) {
+                actions += `<span class="text-muted" style="font-size:0.8rem; color:#c084fc;">Hết hạn</span>`;
+            } else if (isCancelled) {
+                actions += `<span class="text-muted" style="font-size:0.8rem;">Đã hủy</span>`;
+            } else {
+                actions += `<span class="text-muted" style="font-size:0.8rem;">---</span>`;
             }
-        } else if (isExpired) {
-            actions += `<span class="text-muted" style="font-size:0.8rem; color:#c084fc;">Hết hạn</span>`;
-        } else if (isCancelled) {
-            actions += `<span class="text-muted" style="font-size:0.8rem;">Đã hủy</span>`;
-        } else {
-            actions += `<span class="text-muted" style="font-size:0.8rem;">---</span>`;
-        }
 
-        return `<tr>
+            return `<tr>
             <td><strong class="text-gold" style="cursor:pointer;" onclick="viewMemberRequestQr('${r.id}')">${r.id}</strong></td>
             <td class="text-muted" style="font-size:0.8rem; white-space:nowrap;">${pickupTimeText}</td>
             <td><span class="badge badge-gold" style="font-size:0.75rem; white-space:nowrap;"><i class="fa-solid fa-calendar-check"></i> ${shiftLabel}</span></td>
@@ -10350,12 +11072,13 @@ function renderMemberKpiOrders(requests) {
             <td>${payBadge}</td>
             <td class="text-right" style="white-space: nowrap;">${actions}</td>
         </tr>`;
-    }).join("");
+        })
+        .join("");
 
     // Bind item action clicks
-    tbody.querySelectorAll(".kpi-btn-show-qr").forEach(btn => {
+    tbody.querySelectorAll(".kpi-btn-show-qr").forEach((btn) => {
         btn.onclick = () => {
-            const req = requests.find(r => r.id === btn.dataset.id);
+            const req = requests.find((r) => r.id === btn.dataset.id);
             if (req) {
                 showActiveKpiQr(req);
                 openKpiQrZoomModal(req);
@@ -10365,7 +11088,9 @@ function renderMemberKpiOrders(requests) {
 }
 
 function viewMemberRequestQr(requestId) {
-    const req = kpiMemberAllRequests.find(r => r.id === requestId) || kpiAdminAllRequests.find(r => r.id === requestId);
+    const req =
+        kpiMemberAllRequests.find((r) => r.id === requestId) ||
+        kpiAdminAllRequests.find((r) => r.id === requestId);
     if (req) {
         showActiveKpiQr(req);
         openKpiQrZoomModal(req);
@@ -10435,17 +11160,24 @@ async function autoConfirmMemberRequest(requestId) {
     }
 
     try {
-        const res = await pickupMemberFetch(`/api/pickup-requests/${requestId}/auto-confirm`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-        });
+        const res = await pickupMemberFetch(
+            `/api/pickup-requests/${requestId}/auto-confirm`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             showToast(data.message || "Tự động xác nhận thất bại!", "error");
             return;
         }
 
-        showToast(data.message || "Thanh toán thành công! Giao dịch đã được tự động xác nhận.", "success");
+        showToast(
+            data.message ||
+                "Thanh toán thành công! Giao dịch đã được tự động xác nhận.",
+            "success",
+        );
         document.getElementById("modalKpiQrZoom")?.classList.remove("active");
 
         await loadKpiInventoryProducts();
@@ -10482,11 +11214,14 @@ async function confirmMemberPayment(requestId, actionType) {
     }
 
     try {
-        const res = await pickupMemberFetch(`/api/pickup-requests/${requestId}/payment-confirmation`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action, payment_method })
-        });
+        const res = await pickupMemberFetch(
+            `/api/pickup-requests/${requestId}/payment-confirmation`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action, payment_method }),
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             showToast(data.message || "Cập nhật thất bại!", "error");
@@ -10504,22 +11239,32 @@ async function confirmMemberPayment(requestId, actionType) {
 }
 
 async function cancelMemberPickupRequest(requestId) {
-    if (!confirm(`Bạn có chắc chắn muốn hủy đơn hàng ${requestId}? Các sản phẩm sẽ được tự động hoàn trả lại tồn kho.`)) {
+    if (
+        !confirm(
+            `Bạn có chắc chắn muốn hủy đơn hàng ${requestId}? Các sản phẩm sẽ được tự động hoàn trả lại tồn kho.`,
+        )
+    ) {
         return;
     }
 
     try {
-        const res = await pickupMemberFetch(`/api/pickup-requests/${requestId}/cancel`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-        });
+        const res = await pickupMemberFetch(
+            `/api/pickup-requests/${requestId}/cancel`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             showToast(data.message || "Hủy đơn thất bại!", "error");
             return;
         }
 
-        showToast(data.message || "Đã hủy đơn và hoàn trả tồn kho thành công!", "success");
+        showToast(
+            data.message || "Đã hủy đơn và hoàn trả tồn kho thành công!",
+            "success",
+        );
         await loadKpiInventoryProducts();
         await loadMemberKpiDashboard();
         if (currentUserRole === "admin") {
@@ -10549,14 +11294,19 @@ async function loadAdminKpiDashboard() {
         const elTotal = document.getElementById("kpiAdminStatTotal");
         const elPending = document.getElementById("kpiAdminStatPendingApprove");
         const elPaid = document.getElementById("kpiAdminStatPaidAmount");
-        const elPendingAmount = document.getElementById("kpiAdminStatPendingAmount");
+        const elPendingAmount = document.getElementById(
+            "kpiAdminStatPendingAmount",
+        );
         const badgeCount = document.getElementById("kpiAdminBadgeCount");
 
         if (elTotal) elTotal.textContent = `${stats.total_orders || 0} đơn`;
-        if (elPending) elPending.textContent = `${stats.pending_approval_count || 0} đơn`;
+        if (elPending)
+            elPending.textContent = `${stats.pending_approval_count || 0} đơn`;
         if (elPaid) elPaid.textContent = formatVND(stats.paid_amount || 0);
-        if (elPendingAmount) elPendingAmount.textContent = formatVND(stats.pending_amount || 0);
-        if (badgeCount) badgeCount.textContent = stats.pending_approval_count || 0;
+        if (elPendingAmount)
+            elPendingAmount.textContent = formatVND(stats.pending_amount || 0);
+        if (badgeCount)
+            badgeCount.textContent = stats.pending_approval_count || 0;
 
         filterAndRenderAdminRequests();
     } catch (err) {
@@ -10565,51 +11315,100 @@ async function loadAdminKpiDashboard() {
 }
 
 function filterAndRenderAdminRequests() {
-    const searchVal = (document.getElementById("inputKpiAdminSearch")?.value || "").toLowerCase().trim();
-    const filterApproval = document.getElementById("selectKpiAdminFilterApproval")?.value || "all";
-    const filterPayment = document.getElementById("selectKpiAdminFilterPayment")?.value || "all";
-    const sortBy = document.getElementById("selectKpiAdminSort")?.value || "newest";
+    const searchVal = (
+        document.getElementById("inputKpiAdminSearch")?.value || ""
+    )
+        .toLowerCase()
+        .trim();
+    const filterApproval =
+        document.getElementById("selectKpiAdminFilterApproval")?.value || "all";
+    const filterPayment =
+        document.getElementById("selectKpiAdminFilterPayment")?.value || "all";
+    const sortBy =
+        document.getElementById("selectKpiAdminSort")?.value || "newest";
 
     let filtered = [...(kpiAdminAllRequests || [])];
 
     if (searchVal) {
-        filtered = filtered.filter(r => 
-            (r.id && r.id.toLowerCase().includes(searchVal)) ||
-            (r.member_name && r.member_name.toLowerCase().includes(searchVal)) ||
-            (r.member_id && r.member_id.toLowerCase().includes(searchVal))
+        filtered = filtered.filter(
+            (r) =>
+                (r.id && r.id.toLowerCase().includes(searchVal)) ||
+                (r.member_name &&
+                    r.member_name.toLowerCase().includes(searchVal)) ||
+                (r.member_id && r.member_id.toLowerCase().includes(searchVal)),
         );
     }
 
     // Filter by confirmation / approval status
     if (filterApproval === "pending") {
-        filtered = filtered.filter(r => r.status === "PENDING" || r.status === "Chờ Admin duyệt" || (!(r.status === "APPROVED" || r.status === "Đã duyệt") && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Đã hủy" && r.status !== "Từ chối"));
+        filtered = filtered.filter(
+            (r) =>
+                r.status === "PENDING" ||
+                r.status === "Chờ Admin duyệt" ||
+                (!(r.status === "APPROVED" || r.status === "Đã duyệt") &&
+                    r.status !== "CANCELLED" &&
+                    r.status !== "EXPIRED" &&
+                    r.status !== "Đã hủy" &&
+                    r.status !== "Từ chối"),
+        );
     } else if (filterApproval === "approved") {
-        filtered = filtered.filter(r => r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán"));
+        filtered = filtered.filter(
+            (r) =>
+                r.status === "APPROVED" ||
+                (r.status === "Đã duyệt" &&
+                    r.payment_status === "Đã thanh toán"),
+        );
     } else if (filterApproval === "rejected") {
-        filtered = filtered.filter(r => r.status === "CANCELLED" || r.status === "EXPIRED" || r.status === "Từ chối" || r.status === "Đã hủy");
+        filtered = filtered.filter(
+            (r) =>
+                r.status === "CANCELLED" ||
+                r.status === "EXPIRED" ||
+                r.status === "Từ chối" ||
+                r.status === "Đã hủy",
+        );
     }
 
     // Filter by payment status
     if (filterPayment === "unpaid") {
-        filtered = filtered.filter(r => r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy");
+        filtered = filtered.filter(
+            (r) =>
+                r.payment_status !== "Đã thanh toán" &&
+                r.status !== "CANCELLED" &&
+                r.status !== "EXPIRED" &&
+                r.status !== "Từ chối" &&
+                r.status !== "Đã hủy",
+        );
     } else if (filterPayment === "paid") {
-        filtered = filtered.filter(r => r.payment_status === "Đã thanh toán" || r.status === "APPROVED");
+        filtered = filtered.filter(
+            (r) =>
+                r.payment_status === "Đã thanh toán" || r.status === "APPROVED",
+        );
     } else if (filterPayment === "confirmed_transfer") {
-        filtered = filtered.filter(r => r.payment_status === "Đã xác nhận chuyển khoản");
+        filtered = filtered.filter(
+            (r) => r.payment_status === "Đã xác nhận chuyển khoản",
+        );
     }
 
     // Sorting logic
     if (sortBy === "oldest") {
-        filtered.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+        filtered.sort((a, b) =>
+            (a.created_at || "").localeCompare(b.created_at || ""),
+        );
     } else if (sortBy === "amount_desc") {
         filtered.sort((a, b) => (b.total_amount || 0) - (a.total_amount || 0));
     } else if (sortBy === "amount_asc") {
         filtered.sort((a, b) => (a.total_amount || 0) - (b.total_amount || 0));
     } else if (sortBy === "member_az") {
-        filtered.sort((a, b) => (a.member_name || "").localeCompare(b.member_name || ""));
+        filtered.sort((a, b) =>
+            (a.member_name || "").localeCompare(b.member_name || ""),
+        );
     } else {
         // newest
-        filtered.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "") || (b.id || "").localeCompare(a.id || ""));
+        filtered.sort(
+            (a, b) =>
+                (b.created_at || "").localeCompare(a.created_at || "") ||
+                (b.id || "").localeCompare(a.id || ""),
+        );
     }
 
     renderAdminKpiRequests(filtered);
@@ -10628,77 +11427,98 @@ function renderAdminKpiRequests(requests) {
         return;
     }
 
-    tbody.innerHTML = requests.map(r => {
-        const isApproved = r.status === "APPROVED" || (r.status === "Đã duyệt" && r.payment_status === "Đã thanh toán");
-        const isCancelled = r.status === "CANCELLED" || r.status === "Đã hủy" || r.status === "Từ chối";
-        const isExpired = r.status === "EXPIRED" || (r.payment_status && r.payment_status.includes("Tự động hủy"));
+    tbody.innerHTML = requests
+        .map((r) => {
+            const isApproved =
+                r.status === "APPROVED" ||
+                (r.status === "Đã duyệt" &&
+                    r.payment_status === "Đã thanh toán");
+            const isCancelled =
+                r.status === "CANCELLED" ||
+                r.status === "Đã hủy" ||
+                r.status === "Từ chối";
+            const isExpired =
+                r.status === "EXPIRED" ||
+                (r.payment_status && r.payment_status.includes("Tự động hủy"));
 
-        const pickupTimeText = r.pickup_time ? (r.pickup_time.includes("T") ? r.pickup_time.replace("T", " ") : r.pickup_time) : (r.created_at || "---");
-        const shiftLabel = r.shift_label || (r.shift_id ? `Ca ${r.shift_id}` : "Ca trực mặc định");
+            const pickupTimeText = r.pickup_time
+                ? r.pickup_time.includes("T")
+                    ? r.pickup_time.replace("T", " ")
+                    : r.pickup_time
+                : r.created_at || "---";
+            const shiftLabel =
+                r.shift_label ||
+                (r.shift_id ? `Ca ${r.shift_id}` : "Ca trực mặc định");
 
-        // Status badge: Đã duyệt / Chờ duyệt / Đã hủy / Tự động hủy
-        let statusBadge = "";
-        if (isApproved) {
-            statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</span>`;
-        } else if (isCancelled) {
-            statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        } else if (isExpired) {
-            statusBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-clock-rotate-left"></i> Tự động hủy</span>`;
-        } else {
-            statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ duyệt</span>`;
-        }
+            // Status badge: Đã duyệt / Chờ duyệt / Đã hủy / Tự động hủy
+            let statusBadge = "";
+            if (isApproved) {
+                statusBadge = `<span class="badge" style="background: rgba(16,185,129,0.18); color:#10b981; border: 1px solid #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Đã duyệt</span>`;
+            } else if (isCancelled) {
+                statusBadge = `<span class="badge" style="background: rgba(239,68,68,0.18); color:#ef4444; border: 1px solid #dc2626;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+            } else if (isExpired) {
+                statusBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc; border: 1px solid #9333ea;"><i class="fa-solid fa-clock-rotate-left"></i> Tự động hủy</span>`;
+            } else {
+                statusBadge = `<span class="badge" style="background: rgba(245,158,11,0.18); color:#f59e0b; border: 1px solid #d97706; font-weight: 600;"><i class="fa-solid fa-clock"></i> Chờ duyệt</span>`;
+            }
 
-        // Payment status badge
-        let payBadge = "";
-        if (isApproved || r.payment_status === "Đã thanh toán") {
-            payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
-        } else if (isCancelled) {
-            payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        } else if (isExpired) {
-            payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn (Tự hủy)</span>`;
-        } else {
-            payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-hourglass-half"></i> Chờ thanh toán</span>`;
-        }
+            // Payment status badge
+            let payBadge = "";
+            if (isApproved || r.payment_status === "Đã thanh toán") {
+                payBadge = `<span class="badge badge-green"><i class="fa-solid fa-check-double"></i> Đã thanh toán</span>`;
+            } else if (isCancelled) {
+                payBadge = `<span class="badge badge-red"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
+            } else if (isExpired) {
+                payBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn (Tự hủy)</span>`;
+            } else {
+                payBadge = `<span class="badge badge-amber"><i class="fa-solid fa-hourglass-half"></i> Chờ thanh toán</span>`;
+            }
 
-        let methodText = "Chuyển khoản ngay";
-        if (r.payment_method === "PAY_LATER" || r.payment_timing === "later" || (r.payment_status && r.payment_status.includes("sau"))) {
-            methodText = "Thanh toán sau";
-        }
+            let methodText = "Chuyển khoản ngay";
+            if (
+                r.payment_method === "PAY_LATER" ||
+                r.payment_timing === "later" ||
+                (r.payment_status && r.payment_status.includes("sau"))
+            ) {
+                methodText = "Thanh toán sau";
+            }
 
-        const itemsSummary = (r.items || []).map(i => `${i.product_name} <b>x${i.quantity}</b>`).join(", ");
+            const itemsSummary = (r.items || [])
+                .map((i) => `${i.product_name} <b>x${i.quantity}</b>`)
+                .join(", ");
 
-        // Admin Actions: Admin có quyền "Xác nhận (Approve)" + "Hủy đơn (Cancel)"
-        let decisionHtml = `<div class="d-flex align-items-center justify-content-center gap-1 flex-wrap">`;
-        
-        if (!isApproved && !isCancelled && !isExpired) {
-            decisionHtml += `<button type="button" class="btn-primary btn-sm admin-btn-confirm-trans" data-id="${r.id}" style="background: #059669; border-color: #059669; font-size: 0.78rem; padding: 0.35rem 0.6rem;" title="Xác nhận &amp; Phê duyệt đơn (Trừ tồn kho)">
+            // Admin Actions: Admin có quyền "Xác nhận (Approve)" + "Hủy đơn (Cancel)"
+            let decisionHtml = `<div class="d-flex align-items-center justify-content-center gap-1 flex-wrap">`;
+
+            if (!isApproved && !isCancelled && !isExpired) {
+                decisionHtml += `<button type="button" class="btn-primary btn-sm admin-btn-confirm-trans" data-id="${r.id}" style="background: #059669; border-color: #059669; font-size: 0.78rem; padding: 0.35rem 0.6rem;" title="Xác nhận &amp; Phê duyệt đơn (Trừ tồn kho)">
                 <i class="fa-solid fa-check"></i> Xác nhận
             </button>`;
-            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn lấy hàng">
+                decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn lấy hàng">
                 <i class="fa-solid fa-ban"></i> Hủy đơn
             </button>`;
-            if (r.qr_url) {
-                decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-view-qr" data-id="${r.id}" style="font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Xem mã VietQR">
+                if (r.qr_url) {
+                    decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-view-qr" data-id="${r.id}" style="font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Xem mã VietQR">
                     <i class="fa-solid fa-qrcode"></i>
                 </button>`;
-            }
-        } else if (isApproved) {
-            decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn trả tồn kho">
+                }
+            } else if (isApproved) {
+                decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-cancel-req" data-id="${r.id}" style="color: var(--cinnabar); border-color: rgba(239,68,68,0.3); font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Hủy đơn và hoàn trả tồn kho">
                 <i class="fa-solid fa-ban"></i> Hủy đơn
             </button>`;
-            if (r.qr_url) {
-                decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-view-qr" data-id="${r.id}" style="font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Xem mã VietQR">
+                if (r.qr_url) {
+                    decisionHtml += `<button type="button" class="btn-secondary btn-sm admin-btn-view-qr" data-id="${r.id}" style="font-size: 0.78rem; padding: 0.35rem 0.55rem;" title="Xem mã VietQR">
                     <i class="fa-solid fa-qrcode"></i>
                 </button>`;
+                }
+            } else if (isExpired) {
+                decisionHtml += `<span class="text-muted" style="font-size:0.8rem; color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn 3 ngày</span>`;
+            } else {
+                decisionHtml += `<span class="text-muted" style="font-size:0.8rem;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
             }
-        } else if (isExpired) {
-            decisionHtml += `<span class="text-muted" style="font-size:0.8rem; color:#c084fc;"><i class="fa-solid fa-clock-rotate-left"></i> Quá hạn 3 ngày</span>`;
-        } else {
-            decisionHtml += `<span class="text-muted" style="font-size:0.8rem;"><i class="fa-solid fa-ban"></i> Đã hủy</span>`;
-        }
-        decisionHtml += `</div>`;
+            decisionHtml += `</div>`;
 
-        return `<tr>
+            return `<tr>
             <td><strong class="text-gold" style="cursor:pointer;" onclick="viewMemberRequestQr('${r.id}')">${r.id}</strong></td>
             <td><strong>${r.member_name}</strong> <span class="text-muted" style="font-size:0.75rem;">(${r.member_id})</span></td>
             <td class="text-muted" style="font-size:0.8rem; white-space:nowrap;">${pickupTimeText}</td>
@@ -10710,40 +11530,51 @@ function renderAdminKpiRequests(requests) {
             <td>${payBadge}</td>
             <td>${decisionHtml}</td>
         </tr>`;
-    }).join("");
+        })
+        .join("");
 
     // Bind Admin button events
-    tbody.querySelectorAll(".admin-btn-confirm-trans").forEach(btn => {
+    tbody.querySelectorAll(".admin-btn-confirm-trans").forEach((btn) => {
         btn.onclick = () => handleAdminConfirmTransaction(btn.dataset.id);
     });
-    tbody.querySelectorAll(".admin-btn-cancel-req").forEach(btn => {
+    tbody.querySelectorAll(".admin-btn-cancel-req").forEach((btn) => {
         btn.onclick = () => handleAdminCancelRequest(btn.dataset.id);
     });
-    tbody.querySelectorAll(".admin-btn-view-qr").forEach(btn => {
+    tbody.querySelectorAll(".admin-btn-view-qr").forEach((btn) => {
         btn.onclick = () => {
-            const req = requests.find(r => r.id === btn.dataset.id);
+            const req = requests.find((r) => r.id === btn.dataset.id);
             if (req) openKpiQrZoomModal(req);
         };
     });
 }
 
 async function handleAdminConfirmTransaction(requestId) {
-    if (!confirm(`Xác nhận giao dịch thành công cho đơn ${requestId}? Đơn hàng sẽ được chuyển sang trạng thái Đã Duyệt và Đã Thanh Toán.`)) {
+    if (
+        !confirm(
+            `Xác nhận giao dịch thành công cho đơn ${requestId}? Đơn hàng sẽ được chuyển sang trạng thái Đã Duyệt và Đã Thanh Toán.`,
+        )
+    ) {
         return;
     }
 
     try {
-        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/confirm-transaction`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-        });
+        const res = await authFetch(
+            `/api/admin/pickup-requests/${requestId}/confirm-transaction`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             showToast(data.message || "Xác nhận giao dịch thất bại!", "error");
             return;
         }
 
-        showToast(data.message || "Đã xác nhận giao dịch thành công!", "success");
+        showToast(
+            data.message || "Đã xác nhận giao dịch thành công!",
+            "success",
+        );
         await loadAdminKpiDashboard();
         if (pickupMember) {
             await loadMemberKpiDashboard();
@@ -10757,22 +11588,32 @@ async function handleAdminConfirmTransaction(requestId) {
 }
 
 async function handleAdminCancelRequest(requestId) {
-    if (!confirm(`Bạn có chắc muốn HỦY đơn hàng ${requestId}? Các sản phẩm trong đơn sẽ được tự động hoàn trả vào kho.`)) {
+    if (
+        !confirm(
+            `Bạn có chắc muốn HỦY đơn hàng ${requestId}? Các sản phẩm trong đơn sẽ được tự động hoàn trả vào kho.`,
+        )
+    ) {
         return;
     }
 
     try {
-        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/cancel`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" }
-        });
+        const res = await authFetch(
+            `/api/admin/pickup-requests/${requestId}/cancel`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             showToast(data.message || "Hủy đơn thất bại!", "error");
             return;
         }
 
-        showToast(data.message || "Đã hủy đơn và hoàn trả kho thành công!", "success");
+        showToast(
+            data.message || "Đã hủy đơn và hoàn trả kho thành công!",
+            "success",
+        );
         await loadAdminKpiDashboard();
         await loadKpiInventoryProducts();
         if (pickupMember) {
@@ -10791,11 +11632,14 @@ async function handleAdminDecision(requestId, decision, paymentStatus) {
         const body = { decision };
         if (paymentStatus) body.payment_status = paymentStatus;
 
-        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/decision`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
+        const res = await authFetch(
+            `/api/admin/pickup-requests/${requestId}/decision`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            },
+        );
         const data = await res.json();
         if (!data.success) {
             showToast(data.message || "Quyết định thất bại!", "error");
@@ -10817,18 +11661,27 @@ async function handleAdminDecision(requestId, decision, paymentStatus) {
 
 async function handleAdminChangePaymentStatus(requestId, newPaymentStatus) {
     try {
-        const res = await authFetch(`/api/admin/pickup-requests/${requestId}/payment-status`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ payment_status: newPaymentStatus })
-        });
+        const res = await authFetch(
+            `/api/admin/pickup-requests/${requestId}/payment-status`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ payment_status: newPaymentStatus }),
+            },
+        );
         const data = await res.json();
         if (!data.success) {
-            showToast(data.message || "Cập nhật trạng thái thanh toán thất bại!", "error");
+            showToast(
+                data.message || "Cập nhật trạng thái thanh toán thất bại!",
+                "error",
+            );
             return;
         }
 
-        showToast(`Đã đổi trạng thái thanh toán đơn ${requestId} sang "${newPaymentStatus}"!`, "success");
+        showToast(
+            `Đã đổi trạng thái thanh toán đơn ${requestId} sang "${newPaymentStatus}"!`,
+            "success",
+        );
         await loadAdminKpiDashboard();
         if (pickupMember) {
             await loadMemberKpiDashboard();
@@ -10857,14 +11710,19 @@ function renderAdminMemberAccounts(accounts) {
     const tbody = document.getElementById("tbodyKpiAccounts");
     if (!tbody) return;
 
-    const query = (document.getElementById("inputKpiSearchAccount")?.value || "").toLowerCase().trim();
+    const query = (
+        document.getElementById("inputKpiSearchAccount")?.value || ""
+    )
+        .toLowerCase()
+        .trim();
     let filtered = accounts || [];
 
     if (query) {
-        filtered = filtered.filter(a => 
-            (a.member_id && a.member_id.toLowerCase().includes(query)) ||
-            (a.name && a.name.toLowerCase().includes(query)) ||
-            (a.department && a.department.toLowerCase().includes(query))
+        filtered = filtered.filter(
+            (a) =>
+                (a.member_id && a.member_id.toLowerCase().includes(query)) ||
+                (a.name && a.name.toLowerCase().includes(query)) ||
+                (a.department && a.department.toLowerCase().includes(query)),
         );
     }
 
@@ -10877,14 +11735,16 @@ function renderAdminMemberAccounts(accounts) {
         return;
     }
 
-    tbody.innerHTML = filtered.map(a => `
+    tbody.innerHTML = filtered
+        .map(
+            (a) => `
         <tr>
             <td><strong class="text-gold">${a.member_id}</strong></td>
             <td><strong>${a.name}</strong></td>
             <td><span class="badge" style="background: rgba(0,0,0,0.25);">${a.department || "Chưa phân ban"}</span></td>
             <td>
                 <span class="text-muted" style="font-family: monospace; letter-spacing: 1px;">
-                    ${a.password || `HV@${a.member_id}`}
+                    ${a.password || `HVC@${a.member_id}`}
                 </span>
             </td>
             <td class="text-center">
@@ -10893,20 +11753,24 @@ function renderAdminMemberAccounts(accounts) {
                 </button>
             </td>
         </tr>
-    `).join("");
+    `,
+        )
+        .join("");
 
-    tbody.querySelectorAll(".admin-btn-reset-member-pwd").forEach(btn => {
+    tbody.querySelectorAll(".admin-btn-reset-member-pwd").forEach((btn) => {
         btn.onclick = () => {
             const mId = btn.dataset.id;
             const mName = btn.dataset.name;
 
             const inputId = document.getElementById("inputAdminResetMemberId");
-            const spanInfo = document.getElementById("spanAdminResetMemberInfo");
+            const spanInfo = document.getElementById(
+                "spanAdminResetMemberInfo",
+            );
             const inputNew = document.getElementById("inputAdminResetNewPwd");
 
             if (inputId) inputId.value = mId;
             if (spanInfo) spanInfo.textContent = `${mId} - ${mName}`;
-            if (inputNew) inputNew.value = `HV@${mId}`;
+            if (inputNew) inputNew.value = `HVC@${mId}`;
 
             const modal = document.getElementById("modalKpiAdminResetPwd");
             if (modal) modal.classList.add("active");
@@ -10927,7 +11791,10 @@ async function handleAdminSubmitResetPwd() {
         const res = await authFetch("/api/admin/member-auth/reset-password", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ member_id: memberId, new_password: newPassword })
+            body: JSON.stringify({
+                member_id: memberId,
+                new_password: newPassword,
+            }),
         });
         const data = await res.json();
         if (!data.success) {
@@ -10935,8 +11802,13 @@ async function handleAdminSubmitResetPwd() {
             return;
         }
 
-        showToast(data.message || `Đã đặt lại mật khẩu cho ${memberId}!`, "success");
-        document.getElementById("modalKpiAdminResetPwd")?.classList.remove("active");
+        showToast(
+            data.message || `Đã đặt lại mật khẩu cho ${memberId}!`,
+            "success",
+        );
+        document
+            .getElementById("modalKpiAdminResetPwd")
+            ?.classList.remove("active");
         await loadAdminMemberAccounts();
     } catch (err) {
         showToast("Lỗi: " + err.message, "error");
@@ -10958,8 +11830,11 @@ async function loadAdminVietqrConfig() {
         const accountNameInput = document.getElementById("inputKpiAccountName");
 
         if (bankInput) bankInput.value = config.bank_id || "970422";
-        if (accountNoInput) accountNoInput.value = config.account_no || "0987654321";
-        if (accountNameInput) accountNameInput.value = config.account_name || "DU AN FB HUNG VUONG";
+        if (accountNoInput)
+            accountNoInput.value = config.account_no || "0987654321";
+        if (accountNameInput)
+            accountNameInput.value =
+                config.account_name || "DU AN FB HUNG VUONG";
     } catch (err) {
         console.error("Lỗi tải cấu hình VietQR:", err);
     }
@@ -10967,11 +11842,18 @@ async function loadAdminVietqrConfig() {
 
 async function handleSaveAdminVietqrConfig() {
     const bank_id = document.getElementById("inputKpiBankId")?.value.trim();
-    const account_no = document.getElementById("inputKpiAccountNo")?.value.trim();
-    const account_name = document.getElementById("inputKpiAccountName")?.value.trim();
+    const account_no = document
+        .getElementById("inputKpiAccountNo")
+        ?.value.trim();
+    const account_name = document
+        .getElementById("inputKpiAccountName")
+        ?.value.trim();
 
     if (!bank_id || !account_no || !account_name) {
-        showToast("Vui lòng điền đủ Mã BIN ngân hàng, Số tài khoản và Tên chủ tài khoản!", "warning");
+        showToast(
+            "Vui lòng điền đủ Mã BIN ngân hàng, Số tài khoản và Tên chủ tài khoản!",
+            "warning",
+        );
         return;
     }
 
@@ -10979,7 +11861,7 @@ async function handleSaveAdminVietqrConfig() {
         const res = await authFetch("/api/admin/vietqr-config", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ bank_id, account_no, account_name })
+            body: JSON.stringify({ bank_id, account_no, account_name }),
         });
         const data = await res.json();
         if (!data.success) {
@@ -10987,12 +11869,14 @@ async function handleSaveAdminVietqrConfig() {
             return;
         }
 
-        showToast("Đã lưu cấu hình VietQR thành công! Các đơn hàng sau sẽ quét mã theo tài khoản này.", "success");
+        showToast(
+            "Đã lưu cấu hình VietQR thành công! Các đơn hàng sau sẽ quét mã theo tài khoản này.",
+            "success",
+        );
     } catch (err) {
         showToast("Lỗi lưu cấu hình: " + err.message, "error");
     }
 }
-
 
 let globalKpiAttendance = [];
 
@@ -11043,7 +11927,7 @@ function renderKpiStats() {
     ).length;
 
     const onTimeRate =
-        totalCount > 0 ? Math.round((onTimeCount / totalCount) * 100) : 100;
+        totalCount > 0 ? Math.round((onTimeCount / totalCount) * 100) : 0;
 
     // Calculate Average Response Time for calling backup staff
     const backupLogs = (globalIncidentLogs || []).filter(
@@ -13074,6 +13958,7 @@ async function handleCheckoutLivePOS() {
 
     const seller =
         document.getElementById("livePOSSelectSeller")?.value || "Thu ngân ca";
+    const sellerMember = globalMembers.find((member) => member.name === seller);
     const custName =
         document.getElementById("livePOSCustomerName")?.value.trim() || "";
     const custPhone =
@@ -13106,6 +13991,7 @@ async function handleCheckoutLivePOS() {
                 items: itemsToCheckout,
                 channel: channelName,
                 seller: seller,
+                seller_id: sellerMember?.member_id,
                 shift_id: shiftId,
                 customer_name: custName,
                 customer_phone: custPhone,
@@ -13194,16 +14080,25 @@ function renderDisciplineModule() {
 
     // Render KPIs
     const kpiAvg = document.getElementById("kpiDisciplineAvgPoints");
-    if (kpiAvg) kpiAvg.textContent = stats.avg_points !== undefined ? Number(stats.avg_points).toFixed(1) : "100.0";
+    if (kpiAvg)
+        kpiAvg.textContent =
+            stats.avg_points !== undefined
+                ? Number(stats.avg_points).toFixed(1)
+                : "100.0";
 
     const kpiTotal = document.getElementById("kpiDisciplineTotalMembers");
     if (kpiTotal) kpiTotal.textContent = stats.total_members || members.length;
 
-    const kpiExcellenceSub = document.getElementById("kpiDisciplineExcellenceSub");
-    if (kpiExcellenceSub) kpiExcellenceSub.textContent = `${stats.excellence_count || 0} nhân sự đạt Xuất sắc (>=100đ)`;
+    const kpiExcellenceSub = document.getElementById(
+        "kpiDisciplineExcellenceSub",
+    );
+    if (kpiExcellenceSub)
+        kpiExcellenceSub.textContent = `${stats.excellence_count || 0} nhân sự đạt Xuất sắc (>=100đ)`;
 
     const kpiGoodFair = document.getElementById("kpiDisciplineGoodFair");
-    if (kpiGoodFair) kpiGoodFair.textContent = (stats.good_count || 0) + (stats.fair_count || 0);
+    if (kpiGoodFair)
+        kpiGoodFair.textContent =
+            (stats.good_count || 0) + (stats.fair_count || 0);
 
     const kpiWarning = document.getElementById("kpiDisciplineWarning");
     if (kpiWarning) kpiWarning.textContent = stats.warning_count || 0;
@@ -13225,11 +14120,16 @@ function filterAndRenderDisciplineMembers() {
     const gradeVal = gradeFilter ? gradeFilter.value : "all";
 
     let filtered = rawDisciplineData.members.filter((m) => {
-        const matchesQuery = !query || m.name.toLowerCase().includes(query) || m.member_id.toLowerCase().includes(query);
+        const matchesQuery =
+            !query ||
+            m.name.toLowerCase().includes(query) ||
+            m.member_id.toLowerCase().includes(query);
         let matchesGrade = true;
         if (gradeVal === "excellence") matchesGrade = m.points >= 100;
-        else if (gradeVal === "good") matchesGrade = m.points >= 85 && m.points < 100;
-        else if (gradeVal === "fair") matchesGrade = m.points >= 70 && m.points < 85;
+        else if (gradeVal === "good")
+            matchesGrade = m.points >= 85 && m.points < 100;
+        else if (gradeVal === "fair")
+            matchesGrade = m.points >= 70 && m.points < 85;
         else if (gradeVal === "warning") matchesGrade = m.points < 70;
 
         return matchesQuery && matchesGrade;
@@ -13248,28 +14148,29 @@ function filterAndRenderDisciplineMembers() {
         return;
     }
 
-    tbody.innerHTML = filtered.map((m, idx) => {
-        let scoreColor = "#10b981";
-        let scoreBg = "rgba(16, 185, 129, 0.12)";
-        if (m.points < 70) {
-            scoreColor = "#ef4444";
-            scoreBg = "rgba(239, 68, 68, 0.15)";
-        } else if (m.points < 85) {
-            scoreColor = "#f59e0b";
-            scoreBg = "rgba(245, 158, 11, 0.15)";
-        } else if (m.points < 100) {
-            scoreColor = "#38bdf8";
-            scoreBg = "rgba(56, 189, 248, 0.15)";
-        }
+    tbody.innerHTML = filtered
+        .map((m, idx) => {
+            let scoreColor = "#10b981";
+            let scoreBg = "rgba(16, 185, 129, 0.12)";
+            if (m.points < 70) {
+                scoreColor = "#ef4444";
+                scoreBg = "rgba(239, 68, 68, 0.15)";
+            } else if (m.points < 85) {
+                scoreColor = "#f59e0b";
+                scoreBg = "rgba(245, 158, 11, 0.15)";
+            } else if (m.points < 100) {
+                scoreColor = "#38bdf8";
+                scoreBg = "rgba(56, 189, 248, 0.15)";
+            }
 
-        let changeBadge = `<span style="color: var(--ink-dim); font-size: 12px;">0đ</span>`;
-        if (m.net_change > 0) {
-            changeBadge = `<span style="color: #10b981; font-weight: 700; font-size: 12.5px;">+${m.net_change}đ</span>`;
-        } else if (m.net_change < 0) {
-            changeBadge = `<span style="color: #ef4444; font-weight: 700; font-size: 12.5px;">${m.net_change}đ</span>`;
-        }
+            let changeBadge = `<span style="color: var(--ink-dim); font-size: 12px;">0đ</span>`;
+            if (m.net_change > 0) {
+                changeBadge = `<span style="color: #10b981; font-weight: 700; font-size: 12.5px;">+${m.net_change}đ</span>`;
+            } else if (m.net_change < 0) {
+                changeBadge = `<span style="color: #ef4444; font-weight: 700; font-size: 12.5px;">${m.net_change}đ</span>`;
+            }
 
-        return `
+            return `
             <tr style="border-bottom: 1px solid var(--rule);">
                 <td style="text-align: center; font-weight: 600; color: var(--ink-dim);">${idx + 1}</td>
                 <td>
@@ -13304,7 +14205,8 @@ function filterAndRenderDisciplineMembers() {
                 </td>
             </tr>
         `;
-    }).join("");
+        })
+        .join("");
 }
 
 function renderDisciplineLogsTable(logs) {
@@ -13319,17 +14221,18 @@ function renderDisciplineLogsTable(logs) {
         return;
     }
 
-    tbody.innerHTML = logs.map((log) => {
-        const isBonus = log.type === "Cộng điểm";
-        const typeBadge = isBonus
-            ? `<span class="stock-badge good" style="font-size: 11.5px;">🟢 Cộng thưởng</span>`
-            : `<span class="stock-badge danger" style="font-size: 11.5px;">🔴 Trừ phạt</span>`;
+    tbody.innerHTML = logs
+        .map((log) => {
+            const isBonus = log.type === "Cộng điểm";
+            const typeBadge = isBonus
+                ? `<span class="stock-badge good" style="font-size: 11.5px;">🟢 Cộng thưởng</span>`
+                : `<span class="stock-badge danger" style="font-size: 11.5px;">🔴 Trừ phạt</span>`;
 
-        const changeStr = isBonus
-            ? `<span style="color: #10b981; font-weight: 800; font-size: 13px;">+${Math.abs(log.points_change)}đ</span>`
-            : `<span style="color: #ef4444; font-weight: 800; font-size: 13px;">-${Math.abs(log.points_change)}đ</span>`;
+            const changeStr = isBonus
+                ? `<span style="color: #10b981; font-weight: 800; font-size: 13px;">+${Math.abs(log.points_change)}đ</span>`
+                : `<span style="color: #ef4444; font-weight: 800; font-size: 13px;">-${Math.abs(log.points_change)}đ</span>`;
 
-        return `
+            return `
             <tr style="border-bottom: 1px solid var(--rule);">
                 <td style="text-align: center; font-family: monospace; font-size: 11px; color: var(--ink-dim);">${safeEscHtml(log.id)}</td>
                 <td style="text-align: center; font-size: 12px; color: var(--ink-light);">${safeEscHtml(log.timestamp)}</td>
@@ -13349,7 +14252,8 @@ function renderDisciplineLogsTable(logs) {
                 </td>
             </tr>
         `;
-    }).join("");
+        })
+        .join("");
 }
 
 function populateDisciplineMemberDropdown() {
@@ -13357,17 +14261,22 @@ function populateDisciplineMemberDropdown() {
     if (!select || !rawDisciplineData || !rawDisciplineData.members) return;
 
     const currentVal = select.value;
-    select.innerHTML = `<option value="">-- Chọn nhân sự cần điều chỉnh --</option>` +
-        rawDisciplineData.members.map((m) => {
-            return `<option value="${safeEscHtml(m.member_id)}">${safeEscHtml(m.name)} (${safeEscHtml(m.department)} - ${m.points}đ)</option>`;
-        }).join("");
+    select.innerHTML =
+        `<option value="">-- Chọn nhân sự cần điều chỉnh --</option>` +
+        rawDisciplineData.members
+            .map((m) => {
+                return `<option value="${safeEscHtml(m.member_id)}">${safeEscHtml(m.name)} (${safeEscHtml(m.department)} - ${m.points}đ)</option>`;
+            })
+            .join("");
 
     if (currentVal) select.value = currentVal;
 }
 
 function openAdjustDisciplineForMember(memberId) {
     if (currentUserRole !== "admin") {
-        openAdminLoginModal("Tính năng điều chỉnh điểm kỷ luật yêu cầu quyền Admin. Vui lòng đăng nhập Admin.");
+        openAdminLoginModal(
+            "Tính năng điều chỉnh điểm kỷ luật yêu cầu quyền Admin. Vui lòng đăng nhập Admin.",
+        );
         return;
     }
     const modal = document.getElementById("modalAdjustDiscipline");
@@ -13388,11 +14297,17 @@ function applyDisciplinePreset(type, points, reason) {
 
 async function resetMemberDisciplineScore(memberId, memberName) {
     if (currentUserRole !== "admin") {
-        openAdminLoginModal("Tính năng khôi phục điểm kỷ luật yêu cầu quyền Admin.");
+        openAdminLoginModal(
+            "Tính năng khôi phục điểm kỷ luật yêu cầu quyền Admin.",
+        );
         return;
     }
 
-    if (!confirm(`Bạn có chắc chắn muốn khôi phục điểm uy tín của ${memberName} về 100 điểm mặc định?`)) {
+    if (
+        !confirm(
+            `Bạn có chắc chắn muốn khôi phục điểm uy tín của ${memberName} về 100 điểm mặc định?`,
+        )
+    ) {
         return;
     }
 
@@ -13423,11 +14338,17 @@ async function resetMemberDisciplineScore(memberId, memberName) {
 
 async function deleteDisciplineLog(logId) {
     if (currentUserRole !== "admin") {
-        openAdminLoginModal("Tính năng xóa nhật ký kỷ luật yêu cầu quyền Admin.");
+        openAdminLoginModal(
+            "Tính năng xóa nhật ký kỷ luật yêu cầu quyền Admin.",
+        );
         return;
     }
 
-    if (!confirm("Bạn có chắc muốn xóa nhật ký này? Điểm uy tín của nhân sự sẽ được hoàn tác tương ứng.")) {
+    if (
+        !confirm(
+            "Bạn có chắc muốn xóa nhật ký này? Điểm uy tín của nhân sự sẽ được hoàn tác tương ứng.",
+        )
+    ) {
         return;
     }
 
@@ -13457,16 +14378,24 @@ async function deleteDisciplineLog(logId) {
 
 // Event Listeners initialization for Discipline Module
 function initDisciplineEventListeners() {
-    const btnOpenModal = document.getElementById("btnOpenAdjustDisciplineModal");
+    const btnOpenModal = document.getElementById(
+        "btnOpenAdjustDisciplineModal",
+    );
     const modal = document.getElementById("modalAdjustDiscipline");
-    const btnCloseModal = document.getElementById("btnCloseAdjustDisciplineModal");
-    const btnCancelModal = document.getElementById("btnCancelAdjustDisciplineModal");
+    const btnCloseModal = document.getElementById(
+        "btnCloseAdjustDisciplineModal",
+    );
+    const btnCancelModal = document.getElementById(
+        "btnCancelAdjustDisciplineModal",
+    );
     const form = document.getElementById("formAdjustDiscipline");
 
     if (btnOpenModal) {
         btnOpenModal.addEventListener("click", () => {
             if (currentUserRole !== "admin") {
-                openAdminLoginModal("Tính năng điều chỉnh điểm kỷ luật yêu cầu quyền Admin.");
+                openAdminLoginModal(
+                    "Tính năng điều chỉnh điểm kỷ luật yêu cầu quyền Admin.",
+                );
                 return;
             }
             if (modal) modal.classList.add("active");
@@ -13483,7 +14412,8 @@ function initDisciplineEventListeners() {
     };
 
     if (btnCloseModal) btnCloseModal.addEventListener("click", closeModalFunc);
-    if (btnCancelModal) btnCancelModal.addEventListener("click", closeModalFunc);
+    if (btnCancelModal)
+        btnCancelModal.addEventListener("click", closeModalFunc);
 
     const searchInput = document.getElementById("inputSearchDisciplineMember");
     if (searchInput) {
@@ -13492,7 +14422,10 @@ function initDisciplineEventListeners() {
 
     const gradeFilter = document.getElementById("selectDisciplineGradeFilter");
     if (gradeFilter) {
-        gradeFilter.addEventListener("change", filterAndRenderDisciplineMembers);
+        gradeFilter.addEventListener(
+            "change",
+            filterAndRenderDisciplineMembers,
+        );
     }
 
     if (form) {
@@ -13503,10 +14436,18 @@ function initDisciplineEventListeners() {
                 return;
             }
 
-            const memberId = document.getElementById("selectAdjustDisciplineMember").value;
-            const type = document.getElementById("selectAdjustDisciplineType").value;
-            const pointsChange = document.getElementById("inputAdjustDisciplinePoints").value;
-            const reason = document.getElementById("inputAdjustDisciplineReason").value;
+            const memberId = document.getElementById(
+                "selectAdjustDisciplineMember",
+            ).value;
+            const type = document.getElementById(
+                "selectAdjustDisciplineType",
+            ).value;
+            const pointsChange = document.getElementById(
+                "inputAdjustDisciplinePoints",
+            ).value;
+            const reason = document.getElementById(
+                "inputAdjustDisciplineReason",
+            ).value;
             const msg = document.getElementById("msgAdjustDiscipline");
 
             if (!memberId) {

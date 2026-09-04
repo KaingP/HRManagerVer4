@@ -1,0 +1,20 @@
+services:
+    - type: web
+      name: hr-manager
+      runtime: docker
+      plan: starter
+      dockerfilePath: ./Dockerfile
+      healthCheckPath: /healthz
+      envVars:
+          - key: NODE_ENV
+            value: production
+          - key: ADMIN_PASSWORD
+            sync: false
+          - key: STATE_FILE
+            value: /var/data/state.json
+          - key: DB_PATH
+            value: /var/data/data.db
+      disk:
+          name: hr-manager-data
+          mountPath: /var/data
+          sizeGB: 1

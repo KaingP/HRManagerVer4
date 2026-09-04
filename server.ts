@@ -23,6 +23,12 @@ import { ShiftScheduler } from "./src/scheduler";
 import { exportScheduleToExcel } from "./src/exporter";
 import { TASK_2_DETAILS } from "./src/risk_and_hr_protocols";
 import { renderAppsScript } from "./src/sheet_sync_script";
+import { getDb } from "./db/db";
+import {
+    countMembers as countDbMembers,
+    loadMembers as loadDbMembers,
+    replaceMembers as replaceDbMembers,
+} from "./db/member_repository";
 import {
     CompetitionConfig,
     CompetitionInput,
@@ -44,6 +50,9 @@ const app = express();
 const PORT = getRuntimePort();
 const STATE_FILE = process.env.STATE_FILE || "state.json";
 const REPORT_PATH = "reports/Lich_Truc_Toi_Uu_Hung_Vuong_Concert.xlsx";
+const MEMBER_SOURCE_FILE =
+    process.env.MEMBER_SOURCE_FILE ||
+    path.join(path.dirname(STATE_FILE), "members-availability.xlsx");
 
 function resolveAppRoot(): string {
     for (const candidate of [
@@ -112,7 +121,12 @@ export interface OnlineOrder {
 interface PickupRequestItem extends OnlineOrderItem {}
 
 export type PickupPaymentMethod = "IMMEDIATE_TRANSFER" | "PAY_LATER" | string;
-export type PickupRequestStatus = "PENDING" | "APPROVED" | "CANCELLED" | "EXPIRED" | string;
+export type PickupRequestStatus =
+    | "PENDING"
+    | "APPROVED"
+    | "CANCELLED"
+    | "EXPIRED"
+    | string;
 
 export interface PickupRequest {
     id: string;
@@ -145,6 +159,7 @@ export interface SaleTransaction {
     total_amount: number;
     channel: string;
     seller?: string;
+    seller_id?: string;
     shift_id?: string;
     customer_name?: string;
     customer_phone?: string;
@@ -231,6 +246,30 @@ const ACTIVE_MEMBER_TOKENS = new Map<string, string>();
 let START_DATE: string = "2026-08-24";
 let CURRENT_SHIFTS: Shift[] = [];
 let CURRENT_MEMBERS: Member[] = [];
+const ROSTER_UPLOAD_LOCK = "roster-upload";
+
+function acquireRosterUploadLock(owner: string): boolean {
+    const db = getDb();
+    db.exec(
+        "CREATE TABLE IF NOT EXISTS app_process_lock (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at INTEGER NOT NULL)",
+    );
+    const now = Date.now();
+    const result = db
+        .prepare(
+            `INSERT INTO app_process_lock(name, owner, expires_at)
+             VALUES (?, ?, ?)
+             ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at
+             WHERE app_process_lock.expires_at < ?`,
+        )
+        .run(ROSTER_UPLOAD_LOCK, owner, now + 15 * 60 * 1000, now);
+    return result.changes === 1;
+}
+
+function releaseRosterUploadLock(owner: string): void {
+    getDb()
+        .prepare("DELETE FROM app_process_lock WHERE name = ? AND owner = ?")
+        .run(ROSTER_UPLOAD_LOCK, owner);
+}
 const DEFAULT_CA_NGOAI = [
     {
         id: "NGOAI_01",
@@ -307,6 +346,33 @@ let COMPETITION_CONFIG: CompetitionConfig = makeDefaultCompetitionConfig(
     crypto.randomBytes(18).toString("base64url"),
 );
 
+function createDefaultShifts(): Shift[] {
+    return DAYS_LIST.flatMap((day, dayIndex) =>
+        SLOT_KEYS.map((slot, slotIndex) => {
+            const [start_time, end_time] = slot.split(" - ");
+            return {
+                shift_id: `PHONG_${dayIndex + 1}_${slotIndex + 1}`,
+                type: "Phong" as const,
+                type_label: "Ca phòng",
+                day,
+                date: "",
+                location: "Khu vực chính",
+                start_time,
+                end_time,
+                slot,
+                required_count:
+                    (OPTIMIZER_CONFIG.phong_chinh_count || 4) +
+                    (OPTIMIZER_CONFIG.phong_dp_count || 1),
+                chinh_count: OPTIMIZER_CONFIG.phong_chinh_count || 4,
+                dp_count: OPTIMIZER_CONFIG.phong_dp_count || 1,
+                backup_count: OPTIMIZER_CONFIG.phong_dp_count || 1,
+                active: true,
+                note: "Ca được tạo từ lịch rảnh thành viên",
+            };
+        }),
+    );
+}
+
 /** Tuần đang ghi nhận — mọi giao dịch/sự cố mới đều được gắn nhãn tuần này. */
 function currentWeekTag(): string {
     return COMPETITION_CONFIG.active_week || DEFAULT_WEEKS[0];
@@ -319,8 +385,13 @@ function competitionInput(): CompetitionInput {
             LATEST_SCHEDULE_RESULT && LATEST_SCHEDULE_RESULT.assigned_shifts
                 ? LATEST_SCHEDULE_RESULT.assigned_shifts
                 : [],
-        sales: SALES_LOGS,
-        incidents: INCIDENT_LOGS,
+        // Giao dịch mẫu cũ không được tính vào kết quả thi đua thực tế.
+        sales: SALES_LOGS.filter(
+            (tx) => !String(tx.id || "").startsWith("TX_MOCK_"),
+        ),
+        incidents: INCIDENT_LOGS.filter(
+            (inc) => !String(inc.id || "").startsWith("INC_MOCK_"),
+        ),
         config: COMPETITION_CONFIG,
         start_date: START_DATE,
     };
@@ -376,6 +447,7 @@ let INVENTORY_PRODUCTS: Product[] = [];
 let SALES_LOGS: SaleTransaction[] = [];
 let RESTOCK_RECEIPTS: RestockReceipt[] = [];
 let KPI_ATTENDANCE: any[] = [];
+let ATTENDANCE_LOCKS: Record<string, string> = {};
 let SHIFT_AUDITS: ShiftAudit[] = [];
 let ONLINE_ORDERS: OnlineOrder[] = [];
 let PICKUP_REQUESTS: PickupRequest[] = [];
@@ -397,6 +469,7 @@ export interface DailyShiftConfig {
     chinh_count: number;
     dp_count: number;
     active: boolean;
+    active_days?: string[];
 }
 
 export interface OptimizerConfig {
@@ -548,14 +621,20 @@ function applyDailyConfigsToShifts(
     dailyConfigs: DailyShiftConfig[],
 ) {
     if (!dailyConfigs || !dailyConfigs.length) return;
-    const configMap = new Map<number, DailyShiftConfig>();
-    dailyConfigs.forEach((c) => configMap.set(Number(c.shift_num), c));
-
     for (const s of shifts) {
         if (s.type === "Phong") {
             const num = getShiftNumber(s);
-            if (num && configMap.has(num)) {
-                const conf = configMap.get(num)!;
+            const conf = num
+                ? [...dailyConfigs]
+                      .reverse()
+                      .find(
+                          (candidate) =>
+                              Number(candidate.shift_num) === num &&
+                              (!candidate.active_days ||
+                                  candidate.active_days.includes(s.day)),
+                      )
+                : undefined;
+            if (num && conf) {
                 if (conf.start_time) s.start_time = conf.start_time;
                 if (conf.end_time) s.end_time = conf.end_time;
                 const stdSlot =
@@ -576,6 +655,9 @@ function applyDailyConfigsToShifts(
                 s.required_count = chinh + dp;
                 s.backup_count = dp;
                 s.active = conf.active !== false;
+                if (conf.active_days && !conf.active_days.includes(s.day)) {
+                    s.active = false;
+                }
             }
         }
     }
@@ -636,12 +718,10 @@ function requireMember(
     next: express.NextFunction,
 ) {
     if (getMemberId(req)) return next();
-    return res
-        .status(401)
-        .json({
-            success: false,
-            message: "Vui lòng đăng nhập tài khoản thành viên.",
-        });
+    return res.status(401).json({
+        success: false,
+        message: "Vui lòng đăng nhập tài khoản thành viên.",
+    });
 }
 
 // Helpers
@@ -660,6 +740,7 @@ function persist() {
         sales_logs: SALES_LOGS,
         restock_receipts: RESTOCK_RECEIPTS,
         kpi_attendance: KPI_ATTENDANCE,
+        attendance_locks: ATTENDANCE_LOCKS,
         shift_audits: SHIFT_AUDITS,
         online_orders: ONLINE_ORDERS,
         pickup_requests: PICKUP_REQUESTS,
@@ -680,6 +761,257 @@ function persist() {
         console.error(`[state_store] Không lưu được trạng thái: ${e}`);
         return false;
     }
+}
+
+function normalizeMemberKey(value: unknown): string {
+    return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+}
+
+function normalizeMemberPhone(value: unknown): string {
+    const phone = String(value || "").replace(/\D/g, "");
+    return phone.length === 9 ? `0${phone}` : phone;
+}
+
+function mergeMemberData(existing: Member[], incoming: Member[]): Member[] {
+    const merged = existing.map((member) => ({
+        ...member,
+        availability: { ...member.availability },
+        committed_slots: { ...member.committed_slots },
+    }));
+    const byPhone = new Map<string, number>();
+    const byName = new Map<string, number>();
+
+    merged.forEach((member, index) => {
+        const phone = normalizeMemberPhone(member.phone);
+        const name = normalizeMemberKey(member.name);
+        if (phone && phone !== "0900000000") byPhone.set(phone, index);
+        if (name) byName.set(name, index);
+    });
+
+    for (const member of incoming) {
+        const phone = normalizeMemberPhone(member.phone);
+        const name = normalizeMemberKey(member.name);
+        const existingIndex =
+            (phone && phone !== "0900000000"
+                ? byPhone.get(phone)
+                : undefined) ?? (name ? byName.get(name) : undefined);
+
+        if (existingIndex === undefined) {
+            const newMember = { ...member, member_id: "" };
+            merged.push(newMember);
+            const index = merged.length - 1;
+            if (phone && phone !== "0900000000") byPhone.set(phone, index);
+            if (name) byName.set(name, index);
+        } else {
+            merged[existingIndex] = {
+                ...member,
+                member_id: merged[existingIndex].member_id,
+            };
+        }
+    }
+
+    merged.forEach((member, index) => {
+        if (!member.member_id) {
+            member.member_id = `TV${String(index + 1).padStart(3, "0")}`;
+        }
+    });
+    return merged;
+}
+
+function saveMemberSourceFile(members: Member[]) {
+    const rows = members.map((member) => {
+        const row: Record<string, string> = {
+            "Họ và tên": member.name,
+            Ban: member.department,
+            "Nơi ở": member.residence,
+            "Phương tiện": member.vehicle,
+            "Công việc": member.job,
+            Trường: member.school,
+            "Điện thoại": member.phone,
+            "Ứng biến": member.is_standby ? "Có" : "Không",
+        };
+        for (const slot of SLOT_KEYS) {
+            row[`Rảnh ${slot}`] = DAYS_LIST.filter(
+                (day) => member.availability[`${day}|${slot}`],
+            ).join(", ");
+            row[`Cam kết ${slot}`] = DAYS_LIST.filter(
+                (day) => member.committed_slots[`${day}|${slot}`],
+            ).join(", ");
+        }
+        return row;
+    });
+    const workbook = xlsx.utils.book_new();
+    const sheet = xlsx.utils.json_to_sheet(rows);
+    xlsx.utils.book_append_sheet(workbook, sheet, "DANH_SACH_THANH_VIEN");
+    fs.mkdirSync(path.dirname(MEMBER_SOURCE_FILE), { recursive: true });
+    xlsx.writeFile(workbook, MEMBER_SOURCE_FILE);
+}
+
+function saveMembersToDatabase(members: Member[]) {
+    replaceDbMembers(getDb(), members);
+}
+
+function loadMembersFromDatabase(): Member[] | null {
+    const db = getDb();
+    if (countDbMembers(db) === 0) return null;
+    return loadDbMembers(db);
+}
+
+function clearDataForFreshRoster() {
+    const db = getDb();
+    db.transaction(() => {
+        // Xóa bảng con trước để giữ foreign key integrity.
+        db.exec(`
+            DELETE FROM system_notification;
+            DELETE FROM pickup_item;
+            DELETE FROM pickup_request;
+            DELETE FROM online_order_item;
+            DELETE FROM online_order;
+            DELETE FROM shift_audit_item;
+            DELETE FROM shift_audit;
+            DELETE FROM restock_item;
+            DELETE FROM restock_receipt;
+            DELETE FROM sale_transaction;
+            DELETE FROM product;
+            DELETE FROM attendance_record;
+            DELETE FROM kpi_attendance;
+            DELETE FROM shift_incident;
+            DELETE FROM discipline_log;
+            DELETE FROM discipline_score;
+            DELETE FROM competition_week;
+            DELETE FROM shift_assignment;
+            DELETE FROM member_commitment;
+            DELETE FROM member_availability;
+            DELETE FROM member_password;
+            DELETE FROM shift;
+            DELETE FROM member;
+        `);
+    })();
+}
+
+function attendanceLockKey(shiftId: string, memberId: string) {
+    return `${shiftId}|${memberId}`;
+}
+
+function isAttendanceStatus(status: string) {
+    return [
+        "Có mặt",
+        "Vắng không phép",
+        "Vắng đột xuất",
+        "Vắng mặt",
+        "Xin nghỉ trước",
+        "Đi trễ",
+    ].includes(status);
+}
+
+function isAbsentAttendanceStatus(status: string) {
+    return status.includes("Vắng") || status === "Xin nghỉ trước";
+}
+
+function hydrateAttendanceLocks() {
+    for (const incident of INCIDENT_LOGS) {
+        if (
+            incident.shift_id &&
+            incident.absent_member_id &&
+            isAttendanceStatus(incident.status_type)
+        ) {
+            const key = attendanceLockKey(
+                incident.shift_id,
+                incident.absent_member_id,
+            );
+            if (!ATTENDANCE_LOCKS[key]) {
+                ATTENDANCE_LOCKS[key] =
+                    incident.timestamp || new Date().toISOString();
+            }
+        }
+    }
+}
+
+function syncAttendanceReputation(
+    shiftId: string,
+    memberId: string,
+    memberName: string,
+    status: string,
+    performedBy: string,
+    sourcePrefix = "attendance",
+) {
+    const sourceId = `${sourcePrefix}:${shiftId}:${memberId}`;
+    const oldIndex = DISCIPLINE_LOGS.findIndex((log) => log.id === sourceId);
+    let currentPoints = MEMBER_DISCIPLINE_SCORES[memberId] ?? 100;
+    if (oldIndex >= 0) {
+        const oldLog = DISCIPLINE_LOGS[oldIndex];
+        currentPoints = Math.max(0, currentPoints - oldLog.points_change);
+        DISCIPLINE_LOGS.splice(oldIndex, 1);
+    }
+
+    const pointsChange =
+        status === "Đi trễ"
+            ? -3
+            : isAbsentAttendanceStatus(status)
+              ? -10
+              : status === "Mất tập trung" || status === "Bỏ quầy"
+                ? -5
+                : 0;
+    MEMBER_DISCIPLINE_SCORES[memberId] = Math.max(
+        0,
+        currentPoints + pointsChange,
+    );
+    if (pointsChange !== 0) {
+        DISCIPLINE_LOGS.unshift({
+            id: sourceId,
+            timestamp: new Date().toISOString(),
+            member_id: memberId,
+            member_name: memberName,
+            type: pointsChange > 0 ? "Cộng điểm" : "Trừ điểm",
+            points_change: pointsChange,
+            reason: `Điểm danh ca ${shiftId}: ${status}`,
+            performed_by: performedBy,
+            old_points: currentPoints,
+            new_points: MEMBER_DISCIPLINE_SCORES[memberId],
+        });
+    }
+}
+function resetInMemoryOperationalData() {
+    INCIDENT_LOGS = [];
+    SYSTEM_NOTIFICATIONS = [];
+    LATEST_SCHEDULE_RESULT = null;
+    INVENTORY_PRODUCTS = JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
+    SALES_LOGS = JSON.parse(JSON.stringify(DEFAULT_SALES_LOGS));
+    RESTOCK_RECEIPTS = [];
+    KPI_ATTENDANCE = [];
+    ATTENDANCE_LOCKS = {};
+    SHIFT_AUDITS = [];
+    ONLINE_ORDERS = [];
+    PICKUP_REQUESTS = [];
+    MEMBER_DISCIPLINE_SCORES = {};
+    DISCIPLINE_LOGS = [];
+    MEMBER_PASSWORDS = {};
+}
+
+function resetDatabaseOperationalData() {
+    getDb().exec(`
+        DELETE FROM pickup_item;
+        DELETE FROM pickup_request;
+        DELETE FROM online_order_item;
+        DELETE FROM online_order;
+        DELETE FROM shift_audit_item;
+        DELETE FROM shift_audit;
+        DELETE FROM restock_item;
+        DELETE FROM restock_receipt;
+        DELETE FROM sale_transaction;
+        DELETE FROM product;
+        DELETE FROM attendance_record;
+        DELETE FROM kpi_attendance;
+        DELETE FROM shift_incident;
+        DELETE FROM shift_assignment;
+        DELETE FROM shift;
+        DELETE FROM discipline_log;
+        DELETE FROM discipline_score;
+        DELETE FROM competition_week;
+    `);
 }
 
 function applyStartDateToShifts(shifts: Shift[], startDate: string) {
@@ -736,7 +1068,46 @@ function persistFreshSheetToken(savedConfig: any) {
 }
 
 function bootstrapState() {
-    CURRENT_SHIFTS = loadShiftsMaster();
+    const shiftsSourceFile = path.join(process.cwd(), "Danh_sach_ca.xlsx");
+    const defaultMembersSourceFile = path.join(
+        process.cwd(),
+        "Danh_sach_dang_ky_truc_ca_50_nguoi.xlsx",
+    );
+    const hasSourceData =
+        fs.existsSync(shiftsSourceFile) &&
+        (fs.existsSync(defaultMembersSourceFile) ||
+            fs.existsSync(MEMBER_SOURCE_FILE));
+
+    CURRENT_SHIFTS = hasSourceData ? loadShiftsMaster() : [];
+    const dbMembers = loadMembersFromDatabase();
+    if (dbMembers && dbMembers.length > 0) {
+        CURRENT_MEMBERS = dbMembers;
+    }
+
+    if (!hasSourceData && !dbMembers) {
+        CURRENT_MEMBERS = [];
+        CUSTOM_CA_NGOAI = [];
+        ENABLE_CA_NGOAI = false;
+        INCIDENT_LOGS = [];
+        LATEST_SCHEDULE_RESULT = null;
+        INVENTORY_PRODUCTS = [];
+        SALES_LOGS = [];
+        RESTOCK_RECEIPTS = [];
+        KPI_ATTENDANCE = [];
+        ATTENDANCE_LOCKS = {};
+        SHIFT_AUDITS = [];
+        ONLINE_ORDERS = [];
+        PICKUP_REQUESTS = [];
+        MEMBER_DISCIPLINE_SCORES = {};
+        DISCIPLINE_LOGS = [];
+        MEMBER_PASSWORDS = {};
+        OPTIMIZER_CONFIG = JSON.parse(JSON.stringify(DEFAULT_OPTIMIZER_CONFIG));
+        persist();
+        console.log(
+            "[Bootstrap] Chưa có file dữ liệu đầu vào; khởi tạo hệ thống rỗng.",
+        );
+        return;
+    }
 
     // Try loading saved state
     if (fs.existsSync(STATE_FILE)) {
@@ -750,10 +1121,18 @@ function bootstrapState() {
                 if (saved.start_date) {
                     START_DATE = saved.start_date;
                 }
-                if (saved.members && saved.members.length > 0) {
+                if (!dbMembers && saved.members && saved.members.length > 0) {
                     CURRENT_MEMBERS = saved.members;
-                } else {
+                } else if (!dbMembers) {
                     CURRENT_MEMBERS = loadMembersData();
+                }
+                const uploadedMembers = loadMemberSourceFile();
+                if (
+                    !dbMembers &&
+                    uploadedMembers &&
+                    uploadedMembers.length > 0
+                ) {
+                    CURRENT_MEMBERS = uploadedMembers;
                 }
                 CUSTOM_CA_NGOAI =
                     saved.custom_ca_ngoai ||
@@ -762,24 +1141,52 @@ function bootstrapState() {
                     saved.enable_ca_ngoai !== undefined
                         ? saved.enable_ca_ngoai
                         : true;
-                INCIDENT_LOGS = saved.incident_logs || [];
+                INCIDENT_LOGS = (saved.incident_logs || []).filter(
+                    (incident: any) =>
+                        !String(incident.id || "").startsWith("INC_MOCK_"),
+                );
                 LATEST_SCHEDULE_RESULT = saved.schedule || null;
 
                 INVENTORY_PRODUCTS = saved.inventory || [];
-                SALES_LOGS = saved.sales_logs || [];
+                SALES_LOGS = (saved.sales_logs || []).filter(
+                    (sale: any) =>
+                        !String(sale.id || "").startsWith("TX_MOCK_"),
+                );
+                SALES_LOGS.forEach((sale: any) => {
+                    if (!sale.seller_id && sale.seller) {
+                        const seller = CURRENT_MEMBERS.find(
+                            (member) => member.name === sale.seller,
+                        );
+                        if (seller) sale.seller_id = seller.member_id;
+                    }
+                });
                 RESTOCK_RECEIPTS = saved.restock_receipts || [];
                 KPI_ATTENDANCE = saved.kpi_attendance || [];
+                ATTENDANCE_LOCKS = saved.attendance_locks || {};
+                hydrateAttendanceLocks();
                 SHIFT_AUDITS = saved.shift_audits || [];
                 ONLINE_ORDERS = saved.online_orders || [];
                 PICKUP_REQUESTS = saved.pickup_requests || [];
                 // Migration logic for legacy pickup requests
                 PICKUP_REQUESTS.forEach((req: any) => {
-                    if (!req.status || req.status === "Chờ Admin duyệt") req.status = "PENDING";
+                    if (!req.status || req.status === "Chờ Admin duyệt")
+                        req.status = "PENDING";
                     else if (req.status === "Đã duyệt") req.status = "APPROVED";
-                    else if (req.status === "Từ chối" || req.status === "Đã hủy") req.status = "CANCELLED";
+                    else if (
+                        req.status === "Từ chối" ||
+                        req.status === "Đã hủy"
+                    )
+                        req.status = "CANCELLED";
 
-                    if (!req.payment_method || req.payment_method === "VietQR") {
-                        req.payment_method = (req.status === "APPROVED" || req.payment_status === "Đã thanh toán") ? "IMMEDIATE_TRANSFER" : "PAY_LATER";
+                    if (
+                        !req.payment_method ||
+                        req.payment_method === "VietQR"
+                    ) {
+                        req.payment_method =
+                            req.status === "APPROVED" ||
+                            req.payment_status === "Đã thanh toán"
+                                ? "IMMEDIATE_TRANSFER"
+                                : "PAY_LATER";
                     } else if (req.payment_method === "Tiền mặt") {
                         req.payment_method = "PAY_LATER";
                     }
@@ -789,22 +1196,28 @@ function bootstrapState() {
                     }
 
                     if (!req.created_timestamp) {
-                        req.created_timestamp = req.created_at ? (new Date(req.created_at).getTime() || Date.now()) : Date.now();
+                        req.created_timestamp = req.created_at
+                            ? new Date(req.created_at).getTime() || Date.now()
+                            : Date.now();
                     }
                     if (!req.pickup_time) {
-                        req.pickup_time = req.created_at || new Date().toISOString();
+                        req.pickup_time =
+                            req.created_at || new Date().toISOString();
                     }
                 });
                 MEMBER_DISCIPLINE_SCORES = saved.member_discipline_scores || {};
                 DISCIPLINE_LOGS = saved.discipline_logs || [];
                 MEMBER_PASSWORDS = saved.member_passwords || {};
                 if (saved.vietqr_config) {
-                    VIETQR_CONFIG = { ...VIETQR_CONFIG, ...saved.vietqr_config };
+                    VIETQR_CONFIG = {
+                        ...VIETQR_CONFIG,
+                        ...saved.vietqr_config,
+                    };
                 }
                 CURRENT_MEMBERS.forEach((member: any) => {
                     if (!MEMBER_PASSWORDS[member.member_id]) {
                         MEMBER_PASSWORDS[member.member_id] =
-                            `HV@${member.member_id}`;
+                            `HVC@${member.member_id}`;
                     }
                 });
                 COMPETITION_CONFIG = normalizeCompetitionConfig(
@@ -828,6 +1241,12 @@ function bootstrapState() {
                         OPTIMIZER_CONFIG.daily_shift_configs,
                     );
                 }
+                if (CURRENT_SHIFTS.length === 0 && CURRENT_MEMBERS.length > 0) {
+                    CURRENT_SHIFTS = createDefaultShifts();
+                }
+
+                synchronizeMemberReferences();
+                if (!dbMembers) saveMembersToDatabase(CURRENT_MEMBERS);
 
                 console.log(
                     `[app] Đã phục hồi trạng thái (${CURRENT_MEMBERS.length} thành viên, ` +
@@ -842,8 +1261,11 @@ function bootstrapState() {
         }
     }
 
-    // Fallback to defaults
-    CURRENT_MEMBERS = loadMembersData();
+    // Fallback to defaults only when the database has no imported roster.
+    if (!dbMembers) {
+        CURRENT_MEMBERS = loadMembersData();
+        saveMembersToDatabase(CURRENT_MEMBERS);
+    }
     CUSTOM_CA_NGOAI = JSON.parse(JSON.stringify(DEFAULT_CA_NGOAI));
     ENABLE_CA_NGOAI = true;
     INCIDENT_LOGS = [];
@@ -851,7 +1273,12 @@ function bootstrapState() {
     INVENTORY_PRODUCTS = JSON.parse(JSON.stringify(DEFAULT_PRODUCTS));
     SALES_LOGS = JSON.parse(JSON.stringify(DEFAULT_SALES_LOGS));
     KPI_ATTENDANCE = [];
+    ATTENDANCE_LOCKS = {};
     OPTIMIZER_CONFIG = JSON.parse(JSON.stringify(DEFAULT_OPTIMIZER_CONFIG));
+
+    if (CURRENT_SHIFTS.length === 0 && CURRENT_MEMBERS.length > 0) {
+        CURRENT_SHIFTS = createDefaultShifts();
+    }
 
     applyStartDateToShifts(CURRENT_SHIFTS, START_DATE);
     applyDailyConfigsToShifts(
@@ -912,12 +1339,10 @@ app.post("/api/member-auth/login", (req, res) => {
         (item: any) => item.member_id === memberId,
     );
     if (!member || MEMBER_PASSWORDS[memberId] !== password) {
-        return res
-            .status(401)
-            .json({
-                success: false,
-                message: "Mã thành viên hoặc mật khẩu không đúng.",
-            });
+        return res.status(401).json({
+            success: false,
+            message: "Mã thành viên hoặc mật khẩu không đúng.",
+        });
     }
     const token = crypto.randomBytes(24).toString("hex");
     ACTIVE_MEMBER_TOKENS.set(token, memberId);
@@ -960,11 +1385,15 @@ app.post("/api/member-auth/change-password", requireMember, (req, res) => {
     const oldPassword = String(req.body?.old_password || "");
     const newPassword = String(req.body?.new_password || "");
     if (!newPassword || newPassword.length < 4) {
-        return res
-            .status(400)
-            .json({ success: false, message: "Mật khẩu mới phải từ 4 ký tự trở lên." });
+        return res.status(400).json({
+            success: false,
+            message: "Mật khẩu mới phải từ 4 ký tự trở lên.",
+        });
     }
-    if (MEMBER_PASSWORDS[memberId] && MEMBER_PASSWORDS[memberId] !== oldPassword) {
+    if (
+        MEMBER_PASSWORDS[memberId] &&
+        MEMBER_PASSWORDS[memberId] !== oldPassword
+    ) {
         return res
             .status(401)
             .json({ success: false, message: "Mật khẩu cũ không chính xác." });
@@ -990,9 +1419,10 @@ app.post("/api/admin/member-auth/reset-password", requireAdmin, (req, res) => {
     const memberId = String(req.body?.member_id || "").trim();
     const newPassword = String(req.body?.new_password || "");
     if (!memberId || !newPassword) {
-        return res
-            .status(400)
-            .json({ success: false, message: "Thiếu member_id hoặc new_password." });
+        return res.status(400).json({
+            success: false,
+            message: "Thiếu member_id hoặc new_password.",
+        });
     }
     const member = CURRENT_MEMBERS.find((m: any) => m.member_id === memberId);
     if (!member) {
@@ -1235,14 +1665,16 @@ app.post("/api/inventory/restock", requireAdmin, (req, res) => {
         if (Array.isArray(data.items) && data.items.length > 0) {
             incomingItems = data.items;
         } else if (data.product_id) {
-            incomingItems = [{
-                product_id: data.product_id,
-                product_name: data.product_name,
-                unit: data.unit,
-                quantity: data.quantity,
-                unit_cost: data.unit_cost,
-                note: data.item_note || note,
-            }];
+            incomingItems = [
+                {
+                    product_id: data.product_id,
+                    product_name: data.product_name,
+                    unit: data.unit,
+                    quantity: data.quantity,
+                    unit_cost: data.unit_cost,
+                    note: data.item_note || note,
+                },
+            ];
         }
 
         if (incomingItems.length === 0) {
@@ -1269,7 +1701,10 @@ app.post("/api/inventory/restock", requireAdmin, (req, res) => {
         for (const it of incomingItems) {
             const pid = String(it.product_id || "").trim();
             const qty = Math.max(0, parseInt(String(it.quantity || "0"), 10));
-            const unitCost = Math.max(0, parseInt(String(it.unit_cost || "0"), 10));
+            const unitCost = Math.max(
+                0,
+                parseInt(String(it.unit_cost || "0"), 10),
+            );
             const itemNote = String(it.note || "").trim();
 
             if (!pid || qty <= 0) continue;
@@ -1278,7 +1713,8 @@ app.post("/api/inventory/restock", requireAdmin, (req, res) => {
             if (!existingProd) continue;
 
             // Increment initial_stock so current_stock (initial_stock - sold_count) increases cleanly
-            existingProd.initial_stock = (existingProd.initial_stock || 0) + qty;
+            existingProd.initial_stock =
+                (existingProd.initial_stock || 0) + qty;
 
             const itemTotalCost = unitCost * qty;
             totalCost += itemTotalCost;
@@ -1346,12 +1782,17 @@ app.post("/api/inventory/restock/delete", requireAdmin, (req, res) => {
     try {
         const { id } = req.body || {};
         if (!id) {
-            return res.status(400).json({ success: false, message: "Thiếu mã phiếu nhập" });
+            return res
+                .status(400)
+                .json({ success: false, message: "Thiếu mã phiếu nhập" });
         }
 
         const receiptIdx = RESTOCK_RECEIPTS.findIndex((r) => r.id === id);
         if (receiptIdx === -1) {
-            return res.status(404).json({ success: false, message: `Không tìm thấy phiếu nhập ${id}` });
+            return res.status(404).json({
+                success: false,
+                message: `Không tìm thấy phiếu nhập ${id}`,
+            });
         }
 
         // Roll back the stock
@@ -1359,7 +1800,10 @@ app.post("/api/inventory/restock/delete", requireAdmin, (req, res) => {
         for (const it of receipt.items) {
             const prod = INVENTORY_PRODUCTS.find((p) => p.id === it.product_id);
             if (prod) {
-                prod.initial_stock = Math.max(0, (prod.initial_stock || 0) - it.quantity);
+                prod.initial_stock = Math.max(
+                    0,
+                    (prod.initial_stock || 0) - it.quantity,
+                );
             }
         }
 
@@ -1380,14 +1824,57 @@ app.post("/api/inventory/restock/delete", requireAdmin, (req, res) => {
     }
 });
 
+function canonicalMemberIds() {
+    return new Set(CURRENT_MEMBERS.map((member) => member.member_id));
+}
+
+function synchronizeMemberReferences() {
+    const validIds = canonicalMemberIds();
+    DISCIPLINE_LOGS = DISCIPLINE_LOGS.filter((log) =>
+        validIds.has(log.member_id),
+    );
+    INCIDENT_LOGS = INCIDENT_LOGS.filter((log) => {
+        const absentValid =
+            !log.absent_member_id || validIds.has(log.absent_member_id);
+        const replacementValid =
+            !log.replacement_member_id ||
+            validIds.has(log.replacement_member_id);
+        return absentValid && replacementValid;
+    });
+    if (LATEST_SCHEDULE_RESULT?.assigned_shifts) {
+        LATEST_SCHEDULE_RESULT.assigned_shifts.forEach((shift: any) => {
+            shift.assigned_members = (shift.assigned_members || []).filter(
+                (member: any) => validIds.has(member.member_id),
+            );
+            shift.assigned_count = shift.assigned_members.length;
+            shift.chinh_assigned_count = shift.assigned_members.filter(
+                (member: any) => member.role === "Chính",
+            ).length;
+            shift.dp_assigned_count = shift.assigned_members.filter(
+                (member: any) => member.role !== "Chính",
+            ).length;
+        });
+    }
+}
+
+function loadMemberSourceFile() {
+    if (!fs.existsSync(MEMBER_SOURCE_FILE)) return null;
+    const workbook = xlsx.readFile(MEMBER_SOURCE_FILE);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    return parseMembersDf(xlsx.utils.sheet_to_json<any>(sheet), sheet);
+}
+
 // DISCIPLINE / CREDIBILITY MANAGEMENT HELPERS & ENDPOINTS
 function getDisciplineData() {
     const memberStats = CURRENT_MEMBERS.map((m) => {
-        const currentPoints = MEMBER_DISCIPLINE_SCORES[m.member_id] !== undefined
-            ? MEMBER_DISCIPLINE_SCORES[m.member_id]
-            : 100;
+        const currentPoints =
+            MEMBER_DISCIPLINE_SCORES[m.member_id] !== undefined
+                ? MEMBER_DISCIPLINE_SCORES[m.member_id]
+                : 100;
 
-        const memberLogs = DISCIPLINE_LOGS.filter((l) => l.member_id === m.member_id);
+        const memberLogs = DISCIPLINE_LOGS.filter(
+            (l) => l.member_id === m.member_id,
+        );
         const bonusLogs = memberLogs.filter((l) => l.type === "Cộng điểm");
         const penaltyLogs = memberLogs.filter((l) => l.type === "Trừ điểm");
 
@@ -1426,17 +1913,28 @@ function getDisciplineData() {
     memberStats.sort((a, b) => b.points - a.points);
 
     const totalMembers = memberStats.length;
-    const avgPoints = totalMembers > 0
-        ? Math.round((memberStats.reduce((sum, m) => sum + m.points, 0) / totalMembers) * 10) / 10
-        : 100;
+    const avgPoints =
+        totalMembers > 0
+            ? Math.round(
+                  (memberStats.reduce((sum, m) => sum + m.points, 0) /
+                      totalMembers) *
+                      10,
+              ) / 10
+            : 0;
     const excellenceCount = memberStats.filter((m) => m.points >= 100).length;
-    const goodCount = memberStats.filter((m) => m.points >= 85 && m.points < 100).length;
-    const fairCount = memberStats.filter((m) => m.points >= 70 && m.points < 85).length;
+    const goodCount = memberStats.filter(
+        (m) => m.points >= 85 && m.points < 100,
+    ).length;
+    const fairCount = memberStats.filter(
+        (m) => m.points >= 70 && m.points < 85,
+    ).length;
     const warningCount = memberStats.filter((m) => m.points < 70).length;
 
     return {
         members: memberStats,
-        logs: DISCIPLINE_LOGS,
+        logs: DISCIPLINE_LOGS.filter((log) =>
+            canonicalMemberIds().has(log.member_id),
+        ),
         stats: {
             total_members: totalMembers,
             avg_points: avgPoints,
@@ -1458,27 +1956,40 @@ app.get("/api/discipline", (req, res) => {
 
 app.post("/api/discipline/adjust", requireAdmin, (req, res) => {
     try {
-        const { member_id, type, points_change, reason, performed_by } = req.body || {};
+        const { member_id, type, points_change, reason, performed_by } =
+            req.body || {};
 
         if (!member_id) {
-            return res.status(400).json({ success: false, message: "Vui lòng chọn nhân sự cần điều chỉnh điểm uy tín!" });
+            return res.status(400).json({
+                success: false,
+                message: "Vui lòng chọn nhân sự cần điều chỉnh điểm uy tín!",
+            });
         }
 
         const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
         if (!member) {
-            return res.status(404).json({ success: false, message: `Không tìm thấy nhân sự có mã ${member_id}` });
+            return res.status(404).json({
+                success: false,
+                message: `Không tìm thấy nhân sự có mã ${member_id}`,
+            });
         }
 
         const changeVal = Math.abs(parseInt(String(points_change || "0"), 10));
         if (changeVal <= 0) {
-            return res.status(400).json({ success: false, message: "Số điểm thay đổi phải lớn hơn 0!" });
+            return res.status(400).json({
+                success: false,
+                message: "Số điểm thay đổi phải lớn hơn 0!",
+            });
         }
 
         const isDeduct = type === "Trừ điểm" || type === "penalty";
-        const actionType: "Cộng điểm" | "Trừ điểm" = isDeduct ? "Trừ điểm" : "Cộng điểm";
-        const oldPoints = MEMBER_DISCIPLINE_SCORES[member_id] !== undefined
-            ? MEMBER_DISCIPLINE_SCORES[member_id]
-            : 100;
+        const actionType: "Cộng điểm" | "Trừ điểm" = isDeduct
+            ? "Trừ điểm"
+            : "Cộng điểm";
+        const oldPoints =
+            MEMBER_DISCIPLINE_SCORES[member_id] !== undefined
+                ? MEMBER_DISCIPLINE_SCORES[member_id]
+                : 100;
 
         const delta = isDeduct ? -changeVal : changeVal;
         const newPoints = Math.max(0, oldPoints + delta);
@@ -1531,17 +2042,22 @@ app.post("/api/discipline/reset-member", requireAdmin, (req, res) => {
     try {
         const { member_id } = req.body || {};
         if (!member_id) {
-            return res.status(400).json({ success: false, message: "Vui lòng chọn nhân sự" });
+            return res
+                .status(400)
+                .json({ success: false, message: "Vui lòng chọn nhân sự" });
         }
 
         const member = CURRENT_MEMBERS.find((m) => m.member_id === member_id);
         if (!member) {
-            return res.status(404).json({ success: false, message: "Không tìm thấy nhân sự" });
+            return res
+                .status(404)
+                .json({ success: false, message: "Không tìm thấy nhân sự" });
         }
 
-        const oldPoints = MEMBER_DISCIPLINE_SCORES[member_id] !== undefined
-            ? MEMBER_DISCIPLINE_SCORES[member_id]
-            : 100;
+        const oldPoints =
+            MEMBER_DISCIPLINE_SCORES[member_id] !== undefined
+                ? MEMBER_DISCIPLINE_SCORES[member_id]
+                : 100;
 
         MEMBER_DISCIPLINE_SCORES[member_id] = 100;
 
@@ -1589,18 +2105,26 @@ app.post("/api/discipline/delete-log", requireAdmin, (req, res) => {
     try {
         const { log_id } = req.body || {};
         if (!log_id) {
-            return res.status(400).json({ success: false, message: "Thiếu mã nhật ký" });
+            return res
+                .status(400)
+                .json({ success: false, message: "Thiếu mã nhật ký" });
         }
 
         const idx = DISCIPLINE_LOGS.findIndex((l) => l.id === log_id);
         if (idx === -1) {
-            return res.status(404).json({ success: false, message: "Không tìm thấy nhật ký này" });
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy nhật ký này",
+            });
         }
 
         const targetLog = DISCIPLINE_LOGS[idx];
         const memberId = targetLog.member_id;
         if (memberId && MEMBER_DISCIPLINE_SCORES[memberId] !== undefined) {
-            MEMBER_DISCIPLINE_SCORES[memberId] = Math.max(0, MEMBER_DISCIPLINE_SCORES[memberId] - targetLog.points_change);
+            MEMBER_DISCIPLINE_SCORES[memberId] = Math.max(
+                0,
+                MEMBER_DISCIPLINE_SCORES[memberId] - targetLog.points_change,
+            );
         }
 
         DISCIPLINE_LOGS.splice(idx, 1);
@@ -2607,9 +3131,10 @@ function matchShiftByPickupTime(
 ): { shift_id: string; shift_label: string } {
     const fallback = {
         shift_id: shifts && shifts[0] ? shifts[0].shift_id : "CA001",
-        shift_label: shifts && shifts[0]
-            ? `${shifts[0].day} (${shifts[0].date || ""}) - ${shifts[0].slot || shifts[0].start_time}`
-            : "Ca 1",
+        shift_label:
+            shifts && shifts[0]
+                ? `${shifts[0].day} (${shifts[0].date || ""}) - ${shifts[0].slot || shifts[0].start_time}`
+                : "Ca 1",
     };
 
     if (!pickupTimeStr || !shifts || shifts.length === 0) {
@@ -2658,8 +3183,14 @@ function matchShiftByPickupTime(
 
     // Filter shifts for this date / day
     let candidateShifts = shifts.filter((s) => {
-        if (normDate && s.date && normalizeDateStr(s.date) === normDate) return true;
-        if (dayOfWeekStr && s.day && s.day.toLowerCase().includes(dayOfWeekStr.toLowerCase())) return true;
+        if (normDate && s.date && normalizeDateStr(s.date) === normDate)
+            return true;
+        if (
+            dayOfWeekStr &&
+            s.day &&
+            s.day.toLowerCase().includes(dayOfWeekStr.toLowerCase())
+        )
+            return true;
         return false;
     });
 
@@ -2778,7 +3309,7 @@ function addPickupSales(request: PickupRequest) {
         timeZone: "Asia/Ho_Chi_Minh",
     });
     const exists = SALES_LOGS.some((s) => s.note === `Request ${request.id}`);
-    if (exists) return;
+    if (exists) return false;
 
     request.items.forEach((item) =>
         SALES_LOGS.push({
@@ -2791,6 +3322,8 @@ function addPickupSales(request: PickupRequest) {
             total_amount: item.total_price,
             channel: "Member Pickup",
             seller: request.member_name,
+            seller_id: request.member_id,
+            shift_id: request.shift_id,
             customer_name: request.member_name,
             payment_method: request.payment_method,
             note: `Request ${request.id}`,
@@ -2798,10 +3331,21 @@ function addPickupSales(request: PickupRequest) {
             week: currentWeekTag(),
         }),
     );
+    return true;
 }
 
 function removePickupSales(requestId: string) {
     SALES_LOGS = SALES_LOGS.filter((s) => s.note !== `Request ${requestId}`);
+}
+
+function syncApprovedPickupSales(): boolean {
+    let changed = false;
+    PICKUP_REQUESTS.forEach((request) => {
+        const isApproved =
+            request.status === "APPROVED" || request.status === "Đã duyệt";
+        if (isApproved && addPickupSales(request)) changed = true;
+    });
+    return changed;
 }
 
 app.get("/api/vietqr-config", (_req, res) => {
@@ -2837,18 +3381,17 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
         (item: any) => item.member_id === memberId,
     );
     if (!member) {
-        return res
-            .status(404)
-            .json({ success: false, message: "Không tìm thấy thông tin thành viên." });
+        return res.status(404).json({
+            success: false,
+            message: "Không tìm thấy thông tin thành viên.",
+        });
     }
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) {
-        return res
-            .status(400)
-            .json({
-                success: false,
-                message: "Đơn hàng phải có ít nhất một sản phẩm.",
-            });
+        return res.status(400).json({
+            success: false,
+            message: "Đơn hàng phải có ít nhất một sản phẩm.",
+        });
     }
     const requestItems: PickupRequestItem[] = [];
     for (const raw of items) {
@@ -2857,22 +3400,18 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
         );
         const quantity = Number(raw.quantity);
         if (!product || !Number.isInteger(quantity) || quantity < 1) {
-            return res
-                .status(400)
-                .json({
-                    success: false,
-                    message: "Sản phẩm hoặc số lượng không hợp lệ.",
-                });
+            return res.status(400).json({
+                success: false,
+                message: "Sản phẩm hoặc số lượng không hợp lệ.",
+            });
         }
         const available =
             (product.initial_stock || 0) - (product.sold_count || 0);
         if (quantity > available) {
-            return res
-                .status(409)
-                .json({
-                    success: false,
-                    message: `Sản phẩm "${product.name}" chỉ còn ${available} ${product.unit || "món"} trong kho (bạn yêu cầu ${quantity}).`,
-                });
+            return res.status(409).json({
+                success: false,
+                message: `Sản phẩm "${product.name}" chỉ còn ${available} ${product.unit || "món"} trong kho (bạn yêu cầu ${quantity}).`,
+            });
         }
         requestItems.push({
             product_id: product.id,
@@ -2886,7 +3425,9 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
     const total = requestItems.reduce((sum, item) => sum + item.total_price, 0);
 
     // Thời gian lấy hàng & Ca trực tự động
-    const rawPickupTime = req.body?.pickup_time ? String(req.body.pickup_time).trim() : "";
+    const rawPickupTime = req.body?.pickup_time
+        ? String(req.body.pickup_time).trim()
+        : "";
     const pickup_time = rawPickupTime || new Date().toISOString();
     const matchedShift = matchShiftByPickupTime(pickup_time, CURRENT_SHIFTS);
 
@@ -2895,8 +3436,10 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
     const isImmediate =
         rawPayment === "IMMEDIATE_TRANSFER" ||
         rawPayment === "qr_now" ||
-        rawPayment === "VietQR" && req.body?.payment_timing !== "later";
-    const payment_method: PickupPaymentMethod = isImmediate ? "IMMEDIATE_TRANSFER" : "PAY_LATER";
+        (rawPayment === "VietQR" && req.body?.payment_timing !== "later");
+    const payment_method: PickupPaymentMethod = isImmediate
+        ? "IMMEDIATE_TRANSFER"
+        : "PAY_LATER";
 
     let payment_status = "";
     let status: PickupRequestStatus = "PENDING";
@@ -2947,6 +3490,9 @@ app.post("/api/pickup-requests", requireMember, (req, res) => {
     };
 
     PICKUP_REQUESTS.unshift(request);
+    if (request.status === "APPROVED") {
+        addPickupSales(request);
+    }
     persist();
     res.json({
         success: true,
@@ -2969,14 +3515,23 @@ app.get("/api/pickup-requests", requireMember, (req, res) => {
         0,
     );
     const paidAmount = memberRequests
-        .filter((r) => r.payment_status === "Đã thanh toán" || r.status === "APPROVED" || r.status === "Đã duyệt")
+        .filter(
+            (r) =>
+                r.payment_status === "Đã thanh toán" ||
+                r.status === "APPROVED" ||
+                r.status === "Đã duyệt",
+        )
         .reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingAmount = memberRequests
         .filter(
             (r) =>
                 r.status === "PENDING" ||
                 r.status === "Chờ Admin duyệt" ||
-                (r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy"),
+                (r.payment_status !== "Đã thanh toán" &&
+                    r.status !== "CANCELLED" &&
+                    r.status !== "EXPIRED" &&
+                    r.status !== "Từ chối" &&
+                    r.status !== "Đã hủy"),
         )
         .reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingApprovalCount = memberRequests.filter(
@@ -3013,13 +3568,16 @@ app.post(
             return res
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy request." });
-        if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Từ chối" || request.status === "Đã hủy")
-            return res
-                .status(409)
-                .json({
-                    success: false,
-                    message: "Request này đã bị từ chối, đã hủy hoặc đã hết hạn.",
-                });
+        if (
+            request.status === "CANCELLED" ||
+            request.status === "EXPIRED" ||
+            request.status === "Từ chối" ||
+            request.status === "Đã hủy"
+        )
+            return res.status(409).json({
+                success: false,
+                message: "Request này đã bị từ chối, đã hủy hoặc đã hết hạn.",
+            });
 
         const action = req.body?.action;
         if (action === "pay_later") {
@@ -3048,7 +3606,12 @@ app.post("/api/pickup-requests/:id/auto-confirm", requireMember, (req, res) => {
             .status(404)
             .json({ success: false, message: "Không tìm thấy đơn hàng." });
     }
-    if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Từ chối" || request.status === "Đã hủy") {
+    if (
+        request.status === "CANCELLED" ||
+        request.status === "EXPIRED" ||
+        request.status === "Từ chối" ||
+        request.status === "Đã hủy"
+    ) {
         return res.status(409).json({
             success: false,
             message: "Đơn hàng này đã bị từ chối, đã hủy hoặc đã hết hạn.",
@@ -3058,14 +3621,17 @@ app.post("/api/pickup-requests/:id/auto-confirm", requireMember, (req, res) => {
     // Nếu chưa trừ kho, thực hiện trừ kho bây giờ
     if (!request.inventory_deducted) {
         for (const item of request.items) {
-            const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+            const product = INVENTORY_PRODUCTS.find(
+                (p) => p.id === item.product_id,
+            );
             if (!product) {
                 return res.status(409).json({
                     success: false,
                     message: `Không thể xác nhận: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
                 });
             }
-            const available = (product.initial_stock || 0) - (product.sold_count || 0);
+            const available =
+                (product.initial_stock || 0) - (product.sold_count || 0);
             if (item.quantity > available) {
                 return res.status(409).json({
                     success: false,
@@ -3074,7 +3640,9 @@ app.post("/api/pickup-requests/:id/auto-confirm", requireMember, (req, res) => {
             }
         }
         request.items.forEach((item) => {
-            const product = INVENTORY_PRODUCTS.find(p => p.id === item.product_id);
+            const product = INVENTORY_PRODUCTS.find(
+                (p) => p.id === item.product_id,
+            );
             if (product) {
                 product.sold_count = (product.sold_count || 0) + item.quantity;
             }
@@ -3101,15 +3669,17 @@ app.post("/api/pickup-requests/:id/cancel", requireMember, (req, res) => {
     if (!isAdmin) {
         return res.status(403).json({
             success: false,
-            message: "Lịch sử đã ghi nhận. Thành viên không thể hủy đơn, chỉ Quản trị viên (Admin) mới có quyền hủy đơn và hoàn trả kho.",
+            message:
+                "Lịch sử đã ghi nhận. Thành viên không thể hủy đơn, chỉ Quản trị viên (Admin) mới có quyền hủy đơn và hoàn trả kho.",
         });
     }
 
     const request = PICKUP_REQUESTS.find((item) => item.id === req.params.id);
     if (!request) {
-        return res
-            .status(404)
-            .json({ success: false, message: "Không tìm thấy yêu cầu lấy hàng." });
+        return res.status(404).json({
+            success: false,
+            message: "Không tìm thấy yêu cầu lấy hàng.",
+        });
     }
     if (request.status === "CANCELLED" || request.status === "Đã hủy") {
         return res.status(409).json({
@@ -3146,9 +3716,10 @@ app.post("/api/pickup-requests/:id/cancel", requireMember, (req, res) => {
     res.json({
         success: true,
         request,
-        message: restoredCount > 0
-            ? `Admin đã hủy đơn ${request.id} và hoàn trả ${restoredCount} sản phẩm vào tồn kho.`
-            : `Admin đã hủy đơn ${request.id} thành công.`,
+        message:
+            restoredCount > 0
+                ? `Admin đã hủy đơn ${request.id} và hoàn trả ${restoredCount} sản phẩm vào tồn kho.`
+                : `Admin đã hủy đơn ${request.id} thành công.`,
     });
 });
 
@@ -3164,10 +3735,16 @@ app.post(
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy đơn hàng." });
         }
-        if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Đã hủy" || request.status === "Từ chối") {
+        if (
+            request.status === "CANCELLED" ||
+            request.status === "EXPIRED" ||
+            request.status === "Đã hủy" ||
+            request.status === "Từ chối"
+        ) {
             return res.status(409).json({
                 success: false,
-                message: "Đơn hàng này đã bị hủy, từ chối hoặc đã hết hạn quá 3 ngày.",
+                message:
+                    "Đơn hàng này đã bị hủy, từ chối hoặc đã hết hạn quá 3 ngày.",
             });
         }
         if (request.status === "APPROVED" || request.status === "Đã duyệt") {
@@ -3180,14 +3757,17 @@ app.post(
         // Nếu chưa trừ kho (ví dụ đơn Thanh toán sau), kiểm tra và trừ tồn kho ngay
         if (!request.inventory_deducted) {
             for (const item of request.items) {
-                const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                const product = INVENTORY_PRODUCTS.find(
+                    (p) => p.id === item.product_id,
+                );
                 if (!product) {
                     return res.status(409).json({
                         success: false,
                         message: `Không thể duyệt: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
                     });
                 }
-                const available = (product.initial_stock || 0) - (product.sold_count || 0);
+                const available =
+                    (product.initial_stock || 0) - (product.sold_count || 0);
                 if (item.quantity > available) {
                     return res.status(409).json({
                         success: false,
@@ -3197,9 +3777,12 @@ app.post(
             }
 
             request.items.forEach((item) => {
-                const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                const product = INVENTORY_PRODUCTS.find(
+                    (p) => p.id === item.product_id,
+                );
                 if (product) {
-                    product.sold_count = (product.sold_count || 0) + item.quantity;
+                    product.sold_count =
+                        (product.sold_count || 0) + item.quantity;
                 }
             });
             request.inventory_deducted = true;
@@ -3210,6 +3793,7 @@ app.post(
         request.approved_at = new Date().toLocaleString("vi-VN", {
             timeZone: "Asia/Ho_Chi_Minh",
         });
+        addPickupSales(request);
         // QUY TẮC QUAN TRỌNG: KHÔNG ĐƯỢC CỘNG VÀO DOANH SỐ CỦA CA TRỰC ĐÓ
         persist();
         res.json({
@@ -3222,18 +3806,22 @@ app.post(
 
 // Alias /approve cho admin
 app.post("/api/admin/pickup-requests/:id/approve", requireAdmin, (req, res) => {
-    const request = PICKUP_REQUESTS.find(
-        (item) => item.id === req.params.id,
-    );
+    const request = PICKUP_REQUESTS.find((item) => item.id === req.params.id);
     if (!request) {
         return res
             .status(404)
             .json({ success: false, message: "Không tìm thấy đơn hàng." });
     }
-    if (request.status === "CANCELLED" || request.status === "EXPIRED" || request.status === "Đã hủy" || request.status === "Từ chối") {
+    if (
+        request.status === "CANCELLED" ||
+        request.status === "EXPIRED" ||
+        request.status === "Đã hủy" ||
+        request.status === "Từ chối"
+    ) {
         return res.status(409).json({
             success: false,
-            message: "Đơn hàng này đã bị hủy, từ chối hoặc đã hết hạn quá 3 ngày.",
+            message:
+                "Đơn hàng này đã bị hủy, từ chối hoặc đã hết hạn quá 3 ngày.",
         });
     }
     if (request.status === "APPROVED" || request.status === "Đã duyệt") {
@@ -3245,14 +3833,17 @@ app.post("/api/admin/pickup-requests/:id/approve", requireAdmin, (req, res) => {
 
     if (!request.inventory_deducted) {
         for (const item of request.items) {
-            const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+            const product = INVENTORY_PRODUCTS.find(
+                (p) => p.id === item.product_id,
+            );
             if (!product) {
                 return res.status(409).json({
                     success: false,
                     message: `Không thể duyệt: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
                 });
             }
-            const available = (product.initial_stock || 0) - (product.sold_count || 0);
+            const available =
+                (product.initial_stock || 0) - (product.sold_count || 0);
             if (item.quantity > available) {
                 return res.status(409).json({
                     success: false,
@@ -3262,7 +3853,9 @@ app.post("/api/admin/pickup-requests/:id/approve", requireAdmin, (req, res) => {
         }
 
         request.items.forEach((item) => {
-            const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+            const product = INVENTORY_PRODUCTS.find(
+                (p) => p.id === item.product_id,
+            );
             if (product) {
                 product.sold_count = (product.sold_count || 0) + item.quantity;
             }
@@ -3275,6 +3868,7 @@ app.post("/api/admin/pickup-requests/:id/approve", requireAdmin, (req, res) => {
     request.approved_at = new Date().toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
     });
+    addPickupSales(request);
     persist();
     res.json({
         success: true,
@@ -3283,57 +3877,52 @@ app.post("/api/admin/pickup-requests/:id/approve", requireAdmin, (req, res) => {
     });
 });
 
-app.post(
-    "/api/admin/pickup-requests/:id/cancel",
-    requireAdmin,
-    (req, res) => {
-        const request = PICKUP_REQUESTS.find(
-            (item) => item.id === req.params.id,
-        );
-        if (!request) {
-            return res
-                .status(404)
-                .json({ success: false, message: "Không tìm thấy đơn hàng." });
-        }
-        if (request.status === "CANCELLED" || request.status === "Đã hủy") {
-            return res.status(409).json({
-                success: false,
-                message: "Đơn hàng này đã được hủy trước đó.",
-            });
-        }
-        // Hoàn lại kho nếu đã từng trừ kho
-        let restoredCount = 0;
-        if (request.inventory_deducted) {
-            request.items.forEach((item) => {
-                const product = INVENTORY_PRODUCTS.find(
-                    (p) => p.id === item.product_id,
-                );
-                if (product) {
-                    product.sold_count = Math.max(
-                        0,
-                        (product.sold_count || 0) - item.quantity,
-                    );
-                    restoredCount += item.quantity;
-                }
-            });
-            request.inventory_deducted = false;
-        }
-        request.status = "CANCELLED";
-        request.payment_status = "Đã hủy";
-        request.cancelled_at = new Date().toLocaleString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
+app.post("/api/admin/pickup-requests/:id/cancel", requireAdmin, (req, res) => {
+    const request = PICKUP_REQUESTS.find((item) => item.id === req.params.id);
+    if (!request) {
+        return res
+            .status(404)
+            .json({ success: false, message: "Không tìm thấy đơn hàng." });
+    }
+    if (request.status === "CANCELLED" || request.status === "Đã hủy") {
+        return res.status(409).json({
+            success: false,
+            message: "Đơn hàng này đã được hủy trước đó.",
         });
-        removePickupSales(request.id);
-        persist();
-        res.json({
-            success: true,
-            request,
-            message: restoredCount > 0
+    }
+    // Hoàn lại kho nếu đã từng trừ kho
+    let restoredCount = 0;
+    if (request.inventory_deducted) {
+        request.items.forEach((item) => {
+            const product = INVENTORY_PRODUCTS.find(
+                (p) => p.id === item.product_id,
+            );
+            if (product) {
+                product.sold_count = Math.max(
+                    0,
+                    (product.sold_count || 0) - item.quantity,
+                );
+                restoredCount += item.quantity;
+            }
+        });
+        request.inventory_deducted = false;
+    }
+    request.status = "CANCELLED";
+    request.payment_status = "Đã hủy";
+    request.cancelled_at = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+    });
+    removePickupSales(request.id);
+    persist();
+    res.json({
+        success: true,
+        request,
+        message:
+            restoredCount > 0
                 ? `Admin đã hủy đơn ${request.id} và hoàn trả lại ${restoredCount} sản phẩm vào tồn kho.`
                 : `Admin đã hủy đơn ${request.id} thành công.`,
-        });
-    },
-);
+    });
+});
 
 app.get("/api/admin/pickup-requests", requireAdmin, (_req, res) => {
     checkAndExpirePickupRequests();
@@ -3342,17 +3931,22 @@ app.get("/api/admin/pickup-requests", requireAdmin, (_req, res) => {
         (sum, r) => sum + (r.total_amount || 0),
         0,
     );
-    const paidAmount = PICKUP_REQUESTS
-        .filter((r) => r.payment_status === "Đã thanh toán" || r.status === "APPROVED" || r.status === "Đã duyệt")
-        .reduce((sum, r) => sum + (r.total_amount || 0), 0);
-    const pendingAmount = PICKUP_REQUESTS
-        .filter(
-            (r) =>
-                r.status === "PENDING" ||
-                r.status === "Chờ Admin duyệt" ||
-                (r.payment_status !== "Đã thanh toán" && r.status !== "CANCELLED" && r.status !== "EXPIRED" && r.status !== "Từ chối" && r.status !== "Đã hủy"),
-        )
-        .reduce((sum, r) => sum + (r.total_amount || 0), 0);
+    const paidAmount = PICKUP_REQUESTS.filter(
+        (r) =>
+            r.payment_status === "Đã thanh toán" ||
+            r.status === "APPROVED" ||
+            r.status === "Đã duyệt",
+    ).reduce((sum, r) => sum + (r.total_amount || 0), 0);
+    const pendingAmount = PICKUP_REQUESTS.filter(
+        (r) =>
+            r.status === "PENDING" ||
+            r.status === "Chờ Admin duyệt" ||
+            (r.payment_status !== "Đã thanh toán" &&
+                r.status !== "CANCELLED" &&
+                r.status !== "EXPIRED" &&
+                r.status !== "Từ chối" &&
+                r.status !== "Đã hủy"),
+    ).reduce((sum, r) => sum + (r.total_amount || 0), 0);
     const pendingApprovalCount = PICKUP_REQUESTS.filter(
         (r) => r.status === "PENDING" || r.status === "Chờ Admin duyệt",
     ).length;
@@ -3381,26 +3975,31 @@ app.post(
             return res
                 .status(404)
                 .json({ success: false, message: "Không tìm thấy request." });
-        if (request.status !== "PENDING" && request.status !== "Chờ Admin duyệt")
-            return res
-                .status(409)
-                .json({
-                    success: false,
-                    message: "Request này đã được xử lý trước đó hoặc đã hết hạn.",
-                });
+        if (
+            request.status !== "PENDING" &&
+            request.status !== "Chờ Admin duyệt"
+        )
+            return res.status(409).json({
+                success: false,
+                message: "Request này đã được xử lý trước đó hoặc đã hết hạn.",
+            });
 
         const decision = req.body?.decision;
         if (decision === "approve") {
             if (!request.inventory_deducted) {
                 for (const item of request.items) {
-                    const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                    const product = INVENTORY_PRODUCTS.find(
+                        (p) => p.id === item.product_id,
+                    );
                     if (!product) {
                         return res.status(409).json({
                             success: false,
                             message: `Không thể duyệt: Không tìm thấy sản phẩm "${item.product_name}" trong kho.`,
                         });
                     }
-                    const available = (product.initial_stock || 0) - (product.sold_count || 0);
+                    const available =
+                        (product.initial_stock || 0) -
+                        (product.sold_count || 0);
                     if (item.quantity > available) {
                         return res.status(409).json({
                             success: false,
@@ -3409,9 +4008,12 @@ app.post(
                     }
                 }
                 request.items.forEach((item) => {
-                    const product = INVENTORY_PRODUCTS.find((p) => p.id === item.product_id);
+                    const product = INVENTORY_PRODUCTS.find(
+                        (p) => p.id === item.product_id,
+                    );
                     if (product) {
-                        product.sold_count = (product.sold_count || 0) + item.quantity;
+                        product.sold_count =
+                            (product.sold_count || 0) + item.quantity;
                     }
                 });
                 request.inventory_deducted = true;
@@ -3421,6 +4023,7 @@ app.post(
             request.approved_at = new Date().toLocaleString("vi-VN", {
                 timeZone: "Asia/Ho_Chi_Minh",
             });
+            addPickupSales(request);
         } else if (decision === "reject") {
             if (request.inventory_deducted) {
                 request.items.forEach((item) => {
@@ -3683,7 +4286,7 @@ app.post("/api/online-orders/delete", requireAdmin, (req, res) => {
             PICKUP_REQUESTS = [];
             MEMBER_PASSWORDS = {};
             CURRENT_MEMBERS.forEach((member: any) => {
-                MEMBER_PASSWORDS[member.member_id] = `HV@${member.member_id}`;
+                MEMBER_PASSWORDS[member.member_id] = `HVC@${member.member_id}`;
             });
         } else if (order_id) {
             ONLINE_ORDERS = ONLINE_ORDERS.filter((o) => o.id !== order_id);
@@ -4031,6 +4634,7 @@ app.post("/api/inventory/checkout", (req, res) => {
             total_amount: quantity * product.price,
             channel,
             seller,
+            seller_id: String(data.seller_id || "").trim() || undefined,
             shift_id,
             customer_name,
             customer_phone,
@@ -4208,9 +4812,20 @@ app.post("/api/inventory/audit-shift", (req, res) => {
     let auditor = String(data.auditor || "").trim();
 
     // Tự động gán Ca trưởng là người kiểm hàng nếu chưa chọn hoặc để mặc định
-    if ((!auditor || auditor === "Người kiểm hàng" || auditor === "Bộ phận kiểm hàng" || auditor === "Người kiểm hàng ca") && LATEST_SCHEDULE_RESULT?.assigned_shifts) {
-        const foundShift = LATEST_SCHEDULE_RESULT.assigned_shifts.find((s: any) => s.shift_id === shift_id);
-        if (foundShift?.shift_leader && foundShift.shift_leader !== "Chưa chỉ định") {
+    if (
+        (!auditor ||
+            auditor === "Người kiểm hàng" ||
+            auditor === "Bộ phận kiểm hàng" ||
+            auditor === "Người kiểm hàng ca") &&
+        LATEST_SCHEDULE_RESULT?.assigned_shifts
+    ) {
+        const foundShift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
+            (s: any) => s.shift_id === shift_id,
+        );
+        if (
+            foundShift?.shift_leader &&
+            foundShift.shift_leader !== "Chưa chỉ định"
+        ) {
             auditor = foundShift.shift_leader;
         }
     }
@@ -4220,7 +4835,9 @@ app.post("/api/inventory/audit-shift", (req, res) => {
 
     const itemsData = Array.isArray(data.items) ? data.items : [];
     const summary_note = String(data.summary_note || "").trim();
-    const target_rollover_shift = String(data.carried_forward_shift || "").trim();
+    const target_rollover_shift = String(
+        data.carried_forward_shift || "",
+    ).trim();
 
     const timestamp = new Date().toLocaleString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
@@ -4256,8 +4873,10 @@ app.post("/api/inventory/audit-shift", (req, res) => {
             }
         }
 
-        const unitPrice = parseInt(it.unit_price || "0", 10) ||
-            (INVENTORY_PRODUCTS.find((p) => p.id === it.product_id)?.price || 0);
+        const unitPrice =
+            parseInt(it.unit_price || "0", 10) ||
+            INVENTORY_PRODUCTS.find((p) => p.id === it.product_id)?.price ||
+            0;
 
         return {
             product_id: String(it.product_id || ""),
@@ -4269,11 +4888,21 @@ app.post("/api/inventory/audit-shift", (req, res) => {
             carried_from_prev: parseInt(it.carried_from_prev || "0", 10) || 0,
             resolution_type: resType,
             resolution_note: String(it.resolution_note || it.note || "").trim(),
-            resolved_by: String(it.resolved_by || (isResolved ? auditor : "")).trim(),
-            resolved_at: isResolved ? timestamp : (it.resolved_at || ""),
+            resolved_by: String(
+                it.resolved_by || (isResolved ? auditor : ""),
+            ).trim(),
+            resolved_at: isResolved ? timestamp : it.resolved_at || "",
             is_resolved: isResolved,
-            carry_to_shift: String(it.carry_to_shift || (resType === "Cộng dồn chuyển ca sau" ? target_rollover_shift : "")).trim(),
-            carry_qty: resType === "Cộng dồn chuyển ca sau" ? Math.abs(diff) : (parseInt(it.carry_qty || "0", 10) || 0),
+            carry_to_shift: String(
+                it.carry_to_shift ||
+                    (resType === "Cộng dồn chuyển ca sau"
+                        ? target_rollover_shift
+                        : ""),
+            ).trim(),
+            carry_qty:
+                resType === "Cộng dồn chuyển ca sau"
+                    ? Math.abs(diff)
+                    : parseInt(it.carry_qty || "0", 10) || 0,
             unit_price: unitPrice,
             note: String(it.note || "").trim(),
         };
@@ -4286,7 +4915,11 @@ app.post("/api/inventory/audit-shift", (req, res) => {
     if (hasDiff) {
         if (unresolvedCount === 0) {
             overall_status = "ĐÃ XỬ LÝ XONG";
-        } else if (auditItems.some((i) => i.resolution_type === "Cộng dồn chuyển ca sau")) {
+        } else if (
+            auditItems.some(
+                (i) => i.resolution_type === "Cộng dồn chuyển ca sau",
+            )
+        ) {
             overall_status = "CỘNG DỒN CHUYỂN CA";
         } else {
             overall_status = "CHỜ BÙ / XỬ LÝ";
@@ -4333,14 +4966,26 @@ app.get("/api/inventory/audit-shift", (req, res) => {
 });
 
 app.post("/api/inventory/audit-shift/update-resolution", (req, res) => {
-    const { audit_id, product_id, resolution_type, resolution_note, resolved_by, carry_to_shift } = req.body || {};
+    const {
+        audit_id,
+        product_id,
+        resolution_type,
+        resolution_note,
+        resolved_by,
+        carry_to_shift,
+    } = req.body || {};
     if (!audit_id) {
-        return res.status(400).json({ success: false, message: "Thiếu audit_id" });
+        return res
+            .status(400)
+            .json({ success: false, message: "Thiếu audit_id" });
     }
 
     const audit = SHIFT_AUDITS.find((a) => a.id === audit_id);
     if (!audit) {
-        return res.status(404).json({ success: false, message: `Không tìm thấy báo cáo kiểm kê ${audit_id}` });
+        return res.status(404).json({
+            success: false,
+            message: `Không tìm thấy báo cáo kiểm kê ${audit_id}`,
+        });
     }
 
     const timestamp = new Date().toLocaleString("vi-VN", {
@@ -4360,12 +5005,17 @@ app.post("/api/inventory/audit-shift/update-resolution", (req, res) => {
         type === "Đã trừ quỹ ca";
 
     if (product_id) {
-        const item = (audit.items || []).find((it) => it.product_id === product_id);
+        const item = (audit.items || []).find(
+            (it) => it.product_id === product_id,
+        );
         if (item) {
-            item.resolution_type = resolution_type || item.resolution_type || "Chưa xử lý";
-            if (resolution_note !== undefined) item.resolution_note = resolution_note;
+            item.resolution_type =
+                resolution_type || item.resolution_type || "Chưa xử lý";
+            if (resolution_note !== undefined)
+                item.resolution_note = resolution_note;
             if (resolved_by !== undefined) item.resolved_by = resolved_by;
-            if (carry_to_shift !== undefined) item.carry_to_shift = carry_to_shift;
+            if (carry_to_shift !== undefined)
+                item.carry_to_shift = carry_to_shift;
             item.is_resolved = isResolvedType(item.resolution_type);
             item.resolved_at = item.is_resolved ? timestamp : "";
         }
@@ -4374,9 +5024,11 @@ app.post("/api/inventory/audit-shift/update-resolution", (req, res) => {
         (audit.items || []).forEach((item) => {
             if (item.diff !== 0) {
                 item.resolution_type = resolution_type;
-                if (resolution_note !== undefined) item.resolution_note = resolution_note;
+                if (resolution_note !== undefined)
+                    item.resolution_note = resolution_note;
                 if (resolved_by !== undefined) item.resolved_by = resolved_by;
-                if (carry_to_shift !== undefined) item.carry_to_shift = carry_to_shift;
+                if (carry_to_shift !== undefined)
+                    item.carry_to_shift = carry_to_shift;
                 item.is_resolved = isResolvedType(resolution_type);
                 item.resolved_at = item.is_resolved ? timestamp : "";
             }
@@ -4401,7 +5053,11 @@ app.post("/api/inventory/audit-shift/update-resolution", (req, res) => {
         audit.overall_status = "KHỚP HOÀN TOÀN";
     } else if (unresolvedCount === 0) {
         audit.overall_status = "ĐÃ XỬ LÝ XONG";
-    } else if ((audit.items || []).some((i) => i.resolution_type === "Cộng dồn chuyển ca sau")) {
+    } else if (
+        (audit.items || []).some(
+            (i) => i.resolution_type === "Cộng dồn chuyển ca sau",
+        )
+    ) {
         audit.overall_status = "CỘNG DỒN CHUYỂN CA";
     } else {
         audit.overall_status = "CHỜ BÙ / XỬ LÝ";
@@ -4416,9 +5072,13 @@ app.post("/api/inventory/audit-shift/update-resolution", (req, res) => {
 });
 
 app.post("/api/inventory/audit-shift/rollover-to-shift", (req, res) => {
-    const { from_audit_id, from_shift_id, to_shift_id, note, resolved_by } = req.body || {};
+    const { from_audit_id, from_shift_id, to_shift_id, note, resolved_by } =
+        req.body || {};
     if (!to_shift_id) {
-        return res.status(400).json({ success: false, message: "Thiếu ca đích (to_shift_id) để cộng dồn!" });
+        return res.status(400).json({
+            success: false,
+            message: "Thiếu ca đích (to_shift_id) để cộng dồn!",
+        });
     }
 
     let targetAudits = SHIFT_AUDITS;
@@ -4429,7 +5089,11 @@ app.post("/api/inventory/audit-shift/rollover-to-shift", (req, res) => {
     }
 
     if (targetAudits.length === 0) {
-        return res.status(404).json({ success: false, message: "Không tìm thấy đợt kiểm kê phù hợp để chuyển giao cộng dồn!" });
+        return res.status(404).json({
+            success: false,
+            message:
+                "Không tìm thấy đợt kiểm kê phù hợp để chuyển giao cộng dồn!",
+        });
     }
 
     const timestamp = new Date().toLocaleString("vi-VN", {
@@ -4450,7 +5114,9 @@ app.post("/api/inventory/audit-shift/rollover-to-shift", (req, res) => {
                 it.resolution_type = "Cộng dồn chuyển ca sau";
                 it.carry_to_shift = to_shift_id;
                 it.carry_qty = Math.abs(it.diff);
-                it.resolution_note = note || `Đã chuyển giao cộng dồn chênh lệch sang ca ${to_shift_id}`;
+                it.resolution_note =
+                    note ||
+                    `Đã chuyển giao cộng dồn chênh lệch sang ca ${to_shift_id}`;
                 if (resolved_by) it.resolved_by = resolved_by;
                 it.resolved_at = timestamp;
                 rolledCount++;
@@ -4471,7 +5137,7 @@ app.post("/api/inventory/audit-shift/rollover-to-shift", (req, res) => {
 
 app.get("/api/inventory/audit-shift/pending-rollover", (req, res) => {
     const shift_id = String(req.query.shift_id || "").trim();
-    
+
     // Find all items that are either designated to carry over to shift_id,
     // or are from the immediately previous audit with unresolved discrepancies
     const pendingItems: Array<{
@@ -4490,7 +5156,10 @@ app.get("/api/inventory/audit-shift/pending-rollover", (req, res) => {
         (audit.items || []).forEach((it) => {
             if (it.diff !== 0) {
                 const isCarriedToThis = it.carry_to_shift === shift_id;
-                const isGeneralPending = !it.is_resolved && it.resolution_type === "Cộng dồn chuyển ca sau" && (!it.carry_to_shift || it.carry_to_shift === shift_id);
+                const isGeneralPending =
+                    !it.is_resolved &&
+                    it.resolution_type === "Cộng dồn chuyển ca sau" &&
+                    (!it.carry_to_shift || it.carry_to_shift === shift_id);
                 if (isCarriedToThis || isGeneralPending) {
                     pendingItems.push({
                         from_audit_id: audit.id,
@@ -4500,7 +5169,8 @@ app.get("/api/inventory/audit-shift/pending-rollover", (req, res) => {
                         product_name: it.product_name,
                         unit: it.unit,
                         diff: it.diff,
-                        resolution_type: it.resolution_type || "Cộng dồn chuyển ca sau",
+                        resolution_type:
+                            it.resolution_type || "Cộng dồn chuyển ca sau",
                         resolution_note: it.resolution_note,
                     });
                 }
@@ -4523,8 +5193,22 @@ app.delete("/api/inventory/audit-shift/:id", requireAdmin, (req, res) => {
         persist();
         res.json({ success: true, message: `Đã xóa báo cáo kiểm kê ${id}!` });
     } else {
-        res.status(404).json({ success: false, message: `Không tìm thấy báo cáo kiểm kê ${id}` });
+        res.status(404).json({
+            success: false,
+            message: `Không tìm thấy báo cáo kiểm kê ${id}`,
+        });
     }
+});
+
+app.delete("/api/inventory/audit-shift", requireAdmin, (_req, res) => {
+    const deletedCount = SHIFT_AUDITS.length;
+    SHIFT_AUDITS = [];
+    persist();
+    res.json({
+        success: true,
+        message: `Đã xóa toàn bộ ${deletedCount} báo cáo kiểm kê ca. Dữ liệu hàng hóa và giao dịch bán vẫn được giữ nguyên.`,
+        deleted_count: deletedCount,
+    });
 });
 
 app.get("/api/members", (req, res) => {
@@ -4674,11 +5358,13 @@ app.get("/api/kpi/attendance", (req, res) => {
     res.json({
         success: true,
         attendance: KPI_ATTENDANCE,
+        attendance_locks: ATTENDANCE_LOCKS,
     });
 });
 
 app.post("/api/kpi/attendance", requireAdmin, (req, res) => {
     const { shift_id, member_id, status } = req.body || {};
+    const late_minutes = Math.max(0, Number(req.body?.late_minutes || 0));
     if (!shift_id || !member_id) {
         return res
             .status(400)
@@ -4690,6 +5376,7 @@ app.post("/api/kpi/attendance", requireAdmin, (req, res) => {
     );
     if (log) {
         log.status = status;
+        log.late_minutes = late_minutes;
     } else {
         // Attempt to find in schedule
         const shifts =
@@ -4715,20 +5402,33 @@ app.post("/api/kpi/attendance", requireAdmin, (req, res) => {
             role: mem ? mem.role : "Chính",
             type: sh ? sh.type : "Phong",
             status: status || "Đúng giờ",
+            late_minutes,
         };
         KPI_ATTENDANCE.push(log);
     }
+
+    ATTENDANCE_LOCKS[attendanceLockKey(shift_id, member_id)] =
+        new Date().toISOString();
+    syncAttendanceReputation(
+        shift_id,
+        member_id,
+        log.name || member_id,
+        status || "Có mặt",
+        "Admin",
+    );
 
     persist();
     res.json({
         success: true,
         message: "Đã cập nhật trạng thái chuyên cần",
         log,
+        attendance_locks: ATTENDANCE_LOCKS,
     });
 });
 
 app.post("/api/kpi/attendance/reset", requireAdmin, (req, res) => {
     KPI_ATTENDANCE = [];
+    ATTENDANCE_LOCKS = {};
     const shifts =
         LATEST_SCHEDULE_RESULT && LATEST_SCHEDULE_RESULT.assigned_shifts
             ? LATEST_SCHEDULE_RESULT.assigned_shifts
@@ -4790,14 +5490,36 @@ app.all("/api/ca-ngoai", (req, res) => {
             if (data.action === "add") {
                 if (!CUSTOM_CA_NGOAI) CUSTOM_CA_NGOAI = [];
                 const item = data.item || {};
-                const new_id = `NGOAI_${String(CUSTOM_CA_NGOAI.length + 1).padStart(2, "0")}`;
+                const nextNumber =
+                    Math.max(
+                        0,
+                        ...CUSTOM_CA_NGOAI.map((item) =>
+                            Number(String(item.id || "").replace(/\D/g, "")),
+                        ),
+                    ) + 1;
+                const new_id = `NGOAI_${String(nextNumber).padStart(2, "0")}`;
                 item.id = new_id;
                 CUSTOM_CA_NGOAI.push(item);
+            } else if (data.action === "update") {
+                const index = CUSTOM_CA_NGOAI.findIndex(
+                    (item) => String(item.id) === String(data.id),
+                );
+                if (index < 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "Không tìm thấy ca bán ngoài cần sửa",
+                    });
+                }
+                CUSTOM_CA_NGOAI[index] = {
+                    ...CUSTOM_CA_NGOAI[index],
+                    ...(data.item || {}),
+                    id: CUSTOM_CA_NGOAI[index].id,
+                };
             } else if (data.action === "delete") {
                 const target_id = data.id;
                 if (CUSTOM_CA_NGOAI) {
                     CUSTOM_CA_NGOAI = CUSTOM_CA_NGOAI.filter(
-                        (c) => c.id !== target_id,
+                        (c) => String(c.id) !== String(target_id),
                     );
                 }
             } else if (data.action === "clear") {
@@ -4843,15 +5565,43 @@ app.post(
     requireAdmin,
     upload.single("file") as any,
     async (req: any, res: any) => {
+        const lockOwner = `${process.pid}-${crypto.randomUUID()}`;
+        if (!acquireRosterUploadLock(lockOwner)) {
+            return res.status(409).json({
+                success: false,
+                message:
+                    "Đang có một quản trị viên khác cập nhật file lịch rảnh. Vui lòng thử lại sau khi thao tác hiện tại hoàn tất.",
+            });
+        }
         try {
             let msg = "";
+            const requestedMode = String(req.body?.mode || "merge").trim();
+            const mode = ["merge", "replace", "replace_all"].includes(
+                requestedMode,
+            )
+                ? requestedMode
+                : "merge";
             if (req.file) {
                 const file_path = req.file.path;
                 const wb = xlsx.readFile(file_path);
                 const sheetName = wb.SheetNames[0];
                 const sheet = wb.Sheets[sheetName];
                 const rows = xlsx.utils.sheet_to_json<any>(sheet);
-                CURRENT_MEMBERS = parseMembersDf(rows, sheet);
+                const incomingMembers = parseMembersDf(rows, sheet);
+                if (mode === "replace_all") {
+                    clearDataForFreshRoster();
+                    resetInMemoryOperationalData();
+                    CURRENT_SHIFTS = loadShiftsMaster();
+                    if (CURRENT_SHIFTS.length === 0) {
+                        CURRENT_SHIFTS = createDefaultShifts();
+                    }
+                }
+                CURRENT_MEMBERS =
+                    mode === "replace" || mode === "replace_all"
+                        ? incomingMembers
+                        : mergeMemberData(CURRENT_MEMBERS, incomingMembers);
+                saveMemberSourceFile(CURRENT_MEMBERS);
+                saveMembersToDatabase(CURRENT_MEMBERS);
                 fs.unlinkSync(file_path); // Clean up temp file
 
                 const dupCount = (CURRENT_MEMBERS as any).duplicateCount || 0;
@@ -4859,13 +5609,20 @@ app.post(
                     dupCount > 0
                         ? ` (phát hiện & loại bỏ ${dupCount} dòng trùng lặp)`
                         : "";
-                msg = `Tải lên thành công file '${req.file.originalname}'! Đã nhập ${CURRENT_MEMBERS.length} thành viên${dupStr}.`;
+                const actionLabel =
+                    mode === "replace_all"
+                        ? "xóa dữ liệu cũ và tạo mới"
+                        : mode === "replace"
+                          ? "thay thế roster"
+                          : "thêm/cập nhật";
+                msg = `Tải lên thành công file '${req.file.originalname}'! Đã ${actionLabel} ${CURRENT_MEMBERS.length} thành viên${dupStr}.`;
             } else if (req.body && req.body.google_sheet_url) {
                 const url = String(req.body.google_sheet_url).trim();
 
                 // Fetch Google Sheet export URL as CSV
                 const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
                 if (!match) {
+                    releaseRosterUploadLock(lockOwner);
                     return res.status(400).json({
                         success: false,
                         message: "URL Google Sheet không hợp lệ!",
@@ -4889,22 +5646,45 @@ app.post(
                 const firstSheet = wb.Sheets[wb.SheetNames[0]];
                 const rows = xlsx.utils.sheet_to_json<any>(firstSheet);
 
-                CURRENT_MEMBERS = parseMembersDf(rows, firstSheet);
+                const incomingMembers = parseMembersDf(rows, firstSheet);
+                if (mode === "replace_all") {
+                    clearDataForFreshRoster();
+                    resetInMemoryOperationalData();
+                    CURRENT_SHIFTS = loadShiftsMaster();
+                    if (CURRENT_SHIFTS.length === 0) {
+                        CURRENT_SHIFTS = createDefaultShifts();
+                    }
+                }
+                CURRENT_MEMBERS =
+                    mode === "replace" || mode === "replace_all"
+                        ? incomingMembers
+                        : mergeMemberData(CURRENT_MEMBERS, incomingMembers);
+                saveMemberSourceFile(CURRENT_MEMBERS);
+                saveMembersToDatabase(CURRENT_MEMBERS);
                 const dupCount = (CURRENT_MEMBERS as any).duplicateCount || 0;
                 const dupStr =
                     dupCount > 0
                         ? ` (phát hiện & loại bỏ ${dupCount} dòng trùng lặp)`
                         : "";
-                msg = `Đồng bộ Google Sheets thành công! Đã tải ${CURRENT_MEMBERS.length} thành viên${dupStr}.`;
+                const actionLabel =
+                    mode === "replace_all"
+                        ? "xóa dữ liệu cũ và tạo mới"
+                        : mode === "replace"
+                          ? "thay thế roster"
+                          : "thêm/cập nhật";
+                msg = `Đồng bộ Google Sheets thành công! Đã ${actionLabel} ${CURRENT_MEMBERS.length} thành viên${dupStr}.`;
             } else {
+                releaseRosterUploadLock(lockOwner);
                 return res.status(400).json({
                     success: false,
                     message: "Không tìm thấy file hoặc link Google Sheets",
                 });
             }
 
+            synchronizeMemberReferences();
             // Rerun optimization
             await runDefaultOptimization();
+            releaseRosterUploadLock(lockOwner);
             res.json({
                 success: true,
                 message: msg,
@@ -4915,6 +5695,7 @@ app.post(
                 schedule: LATEST_SCHEDULE_RESULT,
             });
         } catch (e: any) {
+            releaseRosterUploadLock(lockOwner);
             res.status(500).json({
                 success: false,
                 message: `Lỗi xử lý dữ liệu đầu vào: ${e.message}`,
@@ -4922,6 +5703,29 @@ app.post(
         }
     },
 );
+
+app.post("/api/members/reset", requireAdmin, async (_req, res) => {
+    resetInMemoryOperationalData();
+    resetDatabaseOperationalData();
+    CUSTOM_CA_NGOAI = [];
+    ENABLE_CA_NGOAI = false;
+    OPTIMIZER_CONFIG.enable_ca_ngoai = false;
+    CURRENT_MEMBERS.forEach((member: any) => {
+        MEMBER_PASSWORDS[member.member_id] = `HVC@${member.member_id}`;
+    });
+    synchronizeMemberReferences();
+    persist();
+    res.json({
+        success: true,
+        message:
+            "Đã reset toàn bộ số liệu vận hành và giữ nguyên danh sách thành viên, lịch rảnh hiện tại. Vui lòng chạy tối ưu để tạo lịch mới.",
+        total_members: CURRENT_MEMBERS.length,
+        members: CURRENT_MEMBERS,
+        schedule: LATEST_SCHEDULE_RESULT,
+        ca_ngoai: [],
+        enable_ca_ngoai: false,
+    });
+});
 
 app.post("/api/shift/update", requireAdmin, async (req, res) => {
     if (!LATEST_SCHEDULE_RESULT) {
@@ -4956,9 +5760,13 @@ app.post("/api/shift/update", requireAdmin, async (req, res) => {
         for (const mu of members_update) {
             const m_orig = mem_lookup.get(mu.member_id);
             if (m_orig) {
-                const isLeader = target_shift.shift_leader === m_orig.name || target_shift.shift_leader === m_orig.member_id;
-                const posRole = isLeader ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)" : (mu.position_role || "Phục vụ / Giao hàng");
-                const role = isLeader ? "Chính" : (mu.role || "Chính");
+                const isLeader =
+                    target_shift.shift_leader === m_orig.name ||
+                    target_shift.shift_leader === m_orig.member_id;
+                const posRole = isLeader
+                    ? "📦 Kiểm kê hàng & Chốt ca (Ca trưởng)"
+                    : mu.position_role || "Phục vụ / Giao hàng";
+                const role = isLeader ? "Chính" : mu.role || "Chính";
                 new_assigned.push({
                     member_id: m_orig.member_id,
                     name: m_orig.name,
@@ -5245,6 +6053,32 @@ app.post("/api/contingency/log-incident", async (req, res) => {
           : 0;
     const note = data.note || "";
 
+    const lockKey = attendanceLockKey(shift_id, absent_member_id);
+    const isAdminRequest = isValidAdmin(req);
+    if (
+        !isAdminRequest &&
+        isAttendanceStatus(status_type) &&
+        ATTENDANCE_LOCKS[lockKey]
+    ) {
+        return res.status(409).json({
+            success: false,
+            locked: true,
+            message:
+                "Điểm danh của thành viên này trong ca đã được lưu và không thể sửa. Chỉ được ghi nhận sai phạm phát sinh.",
+        });
+    }
+    if (
+        !isAdminRequest &&
+        !isAttendanceStatus(status_type) &&
+        !ATTENDANCE_LOCKS[lockKey]
+    ) {
+        return res.status(409).json({
+            success: false,
+            message:
+                "Hãy lưu Có mặt/Vắng/Đi trễ trước, sau đó mới được ghi nhận sai phạm.",
+        });
+    }
+
     const target_shift = LATEST_SCHEDULE_RESULT.assigned_shifts.find(
         (s: any) => s.shift_id === shift_id,
     );
@@ -5334,9 +6168,56 @@ app.post("/api/contingency/log-incident", async (req, res) => {
         note: note,
         timestamp: timestamp,
         week: currentWeekTag(),
+        member_id: absent_member_id,
+        attendance_locked: isAttendanceStatus(status_type),
+        recorded_by: isAdminRequest ? "Admin" : "Nhân viên",
     };
 
     INCIDENT_LOGS.unshift(incident_record);
+
+    if (isAttendanceStatus(status_type)) {
+        ATTENDANCE_LOCKS[lockKey] = new Date().toISOString();
+    }
+    if (absent_member_id) {
+        syncAttendanceReputation(
+            shift_id,
+            absent_member_id,
+            absent_m?.name || absent_member_id,
+            status_type,
+            isAdminRequest ? "Admin" : "Nhân viên",
+            isAttendanceStatus(status_type)
+                ? "attendance"
+                : `incident:${Date.now()}`,
+        );
+    }
+
+    const kpiStatus =
+        status_type === "Có mặt"
+            ? "Đúng giờ"
+            : status_type === "Vắng không phép" || status_type.includes("Vắng")
+              ? "Nghỉ không phép"
+              : status_type;
+    let attendanceLog = KPI_ATTENDANCE.find(
+        (log) =>
+            log.shift_id === shift_id && log.member_id === absent_member_id,
+    );
+    if (!attendanceLog) {
+        attendanceLog = {
+            shift_id,
+            member_id: absent_member_id,
+            name: absent_m?.name || absent_member_id,
+            day: target_shift.day,
+            slot: `${target_shift.start_time} - ${target_shift.end_time}`,
+            role:
+                (target_shift.assigned_members || []).find(
+                    (m: any) => m.member_id === absent_member_id,
+                )?.role || "Chính",
+            type: target_shift.type || "Phong",
+        };
+        KPI_ATTENDANCE.push(attendanceLog);
+    }
+    attendanceLog.status = kpiStatus;
+    attendanceLog.late_minutes = late_minutes;
 
     SCHEDULE_VERSION++;
     if (
@@ -5377,6 +6258,7 @@ app.post("/api/contingency/log-incident", async (req, res) => {
         message: `Đã ghi nhận dữ liệu điểm danh '${status_type}' thành công!`,
         incident: incident_record,
         incidents: INCIDENT_LOGS,
+        attendance_locks: ATTENDANCE_LOCKS,
         schedule_version: SCHEDULE_VERSION,
         stats: {
             total_incidents: INCIDENT_LOGS.length,
@@ -5741,19 +6623,47 @@ app.post("/api/notifications/resolve", requireAdmin, (req, res) => {
 });
 
 app.get("/api/contingency/incidents", (req, res) => {
+    const validIds = canonicalMemberIds();
     res.json({
         success: true,
-        incidents: INCIDENT_LOGS,
+        incidents: INCIDENT_LOGS.filter(
+            (incident) =>
+                (!incident.absent_member_id ||
+                    validIds.has(incident.absent_member_id)) &&
+                (!incident.replacement_member_id ||
+                    validIds.has(incident.replacement_member_id)),
+        ),
+        attendance_locks: ATTENDANCE_LOCKS,
     });
 });
 
 app.post("/api/contingency/reset", requireAdmin, (req, res) => {
     INCIDENT_LOGS = [];
+    KPI_ATTENDANCE = [];
+    ATTENDANCE_LOCKS = {};
+    for (const log of DISCIPLINE_LOGS) {
+        if (
+            String(log.id).startsWith("attendance:") ||
+            String(log.id).startsWith("incident:")
+        ) {
+            MEMBER_DISCIPLINE_SCORES[log.member_id] = Math.max(
+                0,
+                (MEMBER_DISCIPLINE_SCORES[log.member_id] ?? log.new_points) -
+                    log.points_change,
+            );
+        }
+    }
+    DISCIPLINE_LOGS = DISCIPLINE_LOGS.filter(
+        (log) =>
+            !String(log.id).startsWith("attendance:") &&
+            !String(log.id).startsWith("incident:"),
+    );
     persist();
     res.json({
         success: true,
         message: "Đã xóa toàn bộ lịch sử điểm danh và ghi nhận sự cố!",
         incidents: [],
+        attendance_locks: {},
         stats: {
             total_incidents: 0,
             total_late: 0,
@@ -5825,11 +6735,6 @@ app.get("/api/config/optimizer", (req, res) => {
 
 app.post("/api/config/optimizer", requireAdmin, (req, res) => {
     const data = req.body || {};
-    if (data.start_date) {
-        OPTIMIZER_CONFIG.start_date = String(data.start_date).trim();
-        START_DATE = OPTIMIZER_CONFIG.start_date;
-        applyStartDateToShifts(CURRENT_SHIFTS, START_DATE);
-    }
     if (data.phong_chinh_count !== undefined) {
         OPTIMIZER_CONFIG.phong_chinh_count =
             parseInt(data.phong_chinh_count, 10) || 4;
@@ -6464,6 +7369,7 @@ app.get("/api/protocols", (req, res) => {
  * hiển thị minh bạch công thức.
  */
 app.get("/api/competition/stats", (req, res) => {
+    if (syncApprovedPickupSales()) persist();
     const requested = String(req.query.week || TOTAL_LABEL);
     const isTotal = !COMPETITION_CONFIG.weeks.includes(requested);
     const week = isTotal ? TOTAL_LABEL : requested;
