@@ -22,6 +22,8 @@ COPY templates ./templates
 COPY static ./static
 COPY db ./db
 COPY scripts ./scripts
+COPY state.json ./state.json
+COPY members-availability.xlsx ./members-availability.xlsx
 
 # Expose server port
 EXPOSE 3000
