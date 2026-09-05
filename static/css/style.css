@@ -3483,6 +3483,9 @@ body.light-theme .pos-product-card:hover {
         opacity: 1;
         pointer-events: auto;
     }
+    body.mobile-nav-open .main-content > :not(.topbar):not(.mobile-nav-overlay) {
+        visibility: hidden;
+    }
 
     /* Trên điện thoại, toàn bộ tab nằm trong drawer mở từ hamburger. */
     .sidebar {
@@ -3560,6 +3563,7 @@ body.light-theme .pos-product-card:hover {
         position: sticky;
         top: 0;
         z-index: 100;
+        flex-direction: row;
         flex-wrap: nowrap;
         align-items: center;
         gap: 10px;
@@ -3925,10 +3929,9 @@ body.light-theme .pos-product-card:hover {
 
 .kpi-admin-filters {
     display: grid !important;
-    grid-template-columns: minmax(190px, 1.35fr) repeat(
-            3,
-            minmax(145px, 1fr)
-        ) auto;
+    grid-template-columns:
+        minmax(190px, 1.35fr) repeat(3, minmax(145px, 1fr))
+        auto;
     gap: 8px;
     align-items: center;
 }
