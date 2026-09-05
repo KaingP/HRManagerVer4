@@ -60,6 +60,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initThemeToggle();
     initTabs();
     initMoreMenu();
+    initMobileNavigation();
     initModals();
     initEventListeners();
     await checkAuthStatus();
@@ -447,6 +448,39 @@ function initMoreMenu() {
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && sheet.classList.contains("active"))
             setOpen(false);
+    });
+}
+
+function initMobileNavigation() {
+    const sidebar = document.querySelector(".sidebar");
+    const toggle = document.getElementById("mobileNavToggle");
+    const overlay = document.getElementById("mobileNavOverlay");
+    if (!sidebar || !toggle || !overlay) return;
+
+    const setOpen = (open) => {
+        document.body.classList.toggle("mobile-nav-open", open);
+        toggle.setAttribute("aria-expanded", String(open));
+        toggle.setAttribute(
+            "aria-label",
+            open ? "Đóng menu điều hướng" : "Mở menu điều hướng",
+        );
+        toggle.querySelector("i")?.classList.toggle("fa-bars", !open);
+        toggle.querySelector("i")?.classList.toggle("fa-xmark", open);
+        overlay.setAttribute("aria-hidden", String(!open));
+    };
+
+    toggle.addEventListener("click", () =>
+        setOpen(!document.body.classList.contains("mobile-nav-open")),
+    );
+    overlay.addEventListener("click", () => setOpen(false));
+    sidebar.querySelectorAll(".nav-item[data-tab]").forEach((item) => {
+        item.addEventListener("click", () => setOpen(false));
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") setOpen(false);
+    });
+    window.addEventListener("resize", () => {
+        if (window.innerWidth > 767) setOpen(false);
     });
 }
 

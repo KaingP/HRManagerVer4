@@ -634,6 +634,11 @@ h5 {
     border-bottom: 1px solid var(--rule);
 }
 
+.mobile-nav-toggle,
+.mobile-nav-overlay {
+    display: none;
+}
+
 body.light-theme .topbar {
     background: rgba(255, 255, 255, 0.86);
 }
@@ -3442,105 +3447,120 @@ body.light-theme .pos-product-card:hover {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    /* Rail → tab bar đáy: nằm trong tầm ngón cái, đỡ một lần bấm so với drawer.
-       z-index cao hơn bảng "Thêm" để thanh đáy không bị làm mờ khi mở bảng —
-       người dùng vừa bấm vào đó, nút phải còn sáng và bấm lại được để đóng. */
-    .sidebar {
-        position: fixed;
-        inset: auto 0 0 0;
-        z-index: 80;
-        grid-column: 1;
-        height: auto;
-        flex-direction: row;
-        border-right: 0;
-        border-top: 1px solid var(--rule);
-        background: rgba(31, 24, 19, 0.97);
-        backdrop-filter: blur(16px);
-        padding-bottom: env(safe-area-inset-bottom, 0);
+    body.mobile-nav-open {
+        overflow: hidden;
     }
 
-    .brand-box,
-    .sidebar-footer {
-        display: none;
+    .mobile-nav-toggle {
+        position: relative;
+        z-index: 101;
+        display: grid;
+        place-items: center;
+        flex: 0 0 42px;
+        width: 42px;
+        height: 42px;
+        color: var(--ink-hi);
+        background: var(--lacquer-3);
+        border: 1px solid var(--rule);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+    }
+    .mobile-nav-toggle i {
+        font-size: 16px;
+    }
+
+    .mobile-nav-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 88;
+        display: block;
+        background: rgba(12, 9, 7, 0.62);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--speed) var(--ease);
+    }
+    body.mobile-nav-open .mobile-nav-overlay {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Trên điện thoại, toàn bộ tab nằm trong drawer mở từ hamburger. */
+    .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 90;
+        grid-column: 1;
+        width: min(86vw, 330px);
+        height: 100dvh;
+        transform: translateX(-105%);
+        transition: transform 220ms var(--ease);
+        border-right: 1px solid var(--rule);
+        background: var(--lacquer-2);
+        backdrop-filter: blur(16px);
+        box-shadow: var(--lift-modal);
+    }
+    body.mobile-nav-open .sidebar {
+        transform: translateX(0);
+    }
+
+    .brand-box {
+        display: flex;
+        padding: 18px 16px;
     }
 
     .nav-menu {
         flex: 1 1 auto;
-        flex-direction: row;
-        gap: 0;
-        padding: 0;
-        overflow: visible;
+        flex-direction: column;
+        gap: 3px;
+        padding: 12px 10px;
+        overflow-y: auto;
     }
 
     .nav-item {
-        flex: 1 1 0;
-        min-width: 0;
-        flex-direction: column;
-        justify-content: center;
-        gap: 4px;
-        padding: 8px 2px;
-        min-height: 58px;
-        text-align: center;
-        border-radius: 0;
-        box-shadow: inset 0 2px 0 transparent;
+        flex: 0 0 auto;
+        flex-direction: row;
+        justify-content: flex-start;
+        gap: 12px;
+        padding: 12px;
+        min-height: 48px;
+        text-align: left;
+        border-radius: var(--radius-sm);
+        box-shadow: inset 2px 0 0 transparent;
     }
     .nav-item i {
-        flex: 0 0 auto;
-        font-size: 17px;
+        flex: 0 0 20px;
+        font-size: 15px;
     }
     .nav-item .nav-full {
-        display: none;
+        display: block;
+        font-size: 13px;
+        line-height: 1.25;
     }
     .nav-item .nav-short {
-        display: block;
-        font-size: 9.5px;
-        font-weight: 600;
-        letter-spacing: 0.01em;
-        line-height: 1.15;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: 100%;
-    }
-    .nav-item:hover {
-        background: transparent;
-    }
-    .nav-item.active {
-        background: transparent;
-        box-shadow: inset 0 2px 0 var(--goldleaf);
-    }
-
-    /* Bốn tab chính ở thanh đáy; ba tab còn lại vào bảng "Thêm".
-       Thứ tự đảo theo việc thật sự làm trên điện thoại: xem bảng trực và
-       xử lý ca vắng đứng trước cấu hình solver. */
-    .nav-menu .nav-item[data-tab="tab-ca-ngoai"],
-    .nav-menu .nav-item[data-tab="tab-audit"],
-    .nav-menu .nav-item[data-tab="tab-protocols"] {
         display: none;
     }
+    .nav-item:hover {
+        background: var(--lacquer-3);
+    }
+    .nav-item.active {
+        background: var(--lacquer-3);
+        box-shadow: inset 2px 0 0 var(--goldleaf);
+    }
 
-    .nav-menu .nav-item[data-tab="tab-schedule"] {
-        order: 1;
-    }
-    .nav-menu .nav-item[data-tab="tab-contingency"] {
-        order: 2;
-    }
-    .nav-menu .nav-item[data-tab="tab-analytics"] {
-        order: 3;
-    }
-    .nav-menu .nav-item[data-tab="tab-optimizer"] {
-        order: 4;
-    }
     .nav-menu .more-trigger {
-        order: 5;
+        display: none;
     }
 
     .main-content {
-        padding-bottom: 76px;
+        padding-bottom: 0;
     }
 
     /* Topbar gọn lại: tiêu đề nhỏ, hai nút thành icon vuông */
     .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        flex-wrap: nowrap;
         align-items: center;
         gap: 10px;
         padding: 12px var(--gap);
@@ -3699,7 +3719,7 @@ body.light-theme .pos-product-card:hover {
 
 /* --- Rất hẹp ------------------------------------------------------------ */
 @media (max-width: 380px) {
-    .nav-item span {
+    .nav-item .nav-short {
         font-size: 8.5px;
     }
     .kpi-grid {
