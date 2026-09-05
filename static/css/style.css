@@ -3452,7 +3452,9 @@ body.light-theme .pos-product-card:hover {
     }
 
     .mobile-nav-toggle {
-        position: relative;
+        position: fixed;
+        top: 12px;
+        left: var(--gap);
         z-index: 101;
         display: grid;
         place-items: center;
@@ -3472,7 +3474,7 @@ body.light-theme .pos-product-card:hover {
     .mobile-nav-overlay {
         position: fixed;
         inset: 0;
-        z-index: 88;
+        z-index: 105;
         display: block;
         background: rgba(12, 9, 7, 0.62);
         opacity: 0;
@@ -3483,7 +3485,12 @@ body.light-theme .pos-product-card:hover {
         opacity: 1;
         pointer-events: auto;
     }
-    body.mobile-nav-open .main-content > :not(.topbar):not(.mobile-nav-overlay) {
+    body.mobile-nav-open
+        .main-content
+        > :not(.topbar):not(.mobile-nav-overlay):not(.mobile-nav-toggle) {
+        visibility: hidden;
+    }
+    body.mobile-nav-open .topbar {
         visibility: hidden;
     }
 
@@ -3491,7 +3498,7 @@ body.light-theme .pos-product-card:hover {
     .sidebar {
         position: fixed;
         inset: 0 auto 0 0;
-        z-index: 90;
+        z-index: 110;
         grid-column: 1;
         width: min(86vw, 330px);
         height: 100dvh;
@@ -3504,6 +3511,13 @@ body.light-theme .pos-product-card:hover {
     }
     body.mobile-nav-open .sidebar {
         transform: translateX(0);
+    }
+
+    body.mobile-nav-open .mobile-nav-toggle {
+        position: fixed;
+        top: 12px;
+        left: var(--gap);
+        z-index: 120;
     }
 
     .brand-box {
